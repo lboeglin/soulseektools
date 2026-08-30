@@ -74,6 +74,79 @@ class Track:
         return f"{self.artist} - {self.title}"
 
 
+@dataclass(frozen=True, slots=True)
+class Candidate:
+    """One file offered by a Soulseek peer, as the search results describe it."""
+
+    username: str
+    remote_path: str
+    size: int = 0
+    bitrate: int | None = None
+    sample_rate: int | None = None
+    bit_depth: int | None = None
+    is_vbr: bool = False
+    free_upload_slots: bool = False
+    queue_length: int = 0
+    duration_seconds: float | None = None
+
+    @property
+    def filename(self) -> str:
+        return self.remote_path.replace("/", "\\").rsplit("\\", 1)[-1]
+
+    @property
+    def folder(self) -> str:
+        """The remote directory holding the file, which often says what it really is."""
+        return self.remote_path.replace("/", "\\").rsplit("\\", 1)[0]
+
+    @property
+    def extension(self) -> str:
+        _, _, suffix = self.filename.rpartition(".")
+        return suffix.lower()
+
+
+@dataclass(frozen=True, slots=True)
+class ScoredCandidate:
+    """A candidate with its ranking, and any warnings raised about it."""
+
+    candidate: Candidate
+    score: int
+    title_ratio: float
+    flags: tuple[str, ...] = ()
+
+    @property
+    def rejected(self) -> bool:
+        return self.score < 0
+
+    def describe(self) -> str:
+        parts = [self.candidate.filename, f"[{self.candidate.extension or '?'}"]
+        if self.candidate.bit_depth and self.candidate.sample_rate:
+            parts[-1] += (
+                f", {self.candidate.sample_rate / 1000:.1f}kHz/{self.candidate.bit_depth}bit"
+            )
+        elif self.candidate.bitrate:
+            parts[-1] += f", {self.candidate.bitrate}kbps{'VBR' if self.candidate.is_vbr else ''}"
+        parts[-1] += "]"
+        parts.append(f"user={self.candidate.username}")
+        parts.append(f"queue={self.candidate.queue_length}")
+        parts.append("slot=free" if self.candidate.free_upload_slots else "slot=busy")
+        if self.flags:
+            parts.append(f"flags={','.join(self.flags)}")
+        return " ".join(parts)
+
+
+class TrackStatus(StrEnum):
+    """Where a wanted track has got to."""
+
+    PENDING = "pending"
+    NO_CANDIDATES = "no_candidates"
+    AWAITING_REVIEW = "awaiting_review"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+    QUEUED = "queued"
+    DOWNLOADED = "downloaded"
+    FAILED = "failed"
+
+
 class Verdict(StrEnum):
     """Outcome of the lossless-authenticity check."""
 

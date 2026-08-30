@@ -15,8 +15,10 @@ from soulseektools.cli import (
     dupes_cmd,
     genre_cmd,
     library_cmd,
+    review_cmd,
     tags_cmd,
     verify_cmd,
+    wantlist_cmd,
 )
 from soulseektools.cli.context import AppContext, console, fail
 from soulseektools.config import load_settings
@@ -36,6 +38,8 @@ app.add_typer(dupes_cmd.app, name="dupes")
 app.add_typer(art_cmd.app, name="art")
 app.add_typer(genre_cmd.app, name="genre")
 app.add_typer(tags_cmd.app, name="tags")
+app.add_typer(wantlist_cmd.app, name="wantlist")
+app.add_typer(review_cmd.app, name="review")
 
 
 def _version(value: bool) -> None:

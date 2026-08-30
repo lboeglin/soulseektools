@@ -14,6 +14,7 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from soulseektools.library.index import LibraryIndex
+    from soulseektools.review.store import ReviewStore
 
 console = Console()
 error_console = Console(stderr=True)
@@ -35,6 +36,11 @@ class AppContext:
         from soulseektools.library.index import LibraryIndex
 
         return LibraryIndex(self.settings.index.path)
+
+    def open_review(self) -> ReviewStore:
+        from soulseektools.review.store import ReviewStore
+
+        return ReviewStore(self.settings.review.path)
 
     def require_library_root(self) -> Path:
         root = self.library_root
