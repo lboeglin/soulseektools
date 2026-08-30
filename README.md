@@ -46,7 +46,7 @@ $ stk get "DECO*27 - Roki"
 This is not published to PyPI. Install it from a clone:
 
 ```bash
-git clone <wherever you keep this> soulseektools
+git clone git@github.com:lboeglin/soulseektools.git
 cd soulseektools
 
 uv tool install .        # puts `stk` on your PATH
