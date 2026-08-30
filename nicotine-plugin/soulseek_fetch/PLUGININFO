@@ -1,0 +1,4 @@
+Version = "1.0"
+Authors = ["lohan"]
+Name = "Soulseek Fetch"
+Description = "Batch-searches a CSV wantlist, ranks results (format/bitrate/uploader), and writes a review file for approval before downloading. Approved picks get queued automatically."
