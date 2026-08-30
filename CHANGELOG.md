@@ -74,5 +74,8 @@ a set of ad-hoc scripts and a Nicotine+ plugin.
   `Roki (Live).flac` lost the marker that identified it.
 - A `Completed, Errored` transfer state is read as a failure rather than a
   completion.
+- `genre apply --apply` and `art fetch --apply` left the cached index holding
+  what was true before they ran, so a following command reported the state from
+  before the edit.
 - Long paths in command output are folded rather than truncated, so the paths
   the user acts on can be copied.
