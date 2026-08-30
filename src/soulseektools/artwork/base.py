@@ -1,0 +1,89 @@
+"""Cover-art providers, and the guard against embedding the wrong artist's art.
+
+The script this replaces embedded the first search result without checking who
+it belonged to, and pasted the wrong artist's cover onto files twice. Search
+match quality is inconsistent for anything outside the mainstream, so a result
+is only accepted here when the artist it names actually matches the artist asked
+for -- and a file keeps no artwork rather than the wrong artwork.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Protocol
+
+from soulseektools.matching import NameForms, similarity
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+
+    import httpx
+
+USER_AGENT = "soulseektools/0.1.0 (+https://github.com/lohan/soulseektools)"
+
+
+@dataclass(frozen=True, slots=True)
+class ArtCandidate:
+    """A cover image a provider believes belongs to the requested track."""
+
+    url: str
+    artist: str
+    title: str
+    source: str
+    album: str = ""
+
+    def artist_similarity(self, wanted: str) -> float:
+        return similarity(NameForms.of(self.artist), NameForms.of(wanted))
+
+
+@dataclass(frozen=True, slots=True)
+class ArtSelection:
+    """A chosen candidate, or the reason nothing was chosen."""
+
+    candidate: ArtCandidate | None
+    reason: str
+
+    def __bool__(self) -> bool:
+        return self.candidate is not None
+
+
+class ArtProvider(Protocol):
+    """A source of cover art."""
+
+    name: str
+
+    def search(self, client: httpx.Client, artist: str, title: str) -> Sequence[ArtCandidate]:
+        """Candidates for one track, best first."""
+        ...
+
+
+def select(
+    candidates: Sequence[ArtCandidate],
+    artist: str,
+    *,
+    require_artist_match: bool = True,
+    artist_threshold: float = 0.8,
+) -> ArtSelection:
+    """Pick the best candidate whose artist matches the one asked for.
+
+    With ``require_artist_match`` disabled the first result wins, reproducing
+    the original behaviour; it is off by default for the reason in the module
+    docstring.
+    """
+    if not candidates:
+        return ArtSelection(None, "no results")
+
+    if not require_artist_match:
+        return ArtSelection(candidates[0], f"unverified match from {candidates[0].source}")
+
+    scored = sorted(
+        ((candidate.artist_similarity(artist), candidate) for candidate in candidates),
+        key=lambda pair: -pair[0],
+    )
+    best_score, best = scored[0]
+    if best_score < artist_threshold:
+        return ArtSelection(
+            None,
+            f"best result is by '{best.artist}' ({best_score:.2f} similarity), not '{artist}'",
+        )
+    return ArtSelection(best, f"matched '{best.artist}' ({best_score:.2f}) via {best.source}")

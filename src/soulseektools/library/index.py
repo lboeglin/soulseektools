@@ -16,6 +16,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Self
 
+from soulseektools.audio.fingerprint import Fingerprint, FingerprintKind
 from soulseektools.errors import TagError, UnsupportedFormatError
 from soulseektools.library import tags as tag_facade
 from soulseektools.library.scan import AUDIO_EXTENSIONS, folder_artist, iter_audio_files
@@ -27,7 +28,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Collection, Iterator
     from types import TracebackType
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS meta (
@@ -58,6 +59,14 @@ CREATE TABLE IF NOT EXISTS files (
 
 CREATE INDEX IF NOT EXISTS files_artist_normalized ON files (artist_normalized);
 CREATE INDEX IF NOT EXISTS files_title_normalized  ON files (title_normalized);
+
+CREATE TABLE IF NOT EXISTS fingerprints (
+    path   TEXT PRIMARY KEY,
+    mtime  REAL NOT NULL,
+    kind   TEXT NOT NULL,
+    values_json TEXT NOT NULL,
+    duration_seconds REAL
+);
 """
 
 _COLUMNS = (
@@ -249,6 +258,38 @@ class LibraryIndex:
             "GROUP BY folder_artist ORDER BY total DESC, folder_artist"
         )
         return {row["folder_artist"]: row["total"] for row in rows}
+
+    def fingerprint(self, path: Path, mtime: float) -> Fingerprint | None:
+        """A cached fingerprint, or ``None`` if absent or computed before an edit."""
+        row = self._connection.execute(
+            "SELECT kind, values_json, duration_seconds FROM fingerprints "
+            "WHERE path = ? AND mtime = ?",
+            (str(path), mtime),
+        ).fetchone()
+        if row is None:
+            return None
+        kind = FingerprintKind(row["kind"])
+        raw = json.loads(row["values_json"])
+        values = (
+            tuple(int(v) for v in raw)
+            if kind is FingerprintKind.CHROMAPRINT
+            else tuple(float(v) for v in raw)
+        )
+        return Fingerprint(kind=kind, values=values, duration_seconds=row["duration_seconds"])
+
+    def store_fingerprint(self, path: Path, mtime: float, value: Fingerprint) -> None:
+        self._connection.execute(
+            "INSERT OR REPLACE INTO fingerprints "
+            "(path, mtime, kind, values_json, duration_seconds) VALUES (?, ?, ?, ?, ?)",
+            (
+                str(path),
+                mtime,
+                str(value.kind),
+                json.dumps(list(value.values)),
+                value.duration_seconds,
+            ),
+        )
+        self._connection.commit()
 
     def _upsert(self, entry: LibraryEntry) -> None:
         self._connection.execute(
