@@ -12,7 +12,7 @@ from soulseektools.genres import (
 from soulseektools.matching import NameForms
 from soulseektools.models import LibraryEntry, TrackTags
 
-EXAMPLE_MAP = Path(__file__).parents[2] / "data" / "genres.example.toml"
+EXAMPLE_MAP = Path(__file__).parents[3] / "data" / "genres.example.toml"
 
 
 def entry(folder_artist, title, genres=()) -> LibraryEntry:

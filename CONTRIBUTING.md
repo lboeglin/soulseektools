@@ -1,28 +1,52 @@
 # Contributing
 
+## Two implementations
+
+The tool is being ported to Rust ([#1](https://github.com/lboeglin/soulseektools/issues/1)).
+Until parity, both trees live side by side and both must stay green:
+
+| | |
+| --- | --- |
+| `py/` | the Python implementation, installed as `stk` |
+| `rs/` | the Rust port, built as `stk-rs` |
+| `oracle/` | reference output from `py/`, which `rs/` is diffed against |
+
+Side by side rather than on a branch, because the point of the oracle is running
+both against the same library and comparing. `oracle/` is not committed: it names
+every file in a private library.
+
 ## Getting set up
 
 ```bash
-uv sync --dev
+uv sync --directory py --dev
 uv run pre-commit install
-uv run stk --help
+uv run --directory py stk --help
+
+cargo build --manifest-path rs/Cargo.toml
 ```
 
 ffmpeg and ffprobe need to be on `PATH`; tests that need them skip without them,
-but a large part of the suite does need them.
+but a large part of both suites does need them.
 
 ## Checks
 
 Everything CI runs, locally:
 
 ```bash
+cd py
 uv run ruff check .
 uv run ruff format --check .
 uv run mypy
 uv run pytest --cov
+
+cd ../rs
+cargo fmt --all -- --check
+cargo clippy --all-targets -- -D warnings
+cargo test
 ```
 
-CI runs the same on Linux and Windows, across Python 3.11, 3.12 and 3.13.
+CI runs the Python suite on Linux and Windows across Python 3.11, 3.12 and 3.13,
+and the Rust suite on Linux and Windows.
 
 ## Code as documentation
 
@@ -52,7 +76,7 @@ No change lands without tests for its behaviour.
   failure — `test_a_silent_file_is_not_mistaken_for_genuine_lossless` is one.
 - **No network in tests.** HTTP is mocked with `respx`. The Soulseek backend is a
   protocol, and the flows are tested against a fake implementing it.
-- **Audio fixtures are generated, not committed.** `tests/conftest.py` encodes
+- **Audio fixtures are generated, not committed.** `py/tests/conftest.py` encodes
   short files with ffmpeg, so the suite exercises real containers written by an
   independent encoder.
 - **Prefer a pure function you can test directly** over reaching into a widget or
@@ -79,7 +103,7 @@ solves. If a defect surfaced while writing tests, say what it was.
 ## Project shape
 
 ```
-src/soulseektools/
+py/src/soulseektools/
   config.py         layered settings; every tunable lives here
   models.py         the domain types shared across layers
   matching.py       fuzzy name matching, used by everything
@@ -92,6 +116,10 @@ src/soulseektools/
   tui/              the review app
   cli/              one module per command group
 ```
+
+`rs/crates/stk/src/` mirrors this module for module, so the two trees can be read
+against each other. It has no `tui/`: the TUI is deferred out of the Rust v1, and
+`review list/approve/reject` cover the same ground.
 
 Two rules keep this from drifting back into what it replaced:
 

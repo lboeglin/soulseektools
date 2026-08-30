@@ -49,9 +49,9 @@ This is not published to PyPI. Install it from a clone:
 git clone git@github.com:lboeglin/soulseektools.git
 cd soulseektools
 
-uv tool install .        # puts `stk` on your PATH
+uv tool install ./py     # puts `stk` on your PATH
 # or, to work on it instead:
-uv sync --dev            # then run it as `uv run stk ...`
+uv sync --directory py --dev     # then run it as `uv run --directory py stk ...`
 ```
 
 Then set it up:
@@ -65,9 +65,8 @@ stk doctor               # check everything is reachable
 `stk doctor` reports what is present and what is missing, and exits non-zero if
 anything required is unavailable.
 
-`uv tool install .` installs from the directory you are standing in, not from an
-index. Re-run it after pulling changes. `uv tool uninstall soulseektools`
-removes it.
+`uv tool install ./py` installs from the clone, not from an index. Re-run it with
+`--force` after pulling changes. `uv tool uninstall soulseektools` removes it.
 
 ## Configuration
 
@@ -267,6 +266,23 @@ git checkout original-scripts -- .        # restore the whole original tree
 
 Why the plugin was dropped, and the Nicotine+ behaviour that motivated it, is
 recorded in [docs/nicotine-quirks.md](docs/nicotine-quirks.md).
+
+## Being ported to Rust
+
+The tool is being rewritten in Rust, in phases, against reference output captured
+from the Python build — see
+[issue #1](https://github.com/lboeglin/soulseektools/issues/1). Until parity the
+two implementations live side by side:
+
+| | |
+| --- | --- |
+| `py/` | the Python implementation. This is `stk`, and it is what the rest of this readme describes. |
+| `rs/` | the Rust port, built as `stk-rs`. Incomplete. |
+| `oracle/` | reference output from `py/`, which `rs/` is diffed against. Not committed — it names every file in a private library. |
+
+Both read the same `stk.toml`, the same `library.db` and the same `review.db`, so
+either can be run against a library the other built. At parity, `py/` is removed in
+one commit and `stk-rs` becomes `stk`.
 
 ## Contributing
 

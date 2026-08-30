@@ -1,0 +1,24 @@
+[package]
+name = "stk"
+description = "Build a music library from a streaming export via Soulseek, and keep it clean afterwards."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[lib]
+name = "stk"
+path = "src/lib.rs"
+
+# Named stk-rs while the Python `stk` is still installed: the oracle diff runs
+# both against the same library. Renamed when py/ is removed.
+[[bin]]
+name = "stk-rs"
+path = "src/bin/stk_rs.rs"
+
+[dependencies]
+
+[lints]
+workspace = true
