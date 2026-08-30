@@ -2,15 +2,18 @@
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 import typer
 from rich.console import Console
+from rich.progress import BarColumn, Progress, TextColumn, TimeRemainingColumn
 
 from soulseektools.config import Settings
 
 if TYPE_CHECKING:
+    from collections.abc import Callable, Iterator
     from pathlib import Path
 
     from soulseektools.library.index import LibraryIndex
@@ -56,6 +59,30 @@ def context(ctx: typer.Context) -> AppContext:
     """The :class:`AppContext` attached by the root callback."""
     assert isinstance(ctx.obj, AppContext)
     return ctx.obj
+
+
+@contextmanager
+def progress_bar(
+    description: str, total: int | None = None, *, enabled: bool = True
+) -> Iterator[Callable[..., None]]:
+    """A transient progress bar, yielding a callable that advances it.
+
+    Disabled for machine-readable output, where a redrawing bar would corrupt
+    the stream. The yielded callable ignores its arguments, so it can be handed
+    straight to a callback that reports what it is working on.
+    """
+    if not enabled:
+        yield lambda *_args: None
+        return
+
+    columns = [TextColumn("[progress.description]{task.description}"), BarColumn()]
+    columns.append(TextColumn("{task.completed}/{task.total}" if total else "{task.completed}"))
+    if total:
+        columns.append(TimeRemainingColumn())
+
+    with Progress(*columns, console=console, transient=True) as progress:
+        task = progress.add_task(description, total=total)
+        yield lambda *_args: progress.advance(task)
 
 
 def fail(message: str, *, hint: str | None = None, code: int = 1) -> None:

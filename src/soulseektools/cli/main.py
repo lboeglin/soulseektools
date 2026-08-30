@@ -13,6 +13,7 @@ from soulseektools.cli import (
     config_cmd,
     doctor_cmd,
     dupes_cmd,
+    fetch_cmd,
     genre_cmd,
     library_cmd,
     review_cmd,
@@ -40,6 +41,7 @@ app.add_typer(genre_cmd.app, name="genre")
 app.add_typer(tags_cmd.app, name="tags")
 app.add_typer(wantlist_cmd.app, name="wantlist")
 app.add_typer(review_cmd.app, name="review")
+app.add_typer(fetch_cmd.app, name="fetch")
 
 
 def _version(value: bool) -> None:

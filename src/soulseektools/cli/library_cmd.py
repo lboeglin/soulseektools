@@ -3,18 +3,12 @@
 from __future__ import annotations
 
 import json
-from contextlib import contextmanager
-from typing import TYPE_CHECKING, Annotated
+from typing import Annotated
 
 import typer
-from rich.progress import BarColumn, Progress, SpinnerColumn, TextColumn
 from rich.table import Table
 
-from soulseektools.cli.context import console, context
-
-if TYPE_CHECKING:
-    from collections.abc import Callable, Iterator
-    from pathlib import Path
+from soulseektools.cli.context import console, context, progress_bar
 
 app = typer.Typer(help="Scan and inspect the library index.", no_args_is_help=True)
 
@@ -33,7 +27,7 @@ def scan(
 
     with (
         app_context.open_index() as index,
-        _scan_progress(root, enabled=not app_context.as_json) as report,
+        progress_bar(f"Scanning {root}", enabled=not app_context.as_json) as report,
     ):
         result = index.refresh(
             root,
@@ -111,20 +105,3 @@ def stats(
     for artist, count in list(by_artist.items())[:top]:
         table.add_row(artist or "[dim]<library root>[/]", str(count))
     console.print(table)
-
-
-@contextmanager
-def _scan_progress(root: Path, *, enabled: bool) -> Iterator[Callable[[Path], None]]:
-    if not enabled:
-        yield lambda _path: None
-        return
-    with Progress(
-        SpinnerColumn(),
-        TextColumn("[progress.description]{task.description}"),
-        BarColumn(),
-        TextColumn("{task.completed} files"),
-        console=console,
-        transient=True,
-    ) as progress:
-        task = progress.add_task(f"Scanning {root}", total=None)
-        yield lambda _path: progress.advance(task)

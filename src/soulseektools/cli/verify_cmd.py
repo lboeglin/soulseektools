@@ -8,12 +8,11 @@ from pathlib import Path
 from typing import Annotated
 
 import typer
-from rich.progress import BarColumn, Progress, TextColumn, TimeRemainingColumn
 from rich.table import Table
 
 from soulseektools.audio import ffmpeg
 from soulseektools.audio.verify import verify_file
-from soulseektools.cli.context import AppContext, console, context, fail
+from soulseektools.cli.context import AppContext, console, context, fail, progress_bar
 from soulseektools.errors import ExternalToolError
 from soulseektools.library.scan import LOSSLESS_EXTENSIONS, iter_audio_files
 from soulseektools.models import Verdict, VerifyResult
@@ -99,22 +98,11 @@ def _targets(ctx: typer.Context, target: Path | None) -> list[Path]:
 
 def _analyse(app_context: AppContext, paths: list[Path]) -> list[VerifyResult]:
     settings = app_context.settings.verify
-    if app_context.as_json:
-        return [verify_file(path, settings) for path in paths]
-
-    results = []
-    with Progress(
-        TextColumn("[progress.description]{task.description}"),
-        BarColumn(),
-        TextColumn("{task.completed}/{task.total}"),
-        TimeRemainingColumn(),
-        console=console,
-        transient=True,
-    ) as progress:
-        task = progress.add_task("Verifying", total=len(paths))
+    with progress_bar("Verifying", len(paths), enabled=not app_context.as_json) as advance:
+        results = []
         for path in paths:
             results.append(verify_file(path, settings))
-            progress.advance(task)
+            advance()
     return results
 
 
