@@ -164,6 +164,12 @@ class ArtworkSettings(Section):
     artist_match_threshold: float = Field(default=0.8, ge=0.0, le=1.0)
     request_timeout_seconds: float = Field(default=15.0, gt=0)
     preferred_size: int = Field(default=1200, ge=100)
+    contact: str = ""
+    """A URL or email address identifying you to artwork providers.
+
+    MusicBrainz asks callers to identify themselves and throttles those that do
+    not. Optional, and empty by default: nothing is sent that you did not set.
+    """
 
 
 class GenreSettings(Section):

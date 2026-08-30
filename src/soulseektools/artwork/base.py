@@ -10,6 +10,7 @@ for -- and a file keeps no artwork rather than the wrong artwork.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from importlib import metadata
 from typing import TYPE_CHECKING, Protocol
 
 from soulseektools.matching import NameForms, similarity
@@ -19,7 +20,19 @@ if TYPE_CHECKING:
 
     import httpx
 
-USER_AGENT = "soulseektools/0.1.0 (+https://github.com/lohan/soulseektools)"
+
+def user_agent(contact: str = "") -> str:
+    """The User-Agent sent to artwork providers.
+
+    MusicBrainz asks callers to identify themselves with a real contact -- a URL
+    or an email address -- and throttles or blocks those that do not. Nothing is
+    invented here: set ``artwork.contact`` and it is included, leave it unset and
+    the header simply names the tool and its version.
+    """
+    version = metadata.version("soulseektools")
+    return (
+        f"soulseektools/{version} ( {contact} )" if contact.strip() else f"soulseektools/{version}"
+    )
 
 
 @dataclass(frozen=True, slots=True)

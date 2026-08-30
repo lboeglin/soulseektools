@@ -37,15 +37,31 @@ $ stk fetch download  # queue the approved picks, verify what arrives
 
 ## Install
 
+This is not published to PyPI. Install it from a clone:
+
 ```bash
-uv tool install soulseektools        # or: pipx install soulseektools
-stk config init                      # writes ./stk.toml
-$EDITOR stk.toml                     # set library.root
-stk doctor                           # check everything is reachable
+git clone <wherever you keep this> soulseektools
+cd soulseektools
+
+uv tool install .        # puts `stk` on your PATH
+# or, to work on it instead:
+uv sync --dev            # then run it as `uv run stk ...`
+```
+
+Then set it up:
+
+```bash
+stk config init          # writes ./stk.toml
+$EDITOR stk.toml         # set library.root
+stk doctor               # check everything is reachable
 ```
 
 `stk doctor` reports what is present and what is missing, and exits non-zero if
 anything required is unavailable.
+
+`uv tool install .` installs from the directory you are standing in, not from an
+index. Re-run it after pulling changes. `uv tool uninstall soulseektools`
+removes it.
 
 ## Configuration
 
@@ -71,6 +87,7 @@ The settings worth knowing about:
 | `ranking.penalise_terms` | Terms that push a result down the list. |
 | `verify.steep_db_per_khz` | How sharp a frequency cutoff must be to look artificial. |
 | `artwork.require_artist_match` | Refuse cover art belonging to a different artist. |
+| `artwork.contact` | A URL or email identifying you to MusicBrainz. Optional. |
 | `genres.map_path` | Your artist-to-genre map. Start from `data/genres.example.toml`. |
 
 ## Building the library
@@ -180,6 +197,10 @@ judge.
 Art Archive, and **rejects any result whose artist does not match the file's**.
 Search match quality outside the mainstream is poor, and the wrong cover is
 worse than no cover. `--allow-unverified` waives the check if you really want it.
+
+MusicBrainz asks callers to identify themselves and throttles those that do not.
+Set `artwork.contact` to a URL or email address if you use it heavily; nothing
+is sent that you did not put there.
 
 ### Genres
 

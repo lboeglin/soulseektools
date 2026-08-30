@@ -7,7 +7,7 @@ import pytest
 import respx
 
 from soulseektools.artwork import service
-from soulseektools.artwork.base import ArtCandidate, select
+from soulseektools.artwork.base import ArtCandidate, select, user_agent
 from soulseektools.artwork.coverartarchive import CoverArtArchiveProvider
 from soulseektools.artwork.itunes import SEARCH_URL as ITUNES_URL
 from soulseektools.artwork.itunes import ITunesProvider
@@ -80,6 +80,30 @@ class TestSelect:
 
         assert not select(results, "DECO*27", artist_threshold=0.99)
         assert select(results, "DECO*27", artist_threshold=0.5)
+
+
+class TestUserAgent:
+    def test_names_the_tool_and_its_version(self):
+        from soulseektools import __version__
+
+        assert user_agent() == f"soulseektools/{__version__}"
+
+    def test_a_configured_contact_is_included(self):
+        # MusicBrainz asks callers to identify themselves and throttles those
+        # that do not.
+        assert user_agent("https://example.org/me") == (
+            f"soulseektools/{__import__('soulseektools').__version__} ( https://example.org/me )"
+        )
+
+    def test_nothing_is_sent_that_was_not_configured(self):
+        assert "(" not in user_agent()
+        assert "(" not in user_agent("   ")
+
+    def test_the_configured_contact_reaches_the_request(self):
+        settings = ArtworkSettings(contact="mailto:me@example.org")
+
+        with service.new_client(settings) as client:
+            assert client.headers["User-Agent"].endswith("( mailto:me@example.org )")
 
 
 class TestITunesProvider:

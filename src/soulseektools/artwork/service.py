@@ -7,7 +7,13 @@ from typing import TYPE_CHECKING
 
 import httpx
 
-from soulseektools.artwork.base import USER_AGENT, ArtCandidate, ArtProvider, ArtSelection, select
+from soulseektools.artwork.base import (
+    ArtCandidate,
+    ArtProvider,
+    ArtSelection,
+    select,
+    user_agent,
+)
 from soulseektools.artwork.coverartarchive import CoverArtArchiveProvider
 from soulseektools.artwork.itunes import ITunesProvider
 from soulseektools.errors import ConfigError, TagError, UnsupportedFormatError
@@ -160,7 +166,7 @@ def embed(result: ArtworkResult) -> None:
 def new_client(settings: ArtworkSettings) -> httpx.Client:
     return httpx.Client(
         timeout=settings.request_timeout_seconds,
-        headers={"User-Agent": USER_AGENT},
+        headers={"User-Agent": user_agent(settings.contact)},
         follow_redirects=True,
     )
 

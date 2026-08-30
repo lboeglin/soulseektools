@@ -31,10 +31,6 @@ dependencies = [
     "typer>=0.12",
 ]
 
-[project.urls]
-Homepage = "https://github.com/lohan/soulseektools"
-Issues = "https://github.com/lohan/soulseektools/issues"
-
 [project.scripts]
 stk = "soulseektools.cli.main:app"
 

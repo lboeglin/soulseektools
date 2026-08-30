@@ -79,3 +79,7 @@ a set of ad-hoc scripts and a Nicotine+ plugin.
   before the edit.
 - Long paths in command output are folded rather than truncated, so the paths
   the user acts on can be copied.
+- The User-Agent sent to artwork providers no longer advertises a project URL
+  that does not exist. MusicBrainz asks callers to identify themselves and
+  throttles those that do not, so a dead URL was worse than none; set
+  `artwork.contact` to a real URL or email to be identified.
