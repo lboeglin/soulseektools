@@ -225,9 +225,17 @@ This replaces a set of ad-hoc scripts and a Nicotine+ plugin. If you have a
 stk review import soulseek_review.csv
 ```
 
-The original scripts are kept under [`legacy/`](legacy/README.md) so their output
-can be compared against the new commands. They are excluded from lint, type
-checks and coverage, and can be deleted once you have cross-checked.
+The original scripts are kept under [`legacy/`](legacy/README.md) so their
+output can be compared against the new commands. They are excluded from lint,
+type checks and coverage.
+
+Delete the directory once you have cross-checked — `git rm -r legacy`. They stay
+retrievable from the `original-scripts` tag:
+
+```bash
+git show original-scripts:check_fake_flac.py
+git checkout original-scripts -- .        # restore the whole original tree
+```
 
 Why the plugin was dropped, and the Nicotine+ behaviour that motivated it, is
 recorded in [docs/nicotine-quirks.md](docs/nicotine-quirks.md).

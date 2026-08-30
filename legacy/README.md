@@ -2,7 +2,20 @@
 
 The original ad-hoc scripts, kept runnable so their output can be diffed against
 the `stk` CLI during migration. They are excluded from lint, type-check and
-coverage, and are removed once every command below has a verified replacement.
+coverage.
+
+**Delete this directory once you have cross-checked each command below against
+your real library.** Nothing is lost by doing so: the scripts are permanently
+retrievable from the `original-scripts` tag.
+
+```bash
+git rm -r legacy                          # when you are done comparing
+git show original-scripts:apply_genres.py # read one afterwards
+git checkout original-scripts -- .        # restore the whole original tree
+```
+
+Keeping dead code in the tree is worse than deleting it, because the next person
+to read the repository cannot tell what is live.
 
 | Script | Replacement |
 | --- | --- |
