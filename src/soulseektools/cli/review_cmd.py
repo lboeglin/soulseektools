@@ -12,8 +12,12 @@ from rich.table import Table
 from soulseektools.cli.context import console, context, fail
 from soulseektools.models import TrackStatus
 from soulseektools.review.legacy_csv import import_csv
+from soulseektools.tui import app as tui
 
-app = typer.Typer(help="Review and approve download candidates.", no_args_is_help=True)
+app = typer.Typer(
+    help="Review and approve download candidates. Run bare to open the review app.",
+    invoke_without_command=True,
+)
 
 _STATUS_STYLE = {
     TrackStatus.PENDING: "dim",
@@ -25,6 +29,20 @@ _STATUS_STYLE = {
     TrackStatus.DOWNLOADED: "green",
     TrackStatus.FAILED: "red",
 }
+
+
+@app.callback(invoke_without_command=True)
+def review(ctx: typer.Context) -> None:
+    """Open the review app, where one keystroke picks a candidate."""
+    if ctx.invoked_subcommand is not None:
+        return
+
+    app_context = context(ctx)
+    with app_context.open_review() as store:
+        if not store.tracks():
+            console.print("Nothing in the review queue. Run [bold]stk wantlist diff[/] first.")
+            return
+        tui.run(store)
 
 
 @app.command("list")
