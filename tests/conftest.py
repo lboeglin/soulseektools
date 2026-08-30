@@ -35,13 +35,27 @@ def encode(
     seconds: float = 1.0,
     frequency: int = 440,
     sample_rate: int = 44100,
+    modulation_hz: float = 0.0,
     metadata: Mapping[str, str] | None = None,
 ) -> Path:
-    """Write a short test tone to ``path``, tagged with ``metadata``."""
+    """Write a short test tone to ``path``, tagged with ``metadata``.
+
+    ``modulation_hz`` adds a slow amplitude sweep, giving the tone the loudness
+    dynamics that fingerprinting needs and a steady sine lacks.
+    """
     if FFMPEG is None:
         pytest.skip("ffmpeg is not on PATH")
 
     path.parent.mkdir(parents=True, exist_ok=True)
+    if modulation_hz:
+        source = (
+            f"aevalsrc=0.5*sin(2*PI*{frequency}*t)*"
+            f"(0.55+0.45*sin(2*PI*{modulation_hz}*t)):"
+            f"d={seconds}:s={sample_rate}"
+        )
+    else:
+        source = f"sine=frequency={frequency}:duration={seconds}:sample_rate={sample_rate}"
+
     command = [
         FFMPEG,
         "-v",
@@ -50,7 +64,7 @@ def encode(
         "-f",
         "lavfi",
         "-i",
-        f"sine=frequency={frequency}:duration={seconds}:sample_rate={sample_rate}",
+        source,
         *_CODEC_BY_SUFFIX[path.suffix.lower()],
     ]
     for key, value in (metadata or {}).items():

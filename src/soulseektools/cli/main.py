@@ -8,7 +8,7 @@ from typing import Annotated
 import typer
 
 from soulseektools import __version__
-from soulseektools.cli import config_cmd, doctor_cmd, library_cmd
+from soulseektools.cli import config_cmd, doctor_cmd, library_cmd, verify_cmd
 from soulseektools.cli.context import AppContext, console, fail
 from soulseektools.config import load_settings
 from soulseektools.errors import ConfigError
@@ -22,6 +22,7 @@ app = typer.Typer(
 app.add_typer(config_cmd.app, name="config")
 app.add_typer(doctor_cmd.app, name="doctor")
 app.add_typer(library_cmd.app, name="library")
+app.add_typer(verify_cmd.app, name="verify")
 
 
 def _version(value: bool) -> None:
