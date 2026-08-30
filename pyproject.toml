@@ -103,10 +103,10 @@ enable_error_code = ["redundant-expr", "truthy-bool", "ignore-without-code"]
 module = ["pykakasi.*", "mutagen.*"]
 ignore_missing_imports = true
 
-# The only thing this module does is adapt pykakasi, whose public entry point
-# carries no annotations.
+# These modules exist solely to adapt third-party libraries that ship no
+# annotations for the entry points used here.
 [[tool.mypy.overrides]]
-module = ["soulseektools.text.romaji"]
+module = ["soulseektools.text.romaji", "soulseektools.library.tags"]
 disallow_untyped_calls = false
 
 [tool.pytest.ini_options]
