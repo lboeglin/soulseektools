@@ -146,7 +146,10 @@ def _print_table(results: list[VerifyResult], *, only_flagged: bool) -> None:
         if not only_flagged or result.verdict in (Verdict.FAKE, Verdict.SUSPECT)
     ]
     if shown:
-        table = Table("Verdict", "File", "Detail", box=None, pad_edge=False)
+        table = Table(box=None, pad_edge=False)
+        table.add_column("Verdict")
+        table.add_column("File", overflow="fold")
+        table.add_column("Detail", overflow="fold")
         for result in shown:
             table.add_row(
                 f"[{_VERDICT_STYLE[result.verdict]}]{result.verdict}[/]",

@@ -113,7 +113,10 @@ def apply_genres(
         console.print(f"Every mapped file already carries its genre ({len(genre_map)} artists).")
         return
 
-    table = Table("File", "From", "To", box=None, pad_edge=False)
+    table = Table(box=None, pad_edge=False)
+    table.add_column("File", overflow="fold")
+    table.add_column("From")
+    table.add_column("To")
     for change in changes[:50]:
         table.add_row(
             str(change.entry.path),

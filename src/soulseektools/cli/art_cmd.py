@@ -42,7 +42,9 @@ def check(ctx: typer.Context) -> None:
         return
 
     if missing:
-        table = Table("File", "Problem", box=None, pad_edge=False)
+        table = Table(box=None, pad_edge=False)
+        table.add_column("File", overflow="fold")
+        table.add_column("Problem")
         for status in missing:
             table.add_row(str(status.entry.path), status.reason)
         console.print(table)

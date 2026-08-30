@@ -90,7 +90,10 @@ def diff_command(
         console.print("[yellow]The library index is empty[/] -- run 'stk library scan' first.")
 
     if result.owned:
-        table = Table("Score", "Wanted", "Matched", box=None, pad_edge=False)
+        table = Table(box=None, pad_edge=False)
+        table.add_column("Score")
+        table.add_column("Wanted")
+        table.add_column("Matched", overflow="fold")
         for owned in sorted(result.owned, key=lambda item: item.score)[:20]:
             table.add_row(
                 f"{owned.score:.2f}",

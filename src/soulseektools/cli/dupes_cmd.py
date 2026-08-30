@@ -102,14 +102,17 @@ def _report(app_context: AppContext, pairs: list[DuplicatePair], limit: int, sca
         console.print(f"No duplicates found across {scanned} file(s).")
         return
 
-    table = Table("Score", "Larger copy", "Other copy", "Evidence", box=None, pad_edge=False)
+    table = Table(box=None, pad_edge=False)
+    table.add_column("Score")
+    table.add_column("Size")
+    # Folded rather than truncated: the path is what the user acts on, and an
+    # elided one cannot be copied into a delete.
+    table.add_column("File", overflow="fold")
     for pair in pairs[:limit]:
-        table.add_row(
-            f"{pair.score:.2f}",
-            f"{_megabytes(pair.larger.size)}  {pair.larger.path}",
-            f"{_megabytes(pair.smaller.size)}  {pair.smaller.path}",
-            pair.evidence,
-        )
+        table.add_row(f"{pair.score:.2f}", _size(pair.larger.size), str(pair.larger.path))
+        table.add_row("", _size(pair.smaller.size), str(pair.smaller.path))
+        table.add_row("", "", f"[dim]{pair.evidence}[/]")
+        table.add_section()
     console.print(table)
 
     shown = min(limit, len(pairs))
@@ -118,5 +121,8 @@ def _report(app_context: AppContext, pairs: list[DuplicatePair], limit: int, sca
     console.print("[dim]Nothing was deleted. Verify each pair before removing anything.[/]")
 
 
-def _megabytes(size: int) -> str:
-    return f"{size / 1_000_000:6.1f} MB"
+def _size(size: int) -> str:
+    """A size the two copies can actually be compared by, at any scale."""
+    if size >= 1_000_000:
+        return f"{size / 1_000_000:.1f} MB"
+    return f"{size / 1_000:.0f} KB"
