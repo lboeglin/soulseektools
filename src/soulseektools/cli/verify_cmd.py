@@ -17,8 +17,6 @@ from soulseektools.errors import ExternalToolError
 from soulseektools.library.scan import LOSSLESS_EXTENSIONS, iter_audio_files
 from soulseektools.models import Verdict, VerifyResult
 
-app = typer.Typer(help="Detect lossless files transcoded from a lossy source.")
-
 REPORT_FIELDS = (
     "path",
     "verdict",
@@ -39,7 +37,6 @@ _VERDICT_STYLE = {
 }
 
 
-@app.callback(invoke_without_command=True)
 def verify(
     ctx: typer.Context,
     target: Annotated[

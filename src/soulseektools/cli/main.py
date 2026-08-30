@@ -15,6 +15,7 @@ from soulseektools.cli import (
     dupes_cmd,
     fetch_cmd,
     genre_cmd,
+    get_cmd,
     library_cmd,
     review_cmd,
     tags_cmd,
@@ -32,9 +33,12 @@ app = typer.Typer(
     add_completion=False,
 )
 app.add_typer(config_cmd.app, name="config")
-app.add_typer(doctor_cmd.app, name="doctor")
+# Plain commands rather than groups: a group would parse their argument as a
+# subcommand name.
+app.command("doctor")(doctor_cmd.doctor)
+app.command("verify")(verify_cmd.verify)
+app.command("get")(get_cmd.get)
 app.add_typer(library_cmd.app, name="library")
-app.add_typer(verify_cmd.app, name="verify")
 app.add_typer(dupes_cmd.app, name="dupes")
 app.add_typer(art_cmd.app, name="art")
 app.add_typer(genre_cmd.app, name="genre")

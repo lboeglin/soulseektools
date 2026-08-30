@@ -9,9 +9,9 @@ import typer
 from rich.table import Table
 
 from soulseektools import fetch
-from soulseektools.cli.context import AppContext, console, context, fail, progress_bar
+from soulseektools.cli.client import open_client
+from soulseektools.cli.context import console, context, progress_bar
 from soulseektools.models import TrackStatus, Verdict
-from soulseektools.soulseek.slskd import SlskdClient
 
 app = typer.Typer(help="Search Soulseek and download approved candidates.", no_args_is_help=True)
 
@@ -27,7 +27,7 @@ def search(
     """Search for every track waiting in the review queue and rank what comes back."""
     app_context = context(ctx)
 
-    with _client(app_context) as client, app_context.open_review() as store:
+    with open_client(app_context) as client, app_context.open_review() as store:
         pending = store.tracks(TrackStatus.PENDING, limit=limit)
         if not pending:
             console.print("Nothing waiting to be searched.")
@@ -84,7 +84,7 @@ def download(
     """Queue approved picks, then record and verify whatever has finished."""
     app_context = context(ctx)
 
-    with _client(app_context) as client, app_context.open_review() as store:
+    with open_client(app_context) as client, app_context.open_review() as store:
         queued = [] if collect_only else fetch.enqueue_approved(store, client, limit=limit)
         collected = fetch.collect(store, client, app_context.settings)
 
@@ -148,15 +148,3 @@ def _outcome_detail(outcome: fetch.CollectOutcome) -> str:
     if outcome.verdict is not None:
         return outcome.verdict.detail
     return str(outcome.local_path or "")
-
-
-def _client(app_context: AppContext) -> SlskdClient:
-    settings = app_context.settings.slskd
-    client = SlskdClient(settings)
-    if not client.is_connected():
-        client.close()
-        fail(
-            f"slskd at {settings.url} is not connected to the Soulseek server",
-            hint="check the daemon is running, SLSKD_API_KEY is set, and its credentials are valid",
-        )
-    return client

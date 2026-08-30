@@ -28,6 +28,13 @@ a set of ad-hoc scripts and a Nicotine+ plugin.
 - Acoustic fingerprinting for content duplicates: Chromaprint when `fpcalc` is
   installed, otherwise a loudness-envelope curve needing only ffmpeg.
 - MusicBrainz and Cover Art Archive as a second artwork provider.
+- `stk get "Artist - Title"` for fetching a single track by name, with
+  `--lossless`, `--min-bitrate`, `--yes` and `--queue-only`. The batch flow
+  needs an export; this needs a song title.
+- Request pacing for artwork providers, at each service's published limit --
+  one second for MusicBrainz, three for iTunes. The limiter lives on the
+  provider, so a slow service does not slow a fast one.
+- `ranking.require_lossless` and `ranking.min_bitrate` quality floors.
 - `--apply` gating on every command that writes to audio files.
 - Test suite of ~500 tests with no network access, run on Linux and Windows
   across Python 3.11–3.13.
@@ -79,6 +86,10 @@ a set of ad-hoc scripts and a Nicotine+ plugin.
   before the edit.
 - Long paths in command output are folded rather than truncated, so the paths
   the user acts on can be copied.
+- `ranking.prefer_lossless` was declared in the configuration but never read,
+  so turning it off did nothing.
+- `stk get`, `stk verify` and `stk doctor` were registered as command groups, so
+  their arguments were parsed as subcommand names.
 - The User-Agent sent to artwork providers no longer advertises a project URL
   that does not exist. MusicBrainz asks callers to identify themselves and
   throttles those that do not, so a dead URL was worse than none; set

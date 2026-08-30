@@ -88,6 +88,9 @@ def score(
     if max(title_ratio, artist_ratio * _ARTIST_WEIGHT_AGAINST_TITLE) < options.min_title_ratio:
         return None
 
+    if not _meets_quality_floor(candidate, options):
+        return None
+
     # Flattened, not normalised: a bracketed "(Live)" is the whole point here.
     path_text = flatten(_SEPARATORS.sub(" ", candidate.remote_path))
     rejected = terms_in(path_text, options.reject_terms, wanted)
@@ -99,7 +102,7 @@ def score(
             flags=tuple(f"reject:{term}" for term in rejected),
         )
 
-    total = _quality_score(candidate)
+    total = _quality_score(candidate, prefer_lossless=options.prefer_lossless)
     total += _FREE_SLOT_BONUS if candidate.free_upload_slots else 0
     total -= min(candidate.queue_length, _MAX_QUEUE_PENALTY)
     total += int(title_ratio * _TITLE_WEIGHT)
@@ -134,18 +137,32 @@ def terms_in(path_text: str, terms: Sequence[str], wanted: str) -> list[str]:
     ]
 
 
-def _quality_score(candidate: Candidate) -> int:
-    is_lossless = (
-        f".{candidate.extension}" in LOSSLESS_EXTENSIONS or candidate.bit_depth is not None
+def is_lossless(candidate: Candidate) -> bool:
+    """Whether a result is lossless, by container or by carrying a bit depth."""
+    return f".{candidate.extension}" in LOSSLESS_EXTENSIONS or candidate.bit_depth is not None
+
+
+def _meets_quality_floor(candidate: Candidate, options: RankingSettings) -> bool:
+    if is_lossless(candidate):
+        return True
+    if options.require_lossless:
+        return False
+    # A result with no bitrate reported has not failed the floor -- nothing is
+    # known about it, and dropping it would hide the only copy of a rare track.
+    return not (
+        options.min_bitrate and candidate.bitrate and candidate.bitrate < options.min_bitrate
     )
-    if is_lossless:
+
+
+def _quality_score(candidate: Candidate, *, prefer_lossless: bool = True) -> int:
+    if is_lossless(candidate):
         tier, quality = 3, (candidate.sample_rate or 44100) * (candidate.bit_depth or 16)
     elif candidate.bitrate:
         tier = 2 if candidate.bitrate >= _HIGH_BITRATE else 1
         quality = candidate.bitrate
     else:
         tier, quality = 0, 0
-    return tier * _TIER_WEIGHT + quality * _QUALITY_WEIGHT
+    return (tier * _TIER_WEIGHT if prefer_lossless else 0) + quality * _QUALITY_WEIGHT
 
 
 def _duration_differs(candidate: Candidate, track: Track, tolerance_seconds: float) -> bool:

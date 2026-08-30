@@ -11,8 +11,6 @@ from rich.table import Table
 
 from soulseektools.cli.context import console, context
 
-app = typer.Typer(help="Check external tools, paths and configuration.")
-
 
 @dataclass(frozen=True, slots=True)
 class Check:
@@ -71,7 +69,6 @@ def run_checks(ctx: typer.Context) -> list[Check]:
     ]
 
 
-@app.callback(invoke_without_command=True)
 def doctor(ctx: typer.Context) -> None:
     """Report whether the environment can run every command."""
     app_context = context(ctx)

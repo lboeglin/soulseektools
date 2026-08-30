@@ -127,7 +127,19 @@ class RankingSettings(Section):
     """
 
     min_title_ratio: float = Field(default=0.45, ge=0.0, le=1.0)
+
     prefer_lossless: bool = True
+    """Rank lossless above lossy, whatever the lossy file's bitrate.
+
+    Turn this off to judge results on availability and name match alone, which
+    is what you want when a smaller file beats a better one.
+    """
+
+    require_lossless: bool = False
+    """Discard lossy results outright rather than ranking them lower."""
+
+    min_bitrate: int | None = Field(default=None, ge=0)
+    """Discard lossy results below this bitrate. Lossless is never discarded."""
     reject_terms: tuple[str, ...] = ("karaoke", "instrumental", "off vocal", "nightcore")
     penalise_terms: tuple[str, ...] = (
         "live",
@@ -164,6 +176,14 @@ class ArtworkSettings(Section):
     artist_match_threshold: float = Field(default=0.8, ge=0.0, le=1.0)
     request_timeout_seconds: float = Field(default=15.0, gt=0)
     preferred_size: int = Field(default=1200, ge=100)
+    min_request_interval_seconds: float | None = Field(default=None, ge=0)
+    """Override the pacing between requests to every provider.
+
+    Unset by default, which leaves each provider on its own published limit --
+    one second for MusicBrainz, three for iTunes. Setting this to 0 disables
+    pacing entirely, which will get you throttled on a large run.
+    """
+
     contact: str = ""
     """A URL or email address identifying you to artwork providers.
 

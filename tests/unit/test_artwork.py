@@ -6,8 +6,9 @@ import httpx
 import pytest
 import respx
 
+from soulseektools.artwork import base as base_module
 from soulseektools.artwork import service
-from soulseektools.artwork.base import ArtCandidate, select, user_agent
+from soulseektools.artwork.base import ArtCandidate, RateLimiter, select, user_agent
 from soulseektools.artwork.coverartarchive import CoverArtArchiveProvider
 from soulseektools.artwork.itunes import SEARCH_URL as ITUNES_URL
 from soulseektools.artwork.itunes import ITunesProvider
@@ -80,6 +81,125 @@ class TestSelect:
 
         assert not select(results, "DECO*27", artist_threshold=0.99)
         assert select(results, "DECO*27", artist_threshold=0.5)
+
+
+class FakeClock:
+    """A monotonic clock and sleep that advance only when told to."""
+
+    def __init__(self) -> None:
+        self.now = 1000.0
+        self.slept: list[float] = []
+
+    def monotonic(self) -> float:
+        return self.now
+
+    def sleep(self, seconds: float) -> None:
+        self.slept.append(seconds)
+        self.now += seconds
+
+
+@pytest.fixture
+def clock(monkeypatch):
+    fake = FakeClock()
+    monkeypatch.setattr(base_module.time, "monotonic", fake.monotonic)
+    monkeypatch.setattr(base_module.time, "sleep", fake.sleep)
+    return fake
+
+
+class TestRateLimiter:
+    def test_the_first_request_is_not_delayed(self, clock):
+        RateLimiter(1.0).wait()
+
+        assert clock.slept == []
+
+    def test_a_following_request_waits_out_the_interval(self, clock):
+        limiter = RateLimiter(1.0)
+        limiter.wait()
+
+        limiter.wait()
+
+        assert clock.slept == [pytest.approx(1.0)]
+
+    def test_time_already_spent_counts_towards_the_interval(self, clock):
+        # A slow request has already paid part of the wait; sleeping the full
+        # interval again would halve the throughput for no reason.
+        limiter = RateLimiter(1.0)
+        limiter.wait()
+        clock.now += 0.75
+
+        limiter.wait()
+
+        assert clock.slept == [pytest.approx(0.25)]
+
+    def test_no_wait_is_needed_once_the_interval_has_passed(self, clock):
+        limiter = RateLimiter(1.0)
+        limiter.wait()
+        clock.now += 5.0
+
+        limiter.wait()
+
+        assert clock.slept == []
+
+    def test_a_zero_interval_disables_pacing(self, clock):
+        limiter = RateLimiter(0.0)
+        limiter.wait()
+        limiter.wait()
+
+        assert clock.slept == []
+
+    def test_each_limiter_paces_independently(self, clock):
+        fast, slow = RateLimiter(0.0), RateLimiter(1.0)
+
+        fast.wait()
+        slow.wait()
+        fast.wait()
+
+        assert clock.slept == []
+
+
+class TestProviderPacing:
+    def test_musicbrainz_uses_its_published_one_second_limit(self):
+        assert CoverArtArchiveProvider().min_interval_seconds == pytest.approx(1.0)
+
+    def test_itunes_uses_apples_documented_limit(self):
+        assert ITunesProvider().min_interval_seconds == pytest.approx(3.0)
+
+    def test_providers_are_built_with_their_own_limits_by_default(self):
+        providers = service.build_providers(ArtworkSettings())
+
+        assert [provider.min_interval_seconds for provider in providers] == [3.0, 1.0]
+
+    def test_the_interval_can_be_overridden_for_every_provider(self):
+        providers = service.build_providers(ArtworkSettings(min_request_interval_seconds=0.0))
+
+        assert all(provider.min_interval_seconds == 0.0 for provider in providers)
+
+    @respx.mock
+    def test_repeated_searches_are_paced(self, clock):
+        respx.get(url__startswith="https://musicbrainz.org").mock(
+            return_value=httpx.Response(200, json={"recordings": []})
+        )
+        provider = CoverArtArchiveProvider(min_interval_seconds=1.0)
+
+        with httpx.Client() as client:
+            provider.search(client, "A", "One")
+            provider.search(client, "B", "Two")
+            provider.search(client, "C", "Three")
+
+        assert clock.slept == [pytest.approx(1.0), pytest.approx(1.0)]
+
+    @respx.mock
+    def test_a_slow_provider_does_not_pace_a_fast_one(self, clock):
+        # The limiter lives on the provider, so MusicBrainz's one-second budget
+        # is not spent on iTunes requests.
+        respx.get(ITUNES_URL).mock(return_value=httpx.Response(200, json={"results": []}))
+        provider = ITunesProvider(min_interval_seconds=0.0)
+
+        with httpx.Client() as client:
+            provider.search(client, "A", "One")
+            provider.search(client, "B", "Two")
+
+        assert clock.slept == []
 
 
 class TestUserAgent:

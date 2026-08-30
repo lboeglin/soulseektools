@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from soulseektools.artwork.base import ArtCandidate
+from soulseektools.artwork.base import ArtCandidate, RateLimiter
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -18,6 +18,12 @@ if TYPE_CHECKING:
 
 SEARCH_URL = "https://musicbrainz.org/ws/2/recording"
 ARCHIVE_URL = "https://coverartarchive.org/release"
+MIN_INTERVAL_SECONDS = 1.0
+"""MusicBrainz enforces one request per second per address, then blocks.
+
+Only the lookup is paced. The cover itself comes from the Internet Archive,
+which does not share that budget.
+"""
 
 
 class CoverArtArchiveProvider:
@@ -25,11 +31,19 @@ class CoverArtArchiveProvider:
 
     name = "coverartarchive"
 
-    def __init__(self, limit: int = 5, preferred_size: int = 1200) -> None:
+    def __init__(
+        self,
+        limit: int = 5,
+        preferred_size: int = 1200,
+        min_interval_seconds: float = MIN_INTERVAL_SECONDS,
+    ) -> None:
         self.limit = limit
         self.size_segment = "1200" if preferred_size > 500 else "500"
+        self.min_interval_seconds = min_interval_seconds
+        self._limiter = RateLimiter(min_interval_seconds)
 
     def search(self, client: httpx.Client, artist: str, title: str) -> Sequence[ArtCandidate]:
+        self._limiter.wait()
         response = client.get(
             SEARCH_URL,
             params={

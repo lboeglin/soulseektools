@@ -23,6 +23,12 @@ $ stk review          # pick a candidate per track, one keystroke each
 $ stk fetch download  # queue the approved picks, verify what arrives
 ```
 
+Or, for a single song:
+
+```
+$ stk get "DECO*27 - Roki"
+```
+
 ## Requirements
 
 - Python 3.11 or newer
@@ -85,12 +91,34 @@ The settings worth knowing about:
 | `matching.*` | How similar two names must be to count as the same track. |
 | `ranking.reject_terms` | Terms that disqualify a search result outright. |
 | `ranking.penalise_terms` | Terms that push a result down the list. |
+| `ranking.prefer_lossless` | Rank lossless above lossy. On by default. |
+| `ranking.require_lossless` | Discard lossy results entirely. Off by default. |
+| `ranking.min_bitrate` | Discard lossy results below this. Lossless is never discarded. |
 | `verify.steep_db_per_khz` | How sharp a frequency cutoff must be to look artificial. |
 | `artwork.require_artist_match` | Refuse cover art belonging to a different artist. |
 | `artwork.contact` | A URL or email identifying you to MusicBrainz. Optional. |
 | `genres.map_path` | Your artist-to-genre map. Start from `data/genres.example.toml`. |
 
-## Building the library
+## Getting one track
+
+You do not need a CSV to grab a single song:
+
+```bash
+stk get "DECO*27 - Roki"          # search, show what turned up, pick one
+stk get "Roki" --artist "DECO*27" # or give the artist separately
+stk get "Roki" --lossless         # only accept lossless
+stk get "Roki" --min-bitrate 320  # or set a floor for lossy results
+stk get "Roki" --yes              # take the best result without asking
+```
+
+It searches, ranks the results exactly as the batch flow does, prints them with
+their full remote paths and warnings, and asks which to take. The chosen file is
+queued and recorded in the review queue like any other download.
+
+`--queue-only` approves a candidate without downloading it, so you can gather a
+few and run `stk fetch download` once.
+
+## Building a library from an export
 
 **1. Work out what is missing.**
 

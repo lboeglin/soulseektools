@@ -9,7 +9,8 @@ for -- and a file keeps no artwork rather than the wrong artwork.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+import time
+from dataclasses import dataclass, field
 from importlib import metadata
 from typing import TYPE_CHECKING, Protocol
 
@@ -33,6 +34,28 @@ def user_agent(contact: str = "") -> str:
     return (
         f"soulseektools/{version} ( {contact} )" if contact.strip() else f"soulseektools/{version}"
     )
+
+
+@dataclass(slots=True)
+class RateLimiter:
+    """Holds a caller to a minimum interval between requests.
+
+    These APIs are free and publish limits; exceeding them earns 503s and then a
+    block. One limiter lives on each provider instance, so the pacing is per
+    service rather than global -- a slow provider must not slow a fast one.
+    """
+
+    min_interval_seconds: float
+    _next_allowed_at: float = field(default=0.0, repr=False)
+
+    def wait(self) -> None:
+        """Block until the next request is allowed."""
+        if self.min_interval_seconds <= 0:
+            return
+        delay = self._next_allowed_at - time.monotonic()
+        if delay > 0:
+            time.sleep(delay)
+        self._next_allowed_at = time.monotonic() + self.min_interval_seconds
 
 
 @dataclass(frozen=True, slots=True)
@@ -64,10 +87,20 @@ class ArtProvider(Protocol):
     """A source of cover art."""
 
     name: str
+    min_interval_seconds: float
+    """The provider's published request limit, in seconds between calls."""
 
     def search(self, client: httpx.Client, artist: str, title: str) -> Sequence[ArtCandidate]:
         """Candidates for one track, best first."""
         ...
+
+
+class ArtProviderFactory(Protocol):
+    """How a provider is constructed, so the registry can stay typed."""
+
+    def __call__(
+        self, *, preferred_size: int = ..., min_interval_seconds: float = ...
+    ) -> ArtProvider: ...
 
 
 def select(

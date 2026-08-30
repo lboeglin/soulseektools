@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from soulseektools.artwork.base import ArtCandidate
+from soulseektools.artwork.base import ArtCandidate, RateLimiter
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -18,6 +18,9 @@ if TYPE_CHECKING:
     import httpx
 
 SEARCH_URL = "https://itunes.apple.com/search"
+MIN_INTERVAL_SECONDS = 3.0
+"""Apple documents the Search API at roughly 20 calls per minute."""
+
 _THUMBNAIL_SIZE = "100x100bb"
 
 
@@ -26,11 +29,19 @@ class ITunesProvider:
 
     name = "itunes"
 
-    def __init__(self, limit: int = 5, preferred_size: int = 1200) -> None:
+    def __init__(
+        self,
+        limit: int = 5,
+        preferred_size: int = 1200,
+        min_interval_seconds: float = MIN_INTERVAL_SECONDS,
+    ) -> None:
         self.limit = limit
         self.preferred_size = preferred_size
+        self.min_interval_seconds = min_interval_seconds
+        self._limiter = RateLimiter(min_interval_seconds)
 
     def search(self, client: httpx.Client, artist: str, title: str) -> Sequence[ArtCandidate]:
+        self._limiter.wait()
         response = client.get(
             SEARCH_URL,
             params={"term": f"{artist} {title}", "media": "music", "limit": self.limit},

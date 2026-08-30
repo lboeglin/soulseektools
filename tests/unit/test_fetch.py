@@ -28,9 +28,16 @@ class FakeClient:
         self.enqueue_error = enqueue_error
         self.searches: list[str] = []
         self.enqueued: list[tuple[str, str, str]] = []
+        self.closed = False
 
     def is_connected(self) -> bool:
         return True
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_exc):
+        self.closed = True
 
     def search(self, text, *, timeout_seconds=15, response_limit=200):
         self.searches.append(text)

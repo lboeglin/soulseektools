@@ -10,6 +10,7 @@ import httpx
 from soulseektools.artwork.base import (
     ArtCandidate,
     ArtProvider,
+    ArtProviderFactory,
     ArtSelection,
     select,
     user_agent,
@@ -21,14 +22,14 @@ from soulseektools.library import tags as tag_facade
 from soulseektools.models import Artwork
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterable, Sequence
+    from collections.abc import Iterable, Sequence
 
     from soulseektools.config import ArtworkSettings
     from soulseektools.models import LibraryEntry
 
-_PROVIDERS: dict[str, Callable[[int], ArtProvider]] = {
-    ITunesProvider.name: lambda size: ITunesProvider(preferred_size=size),
-    CoverArtArchiveProvider.name: lambda size: CoverArtArchiveProvider(preferred_size=size),
+_PROVIDERS: dict[str, ArtProviderFactory] = {
+    ITunesProvider.name: ITunesProvider,
+    CoverArtArchiveProvider.name: CoverArtArchiveProvider,
 }
 
 _MIME_BY_MAGIC = ((b"\x89PNG\r\n\x1a\n", "image/png"), (b"\xff\xd8\xff", "image/jpeg"))
@@ -61,12 +62,17 @@ def build_providers(settings: ArtworkSettings) -> list[ArtProvider]:
     """Instantiate the configured providers, in the configured order."""
     providers: list[ArtProvider] = []
     for name in settings.providers:
-        factory = _PROVIDERS.get(name)
-        if factory is None:
+        provider = _PROVIDERS.get(name)
+        if provider is None:
             raise ConfigError(
                 f"unknown artwork provider '{name}'; choose from {', '.join(_PROVIDERS)}"
             )
-        providers.append(factory(settings.preferred_size))
+        interval = settings.min_request_interval_seconds
+        providers.append(
+            provider(preferred_size=settings.preferred_size)
+            if interval is None
+            else provider(preferred_size=settings.preferred_size, min_interval_seconds=interval)
+        )
     return providers
 
 
