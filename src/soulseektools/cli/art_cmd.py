@@ -87,26 +87,30 @@ def fetch(
         fail(str(error))
         return
 
+    root = app_context.library_root
     with app_context.open_index() as index:
         entries = list(index.entries())
+        needing = [
+            status.entry for status in service.audit(entries, settings) if status.needs_artwork
+        ]
+        if limit is not None:
+            needing = needing[:limit]
+        if not needing:
+            console.print("Every indexed file already has usable artwork.")
+            return
 
-    needing = [status.entry for status in service.audit(entries, settings) if status.needs_artwork]
-    if limit is not None:
-        needing = needing[:limit]
-    if not needing:
-        console.print("Every indexed file already has usable artwork.")
-        return
-
-    results = []
-    with service.new_client(settings) as client:
-        for entry in needing:
-            result = service.find_artwork(entry, providers, settings, client)
-            if result.ok and apply:
-                try:
-                    service.embed(result)
-                except TagError as error:
-                    result = replace(result, error=str(error))
-            results.append(result)
+        results = []
+        with service.new_client(settings) as client:
+            for entry in needing:
+                result = service.find_artwork(entry, providers, settings, client)
+                if result.ok and apply:
+                    try:
+                        service.embed(result)
+                    except TagError as error:
+                        result = replace(result, error=str(error))
+                    else:
+                        index.reindex(entry.path, root)
+                results.append(result)
 
     _report(app_context, results, applied=apply)
 

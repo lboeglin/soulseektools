@@ -137,13 +137,22 @@ class TestGenre:
             "Game",
         )
 
-    def test_apply_is_idempotent(self, config_file):
+    def test_apply_is_idempotent_without_a_rescan(self, config_file):
+        # The index has to reflect what the command just wrote, or the next
+        # command reports the state from before it ran.
         invoke(config_file, "genre", "apply", "--apply")
-        invoke(config_file, "library", "scan")
 
         payload = json.loads(invoke(config_file, "--json", "genre", "apply").stdout)
 
         assert payload["planned"] == []
+
+    def test_the_new_genres_are_visible_to_other_commands_immediately(self, config_file):
+        invoke(config_file, "genre", "apply", "--apply")
+
+        payload = json.loads(invoke(config_file, "--json", "genre", "check").stdout)
+
+        assert payload["genres"]["Vocaloid"] == 2
+        assert payload["untagged"] == 1
 
     def test_a_missing_genre_map_fails_with_a_hint(self, tmp_path, library_root):
         path = tmp_path / CONFIG_FILENAME
@@ -182,6 +191,16 @@ class TestArt:
         invoke(config_file, "art", "fetch", "--limit", "1", "--apply")
 
         assert tags.artwork_size(library_root / "DECO_27" / "01 - Roki.flac") == len(PNG)
+
+    @respx.mock
+    def test_an_embedded_cover_is_visible_to_other_commands_immediately(self, config_file):
+        _mock_itunes("DECO*27")
+        before = len(json.loads(invoke(config_file, "--json", "art", "check").stdout))
+
+        invoke(config_file, "art", "fetch", "--limit", "1", "--apply")
+
+        after = json.loads(invoke(config_file, "--json", "art", "check").stdout)
+        assert len(after) == before - 1
 
     @respx.mock
     def test_fetch_refuses_a_result_by_the_wrong_artist(self, config_file, library_root):

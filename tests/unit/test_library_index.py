@@ -166,3 +166,22 @@ class TestLibraryIndex:
     def test_creates_the_database_directory(self, tmp_path, library_root):
         with LibraryIndex(tmp_path / "nested" / "deeper" / "index.db") as index:
             assert index.refresh(library_root).added == 4
+
+    def test_reindex_picks_up_a_tag_this_tool_just_wrote(self, tmp_path, library_root):
+        # Without this, a command that edits tags leaves the next command
+        # reporting what was true before the edit.
+        from soulseektools.library import tags
+
+        track = library_root / "ZUN" / "Nested" / "15 Heian Alien.flac"
+        with LibraryIndex(tmp_path / "index.db") as index:
+            index.refresh(library_root)
+            assert index.entry(track).tags.genres == ()
+
+            tags.write_genres(track, ["Touhou"])
+            index.reindex(track, library_root)
+
+            assert index.entry(track).tags.genres == ("Touhou",)
+
+    def test_reindexing_a_file_that_is_gone_does_nothing(self, tmp_path, library_root):
+        with LibraryIndex(tmp_path / "index.db") as index:
+            assert index.reindex(library_root / "absent.flac", library_root) is None

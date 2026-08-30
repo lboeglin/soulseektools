@@ -259,6 +259,19 @@ class LibraryIndex:
         )
         return {row["folder_artist"]: row["total"] for row in rows}
 
+    def reindex(self, path: Path, root: Path) -> LibraryEntry | None:
+        """Re-read one file, after this tool has written to it.
+
+        A command that edits tags and leaves the cache alone makes the next
+        command report what was true before the edit.
+        """
+        if not path.is_file():
+            return None
+        entry = describe(path, root)
+        self._upsert(entry)
+        self._connection.commit()
+        return entry
+
     def fingerprint(self, path: Path, mtime: float) -> Fingerprint | None:
         """A cached fingerprint, or ``None`` if absent or computed before an edit."""
         row = self._connection.execute(

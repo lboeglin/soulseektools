@@ -75,20 +75,22 @@ def apply_genres(
         fail(str(error), hint="copy data/genres.example.toml and edit it for your library")
         return
 
+    root = app_context.library_root
     with app_context.open_index() as index:
         entries = list(index.entries())
+        changes = [
+            change for change in genre_module.plan_changes(entries, genre_map) if change.is_change
+        ]
 
-    changes = [
-        change for change in genre_module.plan_changes(entries, genre_map) if change.is_change
-    ]
-
-    failures: list[tuple[str, str]] = []
-    if apply:
-        for change in changes:
-            try:
-                genre_module.apply_change(change)
-            except TagError as error:
-                failures.append((str(change.entry.path), str(error)))
+        failures: list[tuple[str, str]] = []
+        if apply:
+            for change in changes:
+                try:
+                    genre_module.apply_change(change)
+                except TagError as error:
+                    failures.append((str(change.entry.path), str(error)))
+                else:
+                    index.reindex(change.entry.path, root)
 
     if app_context.as_json:
         console.print_json(
