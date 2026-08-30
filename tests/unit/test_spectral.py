@@ -12,6 +12,7 @@ import pytest
 
 from soulseektools.audio.spectral import (
     KNOWN_LOSSY_CUTOFFS,
+    MIN_ANALYSABLE_CUTOFF_HZ,
     analyse,
     average_spectrum_db,
     band_average,
@@ -172,6 +173,18 @@ class TestClassify:
 
     def test_a_gently_rolled_hi_res_container_is_not_flagged(self):
         assert classify(19000.0, 9.0, 96000)[0] is Verdict.OK
+
+    def test_audio_too_band_limited_to_judge_is_not_called_lossless(self):
+        # A pure tone, or anything else whose content stops far below every
+        # encoder cutoff, carries no evidence either way. Saying it looks
+        # genuinely lossless would claim more than the spectrum supports.
+        verdict, detail = classify(400.0, 0.0, SAMPLE_RATE)
+
+        assert verdict is Verdict.ERROR
+        assert "too band-limited to judge" in detail
+
+    def test_a_cutoff_just_above_the_analysable_floor_is_still_judged(self):
+        assert classify(float(MIN_ANALYSABLE_CUTOFF_HZ), 0.0, SAMPLE_RATE)[0] is Verdict.OK
 
 
 class TestAnalyse:

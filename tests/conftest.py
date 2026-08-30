@@ -36,18 +36,23 @@ def encode(
     frequency: int = 440,
     sample_rate: int = 44100,
     modulation_hz: float = 0.0,
+    noise: bool = False,
     metadata: Mapping[str, str] | None = None,
 ) -> Path:
     """Write a short test tone to ``path``, tagged with ``metadata``.
 
     ``modulation_hz`` adds a slow amplitude sweep, giving the tone the loudness
-    dynamics that fingerprinting needs and a steady sine lacks.
+    dynamics that fingerprinting needs and a steady sine lacks. ``noise`` writes
+    broadband noise instead, which is what the spectral check needs: a pure tone
+    has no high-frequency content to judge a cutoff by.
     """
     if FFMPEG is None:
         pytest.skip("ffmpeg is not on PATH")
 
     path.parent.mkdir(parents=True, exist_ok=True)
-    if modulation_hz:
+    if noise:
+        source = f"anoisesrc=d={seconds}:c=white:r={sample_rate}"
+    elif modulation_hz:
         source = (
             f"aevalsrc=0.5*sin(2*PI*{frequency}*t)*"
             f"(0.55+0.45*sin(2*PI*{modulation_hz}*t)):"
@@ -65,6 +70,8 @@ def encode(
         "lavfi",
         "-i",
         source,
+        "-ac",
+        "2",
         *_CODEC_BY_SUFFIX[path.suffix.lower()],
     ]
     for key, value in (metadata or {}).items():

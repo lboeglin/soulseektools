@@ -42,6 +42,14 @@ _STEEPNESS_WINDOW_HZ = 800
 # guard, normalising a silent spectrum to its own peak makes every band read as
 # 0 dB, and a silent file is confidently reported as genuinely lossless.
 _SILENCE_MAGNITUDE = 1e-9
+MIN_ANALYSABLE_CUTOFF_HZ = 8000
+"""Below this, there is no cutoff to judge.
+
+Every lossy encoder's low-pass sits well above this, so content stopping
+lower means the file is not ordinary music -- a tone, a field recording, an
+early transfer -- and saying it looks genuinely lossless would be claiming
+more than the spectrum supports.
+"""
 
 KNOWN_LOSSY_CUTOFFS: tuple[tuple[int, int, str], ...] = (
     (15000, 16800, "~128kbps source"),
@@ -174,6 +182,13 @@ def classify(
 
     if cutoff_hz >= nyquist - near_nyquist_margin_hz:
         return Verdict.OK, "content extends to near the Nyquist limit -- genuinely lossless"
+
+    if cutoff_hz < MIN_ANALYSABLE_CUTOFF_HZ:
+        return (
+            Verdict.ERROR,
+            f"content stops at {cutoff_hz:.0f}Hz, below any encoder cutoff "
+            "-- too band-limited to judge",
+        )
 
     is_steep = steepness_db_per_khz >= steep_db_per_khz
     label = matched_bitrate(cutoff_hz)

@@ -58,7 +58,8 @@ a set of ad-hoc scripts and a Nicotine+ plugin.
 
 - A silent or inaudible file normalised to its own peak read as 0 dB in every
   band and was confidently reported as genuinely lossless. It is now reported as
-  unanalysable.
+  unanalysable, as is any file whose content stops below every encoder cutoff
+  and so carries no evidence either way.
 - The known-bitrate cutoff bands were narrow enough that measured LAME stereo
   brickwalls at 16650 Hz and 18750 Hz fell between them, downgrading a real
   transcode to `SUSPECT`. The bands are now contiguous and derived from

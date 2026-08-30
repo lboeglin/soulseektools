@@ -4,6 +4,7 @@ No slskd, no network and no Soulseek account: the flows are exercised against
 the SoulseekClient protocol, which is what the protocol exists for.
 """
 
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -14,6 +15,7 @@ from soulseektools.errors import SoulseekClientError
 from soulseektools.models import Candidate, Track, TrackStatus, Verdict
 from soulseektools.review.store import ReviewStore
 from soulseektools.soulseek.base import Transfer, TransferState
+from tests.conftest import FFMPEG
 
 
 class FakeClient:
@@ -44,6 +46,29 @@ class FakeClient:
 
     def transfers(self):
         return list(self._transfers)
+
+
+def _reencode(source, destination, codec, *extra):
+    """Re-encode one file into another container, for building a fake lossless file."""
+    subprocess.run(
+        [
+            FFMPEG,
+            "-v",
+            "error",
+            "-y",
+            "-i",
+            str(source),
+            "-c:a",
+            codec,
+            *extra,
+            "-ac",
+            "2",
+            str(destination),
+        ],
+        check=True,
+        capture_output=True,
+    )
+    return destination
 
 
 @pytest.fixture
@@ -264,14 +289,32 @@ class TestCollect:
 
     def test_a_downloaded_lossless_file_is_verified(self, store, settings, queued, encode_audio):
         destination = settings.slskd.download_directory / "DECO_27" / "Roki.flac"
-        encode_audio(destination, seconds=4.0)
+        encode_audio(destination, seconds=6.0, noise=True)
         client = FakeClient(transfers=[transfer("@@peerA\\Music\\Roki.flac")])
 
         outcome = fetch.collect(store, client, settings)[0]
 
         assert outcome.verdict is not None
-        assert outcome.verdict.verdict in set(Verdict)
-        assert "verified" in store.track(queued).detail or "FAKE" in store.track(queued).detail
+        assert outcome.verdict.verdict is Verdict.OK
+        assert store.track(queued).detail == "downloaded, verified lossless"
+
+    def test_a_downloaded_transcode_is_recorded_against_the_track(
+        self, store, settings, queued, encode_audio, tmp_path
+    ):
+        # The check that mattered most in practice: a file that arrives as FLAC
+        # but was really an MP3 is flagged the moment it lands.
+        source = encode_audio(tmp_path / "source.flac", seconds=6.0, noise=True)
+        lossy = _reencode(source, tmp_path / "source.mp3", "libmp3lame", "-b:a", "128k")
+        destination = settings.slskd.download_directory / "DECO_27" / "Roki.flac"
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        _reencode(lossy, destination, "flac")
+        client = FakeClient(transfers=[transfer("@@peerA\\Music\\Roki.flac")])
+
+        outcome = fetch.collect(store, client, settings)[0]
+
+        assert outcome.verdict is not None
+        assert outcome.verdict.verdict is Verdict.FAKE
+        assert "FAKE" in store.track(queued).detail
 
     def test_a_missing_file_is_recorded_without_a_verdict(self, store, settings, queued):
         client = FakeClient(transfers=[transfer("@@peerA\\Music\\Roki.flac")])
