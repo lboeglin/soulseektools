@@ -76,9 +76,6 @@ A `!` after the scope marks a breaking change.
 Write the body for someone who was not there: what changed, and what problem it
 solves. If a defect surfaced while writing tests, say what it was.
 
-Do not add AI or assistant attribution to commits, documentation or code — no
-`Co-Authored-By` trailers, no generated-by notices.
-
 ## Project shape
 
 ```
