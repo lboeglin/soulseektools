@@ -36,6 +36,19 @@ def normalize(text: str | None) -> str:
     return _WHITESPACE.sub(" ", folded).strip().lower()
 
 
+def flatten(text: str | None) -> str:
+    """Lowercase ``text`` with punctuation turned to spaces, keeping every word.
+
+    Unlike :func:`normalize`, this preserves bracketed content and featured
+    credits. Those are noise when comparing two titles but are exactly the signal
+    when scanning a path for warnings: "Roki (Live).flac" says what it is only
+    inside the brackets.
+    """
+    folded = unicodedata.normalize("NFKC", text or "")
+    folded = _PUNCTUATION.sub(" ", folded)
+    return _WHITESPACE.sub(" ", folded).strip().lower()
+
+
 def strip_track_number(name: str) -> str:
     """Drop a leading track number such as ``01 -``, ``(06)`` or ``15.``."""
     stripped = _LEADING_TRACK_NUMBER.sub("", name, count=1)
