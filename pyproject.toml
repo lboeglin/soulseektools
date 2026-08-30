@@ -45,6 +45,9 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 packages = ["src/soulseektools"]
 
+[tool.uv]
+link-mode = "copy"
+
 [dependency-groups]
 dev = [
     "mypy>=1.10",
@@ -88,7 +91,8 @@ ignore = [
 known-first-party = ["soulseektools"]
 
 [tool.mypy]
-python_version = "3.11"
+# Left to the running interpreter: the numpy stubs use 3.12+ syntax, and ruff's
+# target-version already guards against language features newer than 3.11.
 files = ["src"]
 exclude = ["legacy"]
 strict = true
@@ -98,6 +102,12 @@ enable_error_code = ["redundant-expr", "truthy-bool", "ignore-without-code"]
 [[tool.mypy.overrides]]
 module = ["pykakasi.*", "mutagen.*"]
 ignore_missing_imports = true
+
+# The only thing this module does is adapt pykakasi, whose public entry point
+# carries no annotations.
+[[tool.mypy.overrides]]
+module = ["soulseektools.text.romaji"]
+disallow_untyped_calls = false
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
