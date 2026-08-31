@@ -7,9 +7,9 @@
 
 mod support;
 
-use std::cell::RefCell;
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::Mutex;
 use std::time::Instant;
 
 use serde_json::{json, Value};
@@ -40,7 +40,7 @@ struct Recorded {
     json: HashMap<String, Value>,
     bytes: HashMap<String, Vec<u8>>,
     failures: HashMap<String, String>,
-    requested: RefCell<Vec<String>>,
+    requested: Mutex<Vec<String>>,
 }
 
 impl Recorded {
@@ -67,7 +67,8 @@ impl ArtHttp for Recorded {
             .map(|(name, value)| format!("{name}={value}"))
             .collect();
         self.requested
-            .borrow_mut()
+            .lock()
+            .expect("the recorder is not poisoned")
             .push(format!("{url}?{}", query.join("&")));
 
         if let Some(message) = self.failures.get(url) {
@@ -80,7 +81,10 @@ impl ArtHttp for Recorded {
     }
 
     fn get_bytes(&self, url: &str) -> Result<Vec<u8>> {
-        self.requested.borrow_mut().push(url.to_owned());
+        self.requested
+            .lock()
+            .expect("the recorder is not poisoned")
+            .push(url.to_owned());
         if let Some(message) = self.failures.get(url) {
             return Err(Error::Config(message.clone()));
         }
@@ -512,7 +516,8 @@ fn a_wrong_artist_result_is_not_downloaded() {
     // Nothing was fetched: the guard runs before the download.
     assert!(http
         .requested
-        .borrow()
+        .lock()
+        .expect("the recorder")
         .iter()
         .all(|url| url.starts_with(stk::artwork::itunes::SEARCH_URL)));
 }

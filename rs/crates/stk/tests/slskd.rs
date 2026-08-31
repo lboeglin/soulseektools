@@ -5,8 +5,8 @@
 //! the requests it made can be inspected afterwards. What is under test either
 //! way is the wire format -- slskd's quirks -- not the HTTP library.
 
-use std::cell::RefCell;
 use std::collections::HashMap;
+use std::sync::Mutex;
 
 use serde_json::{json, Value};
 
@@ -19,7 +19,8 @@ use stk::soulseek::slskd::{state_from, Http, SlskdClient};
 struct Recorded {
     responses: HashMap<String, Value>,
     failures: HashMap<String, String>,
-    calls: RefCell<Vec<(String, String, Option<Value>)>>,
+    // `Mutex` rather than `RefCell`: `Http` is `Sync` now that searches fan out.
+    calls: Mutex<Vec<(String, String, Option<Value>)>>,
 }
 
 impl Recorded {
@@ -36,7 +37,8 @@ impl Recorded {
 
     fn calls_to(&self, method: &str, prefix: &str) -> Vec<(String, Option<Value>)> {
         self.calls
-            .borrow()
+            .lock()
+            .expect("the recorder is not poisoned")
             .iter()
             .filter(|(seen, path, _)| seen == method && path.starts_with(prefix))
             .map(|(_, path, body)| (path.clone(), body.clone()))
@@ -47,7 +49,8 @@ impl Recorded {
 impl Http for Recorded {
     fn request(&self, method: &str, path: &str, body: Option<&Value>) -> Result<Option<Value>> {
         self.calls
-            .borrow_mut()
+            .lock()
+            .expect("the recorder is not poisoned")
             .push((method.to_owned(), path.to_owned(), body.cloned()));
 
         let key = format!("{method} {path}");
@@ -425,7 +428,7 @@ fn enqueueing_nothing_makes_no_request() {
         .is_empty());
 
     let recorder = client.into_http();
-    assert!(recorder.calls.borrow().is_empty());
+    assert!(recorder.calls.lock().expect("the recorder").is_empty());
 }
 
 #[test]

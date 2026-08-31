@@ -163,6 +163,13 @@ pub struct SlskdSettings {
     pub download_directory: Option<PathBuf>,
     /// How long a queued transfer may sit before it counts as stalled (#2).
     pub stall_after_seconds: f64,
+    /// How many searches to run at once.
+    ///
+    /// Every search is spent waiting on slskd rather than computing, so this is
+    /// the one number that decides how long a batch takes. Bounded rather than
+    /// unlimited: slskd relays each search to the Soulseek network, and a
+    /// hundred at once is a good way to be throttled.
+    pub search_concurrency: usize,
 }
 
 impl Default for SlskdSettings {
@@ -175,6 +182,7 @@ impl Default for SlskdSettings {
             request_timeout_seconds: 30.0,
             download_directory: None,
             stall_after_seconds: 3600.0,
+            search_concurrency: 4,
         }
     }
 }

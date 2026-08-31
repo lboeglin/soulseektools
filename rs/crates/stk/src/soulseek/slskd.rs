@@ -43,7 +43,7 @@ const TERMINAL_STATES: &[(&str, TransferState)] = &[
 /// The Python mocks `httpx` with `respx`; a trait here keeps the JSON handling
 /// -- which is the part that actually encodes slskd's quirks -- testable on its
 /// own.
-pub trait Http {
+pub trait Http: Sync {
     /// Perform one request, returning the parsed body, or `None` for an empty one.
     fn request(&self, method: &str, path: &str, body: Option<&Value>) -> Result<Option<Value>>;
 }

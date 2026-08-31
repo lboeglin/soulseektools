@@ -7,8 +7,8 @@
 
 mod support;
 
-use std::cell::RefCell;
 use std::path::PathBuf;
+use std::sync::Mutex;
 
 use stk::config::Settings;
 use stk::errors::{Error, Result};
@@ -33,8 +33,10 @@ struct FakeClient {
     transfers: Vec<Transfer>,
     search_error: Option<String>,
     enqueue_error: Option<String>,
-    searched: RefCell<Vec<String>>,
-    enqueued: RefCell<Vec<(String, String)>>,
+    // `Mutex` rather than `RefCell`: the client boundary is `Sync` now that
+    // searches fan out, and a fake has to satisfy the same bound.
+    searched: Mutex<Vec<String>>,
+    enqueued: Mutex<Vec<(String, String)>>,
 }
 
 impl FakeClient {
@@ -59,7 +61,10 @@ impl SoulseekClient for FakeClient {
     }
 
     fn search(&self, text: &str, _timeout: u32, _limit: u32) -> Result<Vec<Candidate>> {
-        self.searched.borrow_mut().push(text.to_owned());
+        self.searched
+            .lock()
+            .expect("the fake is not poisoned")
+            .push(text.to_owned());
         match &self.search_error {
             Some(error) => Err(Error::SoulseekClient(error.clone())),
             None => Ok(self.candidates.clone()),
@@ -73,7 +78,8 @@ impl SoulseekClient for FakeClient {
         destination: &str,
     ) -> Result<Vec<Transfer>> {
         self.enqueued
-            .borrow_mut()
+            .lock()
+            .expect("the fake is not poisoned")
             .push((username.to_owned(), destination.to_owned()));
         match &self.enqueue_error {
             Some(error) => Err(Error::SoulseekClient(error.clone())),
@@ -171,7 +177,10 @@ fn the_search_text_is_normalised() {
     let client = FakeClient::default();
     fetch::search_pending(&mut store, &client, &settings, None).expect("a search");
 
-    assert_eq!(client.searched.borrow().as_slice(), ["deco 27 roki"]);
+    assert_eq!(
+        client.searched.lock().expect("the fake").as_slice(),
+        ["deco 27 roki"]
+    );
 }
 
 #[test]
@@ -288,7 +297,7 @@ fn the_approved_candidate_is_queued() {
         fetch::enqueue_approved(&mut store, &enqueuer, None, 1000.0).expect("an enqueue");
 
     assert!(outcomes[0].queued);
-    assert_eq!(enqueuer.enqueued.borrow()[0].0, "peerA");
+    assert_eq!(enqueuer.enqueued.lock().expect("the fake")[0].0, "peerA");
 }
 
 #[test]
@@ -682,4 +691,101 @@ fn downloaded_path_needs_a_configured_download_directory() {
         downloaded_path(&Settings::default(), "DECO*27", &transfer),
         None::<PathBuf>
     );
+}
+
+/// The parallelism #1 asks for, measured rather than assumed.
+///
+/// Every slskd search is a socket wait, so a serial run costs roughly
+/// `timeout x tracks`. This gives the fake a deliberate delay and checks the
+/// batch finishes in well under the serial total.
+#[test]
+fn searches_run_concurrently_rather_than_one_after_another() {
+    struct SlowClient {
+        delay: std::time::Duration,
+        concurrent: std::sync::atomic::AtomicUsize,
+        peak: std::sync::atomic::AtomicUsize,
+    }
+
+    impl SoulseekClient for SlowClient {
+        fn is_connected(&self) -> bool {
+            true
+        }
+
+        fn search(&self, _text: &str, _timeout: u32, _limit: u32) -> Result<Vec<Candidate>> {
+            use std::sync::atomic::Ordering;
+            let running = self.concurrent.fetch_add(1, Ordering::SeqCst) + 1;
+            self.peak.fetch_max(running, Ordering::SeqCst);
+            std::thread::sleep(self.delay);
+            self.concurrent.fetch_sub(1, Ordering::SeqCst);
+            Ok(Vec::new())
+        }
+
+        fn enqueue(&self, _user: &str, _files: &[Candidate], _to: &str) -> Result<Vec<Transfer>> {
+            Ok(Vec::new())
+        }
+
+        fn transfers(&self) -> Result<Vec<Transfer>> {
+            Ok(Vec::new())
+        }
+    }
+
+    let scratch = Scratch::new("fetch-concurrent");
+    let mut settings = settings(&scratch);
+    settings.slskd.search_concurrency = 4;
+    let mut store = store(&scratch);
+
+    let tracks: Vec<Track> = (0..8)
+        .map(|index| Track::new("A", &index.to_string()))
+        .collect();
+    store.add(&tracks).expect("added tracks");
+
+    let client = SlowClient {
+        delay: std::time::Duration::from_millis(100),
+        concurrent: std::sync::atomic::AtomicUsize::new(0),
+        peak: std::sync::atomic::AtomicUsize::new(0),
+    };
+
+    let started = std::time::Instant::now();
+    let outcomes = fetch::search_pending(&mut store, &client, &settings, None).expect("a search");
+    let elapsed = started.elapsed();
+
+    assert_eq!(outcomes.len(), 8);
+    // Serial would be 800ms; four at a time is about 200ms.
+    assert!(
+        elapsed < std::time::Duration::from_millis(600),
+        "took {elapsed:?}, which looks serial"
+    );
+    assert!(
+        client.peak.load(std::sync::atomic::Ordering::SeqCst) > 1,
+        "no two searches ever overlapped"
+    );
+}
+
+/// Results still line up with the tracks they came from, whatever order the
+/// threads finished in.
+#[test]
+fn concurrent_results_stay_matched_to_their_tracks() {
+    let scratch = Scratch::new("fetch-concurrent-order");
+    let mut settings = settings(&scratch);
+    settings.slskd.search_concurrency = 4;
+    let mut store = store(&scratch);
+
+    store
+        .add(&[
+            Track::new("DECO*27", "Roki"),
+            Track::new("ZUN", "Heian Alien"),
+        ])
+        .expect("added tracks");
+
+    let client = FakeClient::with_candidates(vec![candidate(r"@@peerA\Music\Roki.flac")]);
+    let outcomes = fetch::search_pending(&mut store, &client, &settings, None).expect("a search");
+
+    // Only Roki matches the one candidate offered, so the pairing is visible in
+    // the results themselves rather than assumed.
+    let by_query: std::collections::HashMap<&str, usize> = outcomes
+        .iter()
+        .map(|outcome| (outcome.query.as_str(), outcome.found))
+        .collect();
+    assert_eq!(by_query["DECO*27 - Roki"], 1);
+    assert_eq!(by_query["ZUN - Heian Alien"], 0);
 }

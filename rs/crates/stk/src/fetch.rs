@@ -9,6 +9,8 @@
 //! than by shelling out to a script at a hardcoded path as the plugin did.
 
 use std::collections::HashMap;
+
+use rayon::prelude::*;
 use std::path::{Path, PathBuf};
 
 use crate::audio::verify::verify_file;
@@ -60,16 +62,19 @@ pub fn search_pending(
     limit: Option<usize>,
 ) -> crate::errors::Result<Vec<SearchOutcome>> {
     let pending = store.tracks(&[TrackStatus::Pending], limit)?;
+
+    // The searches run concurrently and the results are written afterwards.
+    //
+    // Every search is a socket wait -- slskd polls the Soulseek network for the
+    // configured timeout, one whole second at a time -- so a serial run costs
+    // roughly `timeout x tracks`, which for a full wantlist is the difference
+    // between minutes and most of an hour. The store stays single-threaded:
+    // SQLite is not the slow part and does not need to be shared.
+    let searched: Vec<crate::errors::Result<Vec<crate::models::Candidate>>> =
+        search_concurrently(&pending, client, settings);
+
     let mut outcomes = Vec::new();
-
-    for entry in pending {
-        let query = normalize(&format!("{} {}", entry.track.artist, entry.track.title));
-        let found = client.search(
-            &query,
-            settings.slskd.search_timeout_seconds,
-            settings.slskd.search_response_limit,
-        );
-
+    for (entry, found) in pending.into_iter().zip(searched) {
         match found {
             Err(error) => {
                 store.mark(entry.id, TrackStatus::Failed, &error.to_string())?;
@@ -98,6 +103,38 @@ pub fn search_pending(
         }
     }
     Ok(outcomes)
+}
+
+/// Run every pending track's search at once, bounded by `search_concurrency`.
+fn search_concurrently(
+    pending: &[crate::review::store::ReviewTrack],
+    client: &dyn SoulseekClient,
+    settings: &Settings,
+) -> Vec<crate::errors::Result<Vec<crate::models::Candidate>>> {
+    let search = |entry: &crate::review::store::ReviewTrack| {
+        let query = normalize(&format!("{} {}", entry.track.artist, entry.track.title));
+        client.search(
+            &query,
+            settings.slskd.search_timeout_seconds,
+            settings.slskd.search_response_limit,
+        )
+    };
+
+    let workers = settings.slskd.search_concurrency.max(1);
+    if workers == 1 || pending.len() < 2 {
+        return pending.iter().map(search).collect();
+    }
+
+    // Its own pool rather than the global one: these threads are parked on a
+    // socket, not computing, so the right number has nothing to do with the
+    // number of cores rayon would otherwise pick.
+    rayon::ThreadPoolBuilder::new()
+        .num_threads(workers)
+        .build()
+        .map_or_else(
+            |_| pending.iter().map(search).collect(),
+            |pool| pool.install(|| pending.par_iter().map(search).collect()),
+        )
 }
 
 /// Queue every approved pick, sorting each into a folder named for its artist.

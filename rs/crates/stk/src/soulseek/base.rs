@@ -88,7 +88,11 @@ impl Transfer {
 }
 
 /// A Soulseek backend that can search and download.
-pub trait SoulseekClient {
+///
+/// `Sync`, because `fetch::search_pending` runs the searches concurrently: every
+/// one of them is spent waiting on a socket, and a serial port would be no
+/// faster than the serial Python it replaces.
+pub trait SoulseekClient: Sync {
     /// Whether the backend is logged in and able to search.
     fn is_connected(&self) -> bool;
 
