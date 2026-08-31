@@ -7,11 +7,15 @@
 
 pub mod audio;
 pub mod config;
+pub mod duplicates;
 pub mod errors;
+pub mod genres;
 pub mod library;
 pub mod matching;
 pub mod models;
+pub mod review;
 pub mod soulseek;
 pub mod text;
+pub mod wantlist;
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");

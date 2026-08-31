@@ -11,6 +11,7 @@ use std::path::{Path, PathBuf};
 
 use rusqlite::{params, Connection, OptionalExtension};
 
+use crate::audio::fingerprint::{Fingerprint, FingerprintKind, Values};
 use crate::errors::{Error, Result};
 use crate::library::scan::{folder_artist, iter_audio_files, AUDIO_EXTENSIONS};
 use crate::library::tags;
@@ -417,6 +418,63 @@ impl LibraryIndex {
             .optional()
             .map_err(|error| sqlite_error(&error))?;
         Ok(stored.flatten().and_then(|value| value.parse().ok()))
+    }
+
+    /// A cached fingerprint, or `None` if absent or computed before an edit.
+    pub fn fingerprint(&self, path: &Path, mtime: f64) -> Result<Option<Fingerprint>> {
+        let row: Option<(String, String, Option<f64>)> = self
+            .connection
+            .query_row(
+                "SELECT kind, values_json, duration_seconds FROM fingerprints                  WHERE path = ?1 AND mtime = ?2",
+                params![path.display().to_string(), mtime],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .optional()
+            .map_err(|error| sqlite_error(&error))?;
+
+        let Some((kind, values, duration_seconds)) = row else {
+            return Ok(None);
+        };
+        let values = match kind.parse::<FingerprintKind>() {
+            Ok(FingerprintKind::Chromaprint) => {
+                Values::Chromaprint(serde_json::from_str(&values).unwrap_or_default())
+            }
+            Ok(FingerprintKind::Envelope) => {
+                Values::Envelope(serde_json::from_str(&values).unwrap_or_default())
+            }
+            Err(_) => return Ok(None),
+        };
+        Ok(Some(Fingerprint {
+            values,
+            duration_seconds,
+        }))
+    }
+
+    pub fn store_fingerprint(
+        &mut self,
+        path: &Path,
+        mtime: f64,
+        value: &Fingerprint,
+    ) -> Result<()> {
+        let values = match &value.values {
+            Values::Chromaprint(values) => serde_json::to_string(values),
+            Values::Envelope(values) => serde_json::to_string(values),
+        }
+        .unwrap_or_else(|_| "[]".to_owned());
+
+        self.connection
+            .execute(
+                "INSERT OR REPLACE INTO fingerprints                  (path, mtime, kind, values_json, duration_seconds) VALUES (?1, ?2, ?3, ?4, ?5)",
+                params![
+                    path.display().to_string(),
+                    mtime,
+                    value.kind().as_str(),
+                    values,
+                    value.duration_seconds,
+                ],
+            )
+            .map_err(|error| sqlite_error(&error))?;
+        Ok(())
     }
 
     fn upsert(&mut self, entry: &LibraryEntry) -> Result<()> {
