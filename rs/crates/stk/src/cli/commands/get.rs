@@ -5,13 +5,15 @@
 //! wantlist to get it would be absurd. Same search, same ranking, same
 //! verification -- just asked for directly and answered in one command.
 
-use std::io::BufRead as _;
+use std::io::{BufRead as _, Read as _};
+use std::path::{Path, PathBuf};
 
 use clap::Args;
 use serde_json::json;
 
 use crate::cli::context::{table, AppContext};
 use crate::config::SlskdSettings;
+use crate::errors::Error;
 use crate::errors::Result;
 use crate::models::{ScoredCandidate, Track};
 use crate::soulseek::base::SoulseekClient;
@@ -25,8 +27,12 @@ pub const SEPARATORS: &[&str] = &[" - ", " \u{2013} ", " \u{2014} "];
 
 #[derive(Args, Debug)]
 pub struct GetArgs {
-    /// What to find: "Artist - Title", or just a title.
-    pub query: String,
+    /// What to find: "Artist - Title", or just a title. Repeatable.
+    pub query: Vec<String>,
+
+    /// Read one "Artist - Title" per line from a file, or from stdin with `-`.
+    #[arg(long = "from", value_name = "PATH")]
+    pub from: Option<PathBuf>,
 
     /// The artist, if not given in the query.
     #[arg(short = 'a', long)]
@@ -67,20 +73,67 @@ pub fn split_query(query: &str) -> (String, String) {
     (String::new(), query.trim().to_owned())
 }
 
+/// Read the wanted tracks from the arguments and from `--from`.
+///
+/// A list is one `Artist - Title` per line. Blank lines and `#` comments are
+/// skipped, so a hand-kept file can carry notes.
+pub fn wanted_tracks(args: &GetArgs) -> Result<Vec<Track>> {
+    let mut lines: Vec<String> = args.query.clone();
+
+    if let Some(source) = &args.from {
+        let text = if source == Path::new("-") {
+            let mut buffer = String::new();
+            std::io::stdin()
+                .lock()
+                .read_to_string(&mut buffer)
+                .map_err(|error| Error::Config(format!("cannot read stdin: {error}")))?;
+            buffer
+        } else {
+            std::fs::read_to_string(source).map_err(|error| {
+                Error::Config(format!("cannot read {}: {error}", source.display()))
+            })?
+        };
+        lines.extend(
+            text.lines()
+                .map(str::trim)
+                .filter(|line| !line.is_empty() && !line.starts_with('#'))
+                .map(str::to_owned),
+        );
+    }
+
+    Ok(lines
+        .iter()
+        .map(|line| {
+            let (parsed_artist, title) = split_query(line);
+            // `--artist` names the artist for every line, which is what makes
+            // `stk get -a "DECO*27" Roki "Ghost Rule"` mean anything.
+            Track::new(args.artist.as_deref().unwrap_or(&parsed_artist), &title)
+        })
+        .filter(|track| !track.title.is_empty())
+        .collect())
+}
+
 /// # Panics
 ///
-/// If the track just added cannot be found again, which would mean the review
+/// If a track just added cannot be found again, which would mean the review
 /// store lost a row between two statements in the same connection.
 pub fn run(context: &AppContext, args: &GetArgs) -> Result<i32> {
-    let (parsed_artist, title) = split_query(&args.query);
-    let track = Track::new(args.artist.as_deref().unwrap_or(&parsed_artist), &title);
-
-    if track.title.is_empty() {
+    let tracks = wanted_tracks(args)?;
+    if tracks.is_empty() {
         eprintln!("error: nothing to search for");
-        eprintln!("hint: try: stk get \"DECO*27 - Roki\"");
+        eprintln!("hint: try: stk get \"DECO*27 - Roki\", or --from list.txt");
         return Ok(1);
     }
 
+    // One track asked for by hand is the interactive flow the Python has: show
+    // the candidates, take a pick, download it. Several -- or a list -- is a
+    // batch, and stopping to prompt on each would defeat the point of passing
+    // them together.
+    if tracks.len() > 1 || args.from.is_some() {
+        return batch(context, args, &tracks);
+    }
+
+    let track = tracks.into_iter().next().expect("exactly one track");
     let mut options = context.settings().ranking.clone();
     options.require_lossless = args.lossless || options.require_lossless;
     options.min_bitrate = args.min_bitrate.or(options.min_bitrate);
@@ -215,4 +268,97 @@ fn payload(track: &Track, scored: &[ScoredCandidate]) -> serde_json::Value {
             }))
             .collect::<Vec<_>>(),
     })
+}
+
+/// Queue several tracks at once.
+///
+/// The batch flow the wantlist uses is "diff against the library, then queue the
+/// remainder". A plain list usually wants none of that: these are tracks someone
+/// has already decided they want, so they go straight into the review queue and
+/// are searched there. `--yes` takes the top pick for each and downloads it;
+/// without it they wait for `stk review`, which is where a human chooses.
+fn batch(context: &AppContext, args: &GetArgs, tracks: &[Track]) -> Result<i32> {
+    let mut settings = context.settings().clone();
+    settings.ranking.require_lossless = args.lossless || settings.ranking.require_lossless;
+    settings.ranking.min_bitrate = args.min_bitrate.or(settings.ranking.min_bitrate);
+    settings.review.candidates_per_track = args.limit.clamp(1, 10);
+
+    let mut store = context.open_review()?;
+    let added = store.add(tracks)?;
+    context.say(&format!(
+        "{} track(s) wanted, {added} newly queued. Searching ...",
+        tracks.len()
+    ));
+
+    let client = SlskdClient::new(settings.slskd.clone(), HttpTransport::new(&settings.slskd)?);
+    let outcomes = fetch::search_pending(&mut store, &client, &settings, None)?;
+
+    if context.as_json {
+        context.emit(&serde_json::json!({
+            "wanted": tracks.len(),
+            "queued": added,
+            "searched": outcomes
+                .iter()
+                .map(|outcome| serde_json::json!({
+                    "track_id": outcome.track_id,
+                    "query": outcome.query,
+                    "found": outcome.found,
+                    "error": outcome.error,
+                }))
+                .collect::<Vec<_>>(),
+        }));
+        return Ok(0);
+    }
+
+    let rows: Vec<Vec<String>> = outcomes
+        .iter()
+        .map(|outcome| {
+            let found = if outcome.error.is_empty() {
+                outcome.found.to_string()
+            } else {
+                "--".to_owned()
+            };
+            vec![found, outcome.query.clone(), outcome.error.clone()]
+        })
+        .collect();
+    context.say(&table(&["Found", "Track", "Note"], &rows));
+
+    let with_candidates = outcomes.iter().filter(|outcome| outcome.found > 0).count();
+    if !args.yes {
+        context.say(&format!(
+            "{with_candidates} of {} track(s) have candidates. \
+             Run stk review list --candidates to choose, then stk fetch download.",
+            outcomes.len()
+        ));
+        return Ok(0);
+    }
+
+    // `--yes` takes the top pick for each, which is the only place a batch ever
+    // chooses on someone's behalf, and only because they asked for it.
+    let mut approved = 0;
+    for outcome in &outcomes {
+        if outcome.found > 0 && store.approve(outcome.track_id, 1).is_ok() {
+            approved += 1;
+        }
+    }
+
+    if args.queue_only {
+        context.say(&format!(
+            "Approved the best candidate for {approved} track(s). Run stk fetch download."
+        ));
+        return Ok(0);
+    }
+
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs_f64();
+    let queued = fetch::enqueue_approved(&mut store, &client, None, now)?;
+    let sent = queued.iter().filter(|outcome| outcome.queued).count();
+
+    context.say(&format!(
+        "Queued {sent} of {approved} download(s). \
+         Run stk fetch download --collect to record them once they finish."
+    ));
+    Ok(0)
 }

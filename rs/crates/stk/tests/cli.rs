@@ -773,3 +773,105 @@ fn a_json_document_written_by_the_cli_parses() {
     let _ = json_at;
     drop(harness);
 }
+
+/// Phase 4 (#1): `stk get` handles one track, several tracks, and a list from a
+/// file or stdin. `wanted_tracks` is the parser all three go through.
+#[test]
+fn get_accepts_one_track_several_tracks_and_a_list() {
+    use stk::cli::commands::get::{wanted_tracks, GetArgs};
+
+    let scratch = Scratch::new("get-input");
+    let args = |query: Vec<&str>, from: Option<PathBuf>| GetArgs {
+        query: query.into_iter().map(str::to_owned).collect(),
+        from,
+        artist: None,
+        lossless: false,
+        min_bitrate: None,
+        yes: false,
+        queue_only: false,
+        limit: 5,
+    };
+
+    // One.
+    let one = wanted_tracks(&args(vec!["DECO*27 - Roki"], None)).expect("one track");
+    assert_eq!(one.len(), 1);
+    assert_eq!(one[0].query(), "DECO*27 - Roki");
+
+    // Several, which the Python could not express at all: `query` was one `str`.
+    let several = wanted_tracks(&args(
+        vec!["DECO*27 - Roki", "ZUN - Heian Alien", "Ado - Odo"],
+        None,
+    ))
+    .expect("several tracks");
+    assert_eq!(several.len(), 3);
+    assert_eq!(several[2].query(), "Ado - Odo");
+
+    // A list from a file, with blank lines and comments skipped.
+    let list = scratch.join("wanted.txt");
+    std::fs::write(
+        &list,
+        "# tracks to chase down\nDECO*27 - Roki\n\n  ZUN - Heian Alien  \n# not this one\n",
+    )
+    .expect("a written list");
+
+    let from_file = wanted_tracks(&args(Vec::new(), Some(list.clone()))).expect("a list");
+    assert_eq!(from_file.len(), 2);
+    assert_eq!(from_file[0].query(), "DECO*27 - Roki");
+    assert_eq!(from_file[1].query(), "ZUN - Heian Alien");
+
+    // Arguments and a list combine rather than one replacing the other.
+    let both = wanted_tracks(&args(vec!["Ado - Odo"], Some(list))).expect("both");
+    assert_eq!(both.len(), 3);
+}
+
+#[test]
+fn get_applies_one_artist_across_a_whole_list() {
+    use stk::cli::commands::get::{wanted_tracks, GetArgs};
+
+    let tracks = wanted_tracks(&GetArgs {
+        query: vec!["Roki".to_owned(), "Ghost Rule".to_owned()],
+        from: None,
+        artist: Some("DECO*27".to_owned()),
+        lossless: false,
+        min_bitrate: None,
+        yes: false,
+        queue_only: false,
+        limit: 5,
+    })
+    .expect("tracks");
+
+    assert_eq!(tracks.len(), 2);
+    assert!(tracks.iter().all(|track| track.artist == "DECO*27"));
+}
+
+#[test]
+fn get_reports_a_list_it_cannot_read() {
+    use stk::cli::commands::get::{wanted_tracks, GetArgs};
+
+    let error = wanted_tracks(&GetArgs {
+        query: Vec::new(),
+        from: Some(PathBuf::from("no-such-list.txt")),
+        artist: None,
+        lossless: false,
+        min_bitrate: None,
+        yes: false,
+        queue_only: false,
+        limit: 5,
+    })
+    .expect_err("a missing list");
+
+    assert!(error.to_string().contains("cannot read"), "{error}");
+}
+
+#[test]
+fn get_with_an_empty_list_is_rejected() {
+    let _guard = exclusive();
+    let harness = Harness::new("cli-get-empty-list");
+    harness.with_config(&harness.join("Music"));
+
+    let list = harness.join("empty.txt");
+    std::fs::write(&list, "# nothing here\n\n").expect("a written list");
+
+    assert_eq!(run(&["get", "--from", &list.display().to_string()]), 1);
+    drop(harness);
+}

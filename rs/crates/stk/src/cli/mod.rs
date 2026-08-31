@@ -54,7 +54,7 @@ pub enum Command {
     /// Analyse the frequency spectrum of every lossless file and report the verdicts.
     Verify(commands::verify::VerifyArgs),
 
-    /// Search for one track, show what turned up, and download the one you pick.
+    /// Search for tracks by name -- one, several, or a list -- and fetch them.
     Get(commands::get::GetArgs),
 
     /// Scan and inspect the library index.
