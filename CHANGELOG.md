@@ -7,16 +7,17 @@ follows [semantic versioning](https://semver.org/).
 ## [Unreleased]
 
 The project became an installable package with a single `stk` command, replacing
-a set of ad-hoc scripts and a Nicotine+ plugin, and was then ported to Rust.
+a set of ad-hoc scripts and a Nicotine+ plugin, and was then rewritten in Rust.
 
 ### Added
 
-- Rust implementation of the whole CLI, under `rs/`, built as `stk-rs` while the
-  Python `stk` is still installed. Ported step by step against `oracle/` --
-  output captured from the Python build against a real 266-file library -- and
-  every capture reproduces: the 434 name forms on both their normalised and
-  romanised columns, all 258 rows of the verify report, and the tag dump, stats,
-  genre, artwork and duplicate documents.
+- Rust implementation of the whole CLI, under `rs/`. Ported step by step against
+  `oracle/` -- output captured from the Python build against a real 266-file
+  library -- and every capture reproduces: the 434 name forms on both their
+  normalised and romanised columns, all 258 rows of the verify report, and the
+  tag dump, stats, genre, artwork, title-duplicate and content-duplicate
+  documents. Startup drops from about three quarters of a second to single-digit
+  milliseconds.
 - `stk get` takes several tracks, and a list from a file or from stdin, where it
   previously took exactly one query.
 - `library.db` v3: `files` gains `codec`, `bitrate`, `sample_rate`, `bit_depth`,
@@ -79,6 +80,14 @@ a set of ad-hoc scripts and a Nicotine+ plugin, and was then ported to Rust.
   mutagen dispatch disagreed about which formats they supported and about
   whether a missing ID3 header was an error or an empty tag.
 - rapidfuzz replaced difflib for name matching.
+
+### Removed
+
+- The Python implementation, once the Rust build reproduced every reference
+  capture. It remains reachable at the `python-reference` tag:
+  `git checkout python-reference -- py/`.
+- The Textual review app, which went with it. `stk review list --candidates`,
+  `stk review approve` and `stk review reject` cover the same workflow.
 
 ### Fixed
 

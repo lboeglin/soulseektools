@@ -1,58 +1,41 @@
 # Contributing
 
-## Two implementations
-
-The tool is being ported to Rust ([#1](https://github.com/lboeglin/soulseektools/issues/1)).
-Until parity, both trees live side by side and both must stay green:
-
-| | |
-| --- | --- |
-| `py/` | the Python implementation, installed as `stk` |
-| `rs/` | the Rust port, built as `stk-rs` |
-| `oracle/` | reference output from `py/`, which `rs/` is diffed against |
-
-Side by side rather than on a branch, because the point of the oracle is running
-both against the same library and comparing. `oracle/` is not committed: it names
-every file in a private library.
-
 ## Getting set up
 
 ```bash
-uv sync --directory py --dev
-uv run pre-commit install
-uv run --directory py stk --help
-
-cargo build --manifest-path rs/Cargo.toml
+cd rs
+cargo build
+cargo run -- --help
 ```
 
-ffmpeg and ffprobe need to be on `PATH`; tests that need them skip without them,
-but a large part of both suites does need them.
+ffmpeg and ffprobe need to be on `PATH`. Tests that need them say so and return
+rather than failing, but a large part of the suite does need them.
 
 ## Checks
 
 Everything CI runs, locally:
 
 ```bash
-cd py
-uv run ruff check .
-uv run ruff format --check .
-uv run mypy
-uv run pytest --cov
-
-cd ../rs
+cd rs
 cargo fmt --all -- --check
 cargo clippy --all-targets -- -D warnings
 cargo test
 ```
 
-CI runs the Python suite on Linux and Windows across Python 3.11, 3.12 and 3.13,
-and the Rust suite on Linux and Windows.
+CI runs all three on Linux and Windows.
+
+The tests that diff against `oracle/` -- reference output from the original
+Python build, captured against a real library -- skip when it is absent, which is
+what CI sees: `oracle/` is not committed, because it names every file in a
+private library. Run them locally against your own capture.
 
 ## Code as documentation
 
 Write code that explains itself, and reserve prose for what the code cannot say.
 
-- **Full type hints.** `mypy` runs in strict mode.
+- **Clippy runs at `pedantic`, denied.** Where a lint is relaxed it is relaxed in
+  the smallest scope that works, with the reason written down -- the numeric
+  casts in `audio/` are bounded by an FFT size, not by an address space.
 - **Domain types, not dicts.** A `LibraryEntry` beats a dict with
   `"artist_norm"` and `"title_romaji"` keys; the first version of this project
   was the second thing, and the keys drifted apart between copies.
@@ -74,9 +57,11 @@ No change lands without tests for its behaviour.
 - **A fixed bug gets a regression test**, named after the failure. Several
   existing tests are named this way and carry a comment explaining the original
   failure — `test_a_silent_file_is_not_mistaken_for_genuine_lossless` is one.
-- **No network in tests.** HTTP is mocked with `respx`. The Soulseek backend is a
-  protocol, and the flows are tested against a fake implementing it.
-- **Audio fixtures are generated, not committed.** `py/tests/conftest.py` encodes
+- **No network in tests.** The Soulseek backend and both HTTP clients are traits,
+  and the flows run against recorded responses. That boundary is what makes the
+  search and download tests runnable with no daemon and no account -- it is not
+  an implementation detail to be optimised away.
+- **Audio fixtures are generated, not committed.** `tests/support/mod.rs` encodes
   short files with ffmpeg, so the suite exercises real containers written by an
   independent encoder.
 - **Prefer a pure function you can test directly** over reaching into a widget or
@@ -103,22 +88,20 @@ solves. If a defect surfaced while writing tests, say what it was.
 ## Project shape
 
 ```
-py/src/soulseektools/
-  config.py         layered settings; every tunable lives here
-  models.py         the domain types shared across layers
-  matching.py       fuzzy name matching, used by everything
+rs/crates/stk/src/
+  config.rs         layered settings; every tunable lives here
+  models.rs         the domain types shared across layers
+  matching.rs       fuzzy name matching, used by everything
   text/             normalisation and romaji transliteration
   library/          scanning, tags, the SQLite index
   audio/            ffmpeg wrappers, spectral analysis, fingerprinting
   artwork/          providers and the artist-verification guard
-  soulseek/         the client protocol, the slskd backend, ranking
+  soulseek/         the client trait, the slskd backend, ranking
   review/           the review queue
-  tui/              the review app
   cli/              one module per command group
 ```
 
-`rs/crates/stk/src/` mirrors this module for module, so the two trees can be read
-against each other. It has no `tui/`: the TUI is deferred out of the Rust v1, and
+There is no `tui/`. The review app was Textual and did not survive the port;
 `review list/approve/reject` cover the same ground.
 
 Two rules keep this from drifting back into what it replaced:

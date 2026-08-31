@@ -95,7 +95,7 @@ fn quoted(path: &Path) -> String {
 /// databases a command leaves behind, with the JSON documents themselves checked
 /// by writing them through a command that takes a path.
 fn run(arguments: &[&str]) -> i32 {
-    let mut argv: Vec<std::ffi::OsString> = vec!["stk-rs".into()];
+    let mut argv: Vec<std::ffi::OsString> = vec!["stk".into()];
     argv.extend(arguments.iter().map(Into::into));
     stk::cli::run(argv)
 }

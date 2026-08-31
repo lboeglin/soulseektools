@@ -74,7 +74,7 @@ impl Drop for Harness {
 }
 
 fn run(arguments: &[&str]) -> i32 {
-    let mut argv: Vec<std::ffi::OsString> = vec!["stk-rs".into()];
+    let mut argv: Vec<std::ffi::OsString> = vec!["stk".into()];
     argv.extend(arguments.iter().map(Into::into));
     stk::cli::run(argv)
 }

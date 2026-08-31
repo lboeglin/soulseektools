@@ -10,27 +10,8 @@ repos:
       - id: mixed-line-ending
         args: [--fix=lf]
 
-  # The ruff config lives in py/pyproject.toml and is found by ancestor
-  # discovery. legacy/ sits outside py/, so it would otherwise be linted with
-  # ruff's defaults rather than skipped.
-  - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.6.9
-    hooks:
-      - id: ruff
-        args: [--fix]
-        exclude: ^legacy/
-      - id: ruff-format
-        exclude: ^legacy/
-
   - repo: local
     hooks:
-      - id: mypy
-        name: mypy
-        entry: uv run --directory py mypy
-        language: system
-        pass_filenames: false
-        types: [python]
-
       - id: cargo-fmt
         name: cargo fmt
         entry: cargo fmt --manifest-path rs/Cargo.toml --all -- --check

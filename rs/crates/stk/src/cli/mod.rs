@@ -1,4 +1,4 @@
-//! The `stk-rs` entry point.
+//! The `stk` entry point.
 //!
 //! Global flags live on the root and must precede the subcommand, matching the
 //! Python's typer callback: `stk --json library stats`, not
@@ -16,7 +16,7 @@ use context::{report, AppContext};
 
 #[derive(Parser, Debug)]
 #[command(
-    name = "stk-rs",
+    name = "stk",
     version,
     about = "Build a music library from a streaming export via Soulseek, and keep it clean.",
     arg_required_else_help = true
