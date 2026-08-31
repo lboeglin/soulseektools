@@ -693,30 +693,56 @@ fn downloaded_path_needs_a_configured_download_directory() {
     );
 }
 
-/// The parallelism #1 asks for, measured rather than assumed.
+/// The parallelism #1 asks for, established by rendezvous rather than by clock.
 ///
-/// Every slskd search is a socket wait, so a serial run costs roughly
-/// `timeout x tracks`. This gives the fake a deliberate delay and checks the
-/// batch finishes in well under the serial total.
+/// Every slskd search is a socket wait, so the property under test is that two
+/// of them are in flight at once. Timing it instead -- a fixed sleep per search
+/// against a wall-clock bound -- reads a contended CI runner as a serial one,
+/// which is how this test first failed. Here each search blocks until a second
+/// joins it: serial execution cannot satisfy that however fast the box is, and
+/// concurrent execution cannot miss it however slow.
 #[test]
 fn searches_run_concurrently_rather_than_one_after_another() {
-    struct SlowClient {
-        delay: std::time::Duration,
-        concurrent: std::sync::atomic::AtomicUsize,
-        peak: std::sync::atomic::AtomicUsize,
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+    use std::sync::Condvar;
+
+    /// Long enough for a loaded runner to get a second thread in, short enough
+    /// that a genuinely serial fan-out fails the suite rather than hanging it.
+    /// Paid once: the first search to wait it out settles the question.
+    const RENDEZVOUS: std::time::Duration = std::time::Duration::from_secs(5);
+
+    const WORKERS: usize = 4;
+
+    struct Meeting {
+        inside: Mutex<usize>,
+        joined: Condvar,
+        peak: AtomicUsize,
+        settled: AtomicBool,
     }
 
-    impl SoulseekClient for SlowClient {
+    impl SoulseekClient for Meeting {
         fn is_connected(&self) -> bool {
             true
         }
 
         fn search(&self, _text: &str, _timeout: u32, _limit: u32) -> Result<Vec<Candidate>> {
-            use std::sync::atomic::Ordering;
-            let running = self.concurrent.fetch_add(1, Ordering::SeqCst) + 1;
-            self.peak.fetch_max(running, Ordering::SeqCst);
-            std::thread::sleep(self.delay);
-            self.concurrent.fetch_sub(1, Ordering::SeqCst);
+            let mut inside = self.inside.lock().expect("the rendezvous lock");
+            *inside += 1;
+            self.peak.fetch_max(*inside, Ordering::SeqCst);
+
+            if *inside > 1 {
+                self.settled.store(true, Ordering::SeqCst);
+                self.joined.notify_all();
+            } else if !self.settled.load(Ordering::SeqCst) {
+                let (guard, _) = self
+                    .joined
+                    .wait_timeout_while(inside, RENDEZVOUS, |count| *count < 2)
+                    .expect("the rendezvous lock");
+                inside = guard;
+                self.settled.store(true, Ordering::SeqCst);
+            }
+
+            *inside -= 1;
             Ok(Vec::new())
         }
 
@@ -731,7 +757,7 @@ fn searches_run_concurrently_rather_than_one_after_another() {
 
     let scratch = Scratch::new("fetch-concurrent");
     let mut settings = settings(&scratch);
-    settings.slskd.search_concurrency = 4;
+    settings.slskd.search_concurrency = WORKERS;
     let mut store = store(&scratch);
 
     let tracks: Vec<Track> = (0..8)
@@ -739,25 +765,26 @@ fn searches_run_concurrently_rather_than_one_after_another() {
         .collect();
     store.add(&tracks).expect("added tracks");
 
-    let client = SlowClient {
-        delay: std::time::Duration::from_millis(100),
-        concurrent: std::sync::atomic::AtomicUsize::new(0),
-        peak: std::sync::atomic::AtomicUsize::new(0),
+    let client = Meeting {
+        inside: Mutex::new(0),
+        joined: Condvar::new(),
+        peak: AtomicUsize::new(0),
+        settled: AtomicBool::new(false),
     };
 
-    let started = std::time::Instant::now();
     let outcomes = fetch::search_pending(&mut store, &client, &settings, None).expect("a search");
-    let elapsed = started.elapsed();
+    let peak = client.peak.load(Ordering::SeqCst);
 
     assert_eq!(outcomes.len(), 8);
-    // Serial would be 800ms; four at a time is about 200ms.
     assert!(
-        elapsed < std::time::Duration::from_millis(600),
-        "took {elapsed:?}, which looks serial"
+        peak > 1,
+        "no two searches ever overlapped: the fan-out ran one at a time"
     );
+    // The pool is built with exactly this many threads, so the ceiling is not a
+    // timing observation -- it is the bound `search_concurrency` promises.
     assert!(
-        client.peak.load(std::sync::atomic::Ordering::SeqCst) > 1,
-        "no two searches ever overlapped"
+        peak <= WORKERS,
+        "{peak} searches ran at once, above the configured {WORKERS}"
     );
 }
 

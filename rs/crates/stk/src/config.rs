@@ -363,14 +363,14 @@ fn app_directory() -> PathBuf {
     }
     #[cfg(all(unix, not(target_os = "macos")))]
     {
+        let fallback = || {
+            std::env::var_os("HOME")
+                .map(PathBuf::from)
+                .unwrap_or_default()
+                .join(".local/share")
+        };
         std::env::var_os("XDG_DATA_HOME")
-            .map(PathBuf::from)
-            .unwrap_or_else(|| {
-                std::env::var_os("HOME")
-                    .map(PathBuf::from)
-                    .unwrap_or_default()
-                    .join(".local/share")
-            })
+            .map_or_else(fallback, PathBuf::from)
             .join("soulseektools")
     }
 }
