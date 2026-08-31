@@ -62,9 +62,9 @@ CREATE INDEX IF NOT EXISTS tracks_status ON tracks (status);
 
 /// The two columns schema v2 adds to `tracks`, from #2.
 ///
-/// Nullable or defaulted, so a v1 Python build opens a v2 database unchanged.
-/// Added with `ALTER TABLE` at open time so an existing database is upgraded in
-/// place rather than rewritten.
+/// Nullable or defaulted, so a build that predates them opens the database
+/// unchanged. Added with `ALTER TABLE` at open time so an existing database is
+/// upgraded in place rather than rewritten.
 const V2_COLUMNS: &[(&str, &str)] = &[
     ("queued_at", "REAL"),
     ("attempts", "INTEGER NOT NULL DEFAULT 0"),

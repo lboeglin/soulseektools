@@ -25,11 +25,10 @@ use crate::text::normalize::strip_artist_prefix;
 /// Bumped from 3 to 4 by the write log's run grouping (#2).
 pub const SCHEMA_VERSION: i64 = 4;
 
-/// The lowest version this can open without migrating.
+/// The oldest version this opens rather than refusing.
 ///
-/// The Python build writes 2 and rewrites it to 2 every time it opens the file,
-/// so both numbers have to be acceptable for the two implementations to share a
-/// database while `py/` still exists.
+/// Every version since is reached by adding columns in place, so a database
+/// written before any of that still opens where it stands.
 pub const MINIMUM_SCHEMA_VERSION: i64 = 2;
 
 const SCHEMA: &str = "
@@ -90,10 +89,10 @@ CREATE INDEX IF NOT EXISTS changes_run ON changes (run_id);
 
 /// The six columns schema v3 adds to `files`, from #2.
 ///
-/// Every one is nullable, which is what lets a v2 Python build open a v3
-/// database: its `INSERT OR REPLACE` names its own columns and these fall to
-/// NULL. Added with `ALTER TABLE` rather than in [`SCHEMA`] so that opening a
-/// database the Python created upgrades it in place.
+/// Every one is nullable, so a build that predates them can still write a row:
+/// its `INSERT OR REPLACE` names its own columns and these fall to NULL. Added
+/// with `ALTER TABLE` rather than in [`SCHEMA`] so an existing database is
+/// upgraded where it stands.
 const V3_COLUMNS: &[(&str, &str)] = &[
     ("codec", "TEXT"),
     ("bitrate", "INTEGER"),

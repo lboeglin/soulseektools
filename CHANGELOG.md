@@ -20,21 +20,33 @@ a set of ad-hoc scripts and a Nicotine+ plugin, and was then rewritten in Rust.
   milliseconds.
 - `stk get` takes several tracks, and a list from a file or from stdin, where it
   previously took exactly one query.
-- `library.db` v3: `files` gains `codec`, `bitrate`, `sample_rate`, `bit_depth`,
-  `verdict` and `verdict_at`, plus a `changes` table for an `--apply` write log.
-  Columns are added in place, so a database either build created opens in the
-  other without migration.
+- `library.db` v4: `files` gains `codec`, `bitrate`, `sample_rate`, `bit_depth`,
+  `verdict` and `verdict_at`; a `changes` table records every `--apply` write,
+  grouped by the run that made it. Columns are added in place, so a database an
+  earlier build wrote opens where it stands.
+- `stk changes list` and `stk changes undo`, so a bad genre map entry or the
+  wrong artist's cover across an album can be taken back — per file, or a whole
+  `--apply` run at a time. Replaced covers are kept beside the index and shared
+  between files that carried the same one. Undo refuses a file edited since it
+  was logged unless `--force` says otherwise, and logs itself like any other
+  write.
+- `stk verify` records each verdict in the index, and `--changed` then skips
+  files that still carry one. It is the slowest command here, and on a second
+  run that is most of the library.
 - `review.db` v2: `tracks` gains `queued_at` and `attempts`. A failed transfer
-  now promotes the next candidate rather than ending the track, and a transfer
-  queued too long can be reported as stalled.
+  promotes the next candidate rather than ending the track, and `stk fetch
+  download` gives up on one queued past `slskd.stall_after_seconds`, cancels it
+  in slskd and queues the next candidate in its place.
 - `library.roots` and `library.exclude`, for a library spread across more than
   one drive and for keeping audiobooks and sample packs out of the index.
 - Concurrency where the time actually goes: the verify fan-out over files, and
   the slskd searches, which ran one at a time and were mostly spent waiting.
 - `stk` CLI covering the whole workflow: `config`, `doctor`, `library`,
-  `wantlist`, `fetch`, `review`, `verify`, `dupes`, `art`, `genre`, `tags`.
-- Terminal review app (`stk review`), replacing hand-editing an `approve` column
-  in a CSV. Shows each candidate's full remote path and its warnings.
+  `wantlist`, `fetch`, `review`, `verify`, `dupes`, `art`, `genre`, `tags`,
+  `changes`.
+- `stk review list/approve/reject`, replacing hand-editing an `approve` column
+  in a CSV. Shows each candidate's full remote path and its warnings. The
+  Textual app this began as did not survive the port.
 - Layered configuration — CLI flag, `STK_` environment variable, `stk.toml`,
   per-user config, defaults — replacing paths hardcoded into every script. The
   slskd API key is read from the environment only and never written to a file.

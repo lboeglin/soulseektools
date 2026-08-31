@@ -332,9 +332,9 @@ pub struct Settings {
 
 /// Where `platformdirs` puts application data, reproduced exactly.
 ///
-/// The `directories` crate appends its own component on Windows and would point
-/// at a different file from the one the Python build writes; both have to open
-/// the same database.
+/// The `directories` crate appends its own component on Windows, which would
+/// point at a different file from the one an existing install already has its
+/// databases in.
 #[must_use]
 pub fn default_data_path(name: &str) -> PathBuf {
     app_directory().join(name)

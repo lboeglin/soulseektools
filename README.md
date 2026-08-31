@@ -82,17 +82,31 @@ Secrets are the exception and are never read from the file: export
 `SLSKD_API_KEY` instead. `stk config show` prints the effective settings with
 secrets omitted, so the output is safe to paste.
 
+Music on two drives, with the folders you would rather not index left out:
+
+```toml
+[library]
+roots   = ['E:\Music', 'F:\More Music']
+exclude = ["**/Audiobooks/**", "**/Samples/**"]
+```
+
+A pattern is matched against the path below its own root. `root = '...'` still
+works and means a library with one.
+
 The settings worth knowing about:
 
 | Key | What it does |
 | --- | --- |
 | `library.root` | Where your music lives. Scanned recursively. |
+| `library.roots` | Several of them, for a library spread over more than one drive. |
+| `library.exclude` | Globs to skip, so audiobooks and sample packs stay out of the index. |
 | `matching.*` | How similar two names must be to count as the same track. |
 | `ranking.reject_terms` | Terms that disqualify a search result outright. |
 | `ranking.penalise_terms` | Terms that push a result down the list. |
 | `ranking.prefer_lossless` | Rank lossless above lossy. On by default. |
 | `ranking.require_lossless` | Discard lossy results entirely. Off by default. |
 | `ranking.min_bitrate` | Discard lossy results below this. Lossless is never discarded. |
+| `slskd.stall_after_seconds` | How long a download may sit queued before the next candidate is tried. |
 | `verify.steep_db_per_khz` | How sharp a frequency cutoff must be to look artificial. |
 | `artwork.require_artist_match` | Refuse cover art belonging to a different artist. |
 | `artwork.contact` | A URL or email identifying you to MusicBrainz. Optional. |
@@ -192,10 +206,31 @@ stk art fetch --apply      # look art up and embed the verified matches
 stk genre check            # genres in use, and artists your map does not cover
 stk genre apply --apply    # write the mapped genres
 stk tags dump              # every file's artist/album/title/genre as CSV
+stk changes list           # what those --apply runs actually wrote
 ```
 
 **Nothing is written without `--apply`.** Run the command, read the plan, then
 run it again with the flag.
+
+### Undoing what `--apply` wrote
+
+Every command that writes to your files records what it replaced, so a bad
+entry in the genre map, or the wrong artist's cover across an album, is not a
+one-way trip:
+
+```bash
+stk changes list                       # newest first, with the run each belongs to
+stk changes list --command "art fetch"
+stk changes undo --last                # what putting the last run back would do
+stk changes undo --last --apply        # do it
+stk changes undo 42 --apply            # or just the one file
+```
+
+A run is one `--apply` invocation, so `--last` takes back the whole command
+rather than its last file. Undo refuses a file that has changed since it was
+logged rather than overwriting a tag you have since fixed by hand — `--force`
+overrules that. Replaced covers are kept beside the index under `changes/`, and
+files that carried the same cover share one copy of it.
 
 ### Finding fake lossless files
 
@@ -210,10 +245,19 @@ masters roll off early and would be flagged wholesale.
 
 ```bash
 stk verify --report verify.csv --spectrograms --only-flagged
+stk verify --changed                    # only files with no current verdict
 ```
 
 Verdicts are `OK`, `SUSPECT` (sharp cutoff at no standard bitrate — look at it
 yourself), `FAKE` and `ERROR`. The command exits non-zero if any file is `FAKE`.
+
+Every run records its verdicts in the index, and `--changed` then skips the
+files that still carry one. This is the slowest command here, and on a second
+run that is most of the library. It is opt-in rather than the default because
+the report carries detail a stored verdict cannot reproduce, so a plain
+`stk verify` still covers everything. A file that has changed comes back either
+way, and so does an `ERROR`, which says the audio could not be read rather than
+anything about the audio.
 
 ### Finding duplicates
 

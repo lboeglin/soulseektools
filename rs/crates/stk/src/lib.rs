@@ -1,8 +1,8 @@
-//! A Rust port of `stk`, in progress.
+//! `stk`: build a music library from a streaming export via Soulseek, and keep
+//! it clean afterwards.
 //!
-//! Modules mirror `py/src/soulseektools/` one for one so the two trees can be
-//! read against each other, and each is diffed against `oracle/` -- output
-//! captured from the Python build against a real library -- before the next is
+//! Ported from Python one module at a time, each diffed against `oracle/` --
+//! output captured from that build against a real library -- before the next was
 //! started. See <https://github.com/lboeglin/soulseektools/issues/1>.
 
 pub mod artwork;

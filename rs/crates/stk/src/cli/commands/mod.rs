@@ -1,4 +1,4 @@
-//! One module per command group, mirroring `py/src/soulseektools/cli/`.
+//! One module per command group.
 
 pub mod art;
 pub mod changes;

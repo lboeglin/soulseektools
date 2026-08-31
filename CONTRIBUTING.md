@@ -53,10 +53,10 @@ Write code that explains itself, and reserve prose for what the code cannot say.
 No change lands without tests for its behaviour.
 
 - **Test behaviour, not implementation.** Name a test for the property it
-  establishes: `test_a_strong_title_carries_a_weak_artist`, not `test_score_2`.
+  establishes: `a_strong_title_carries_a_weak_artist`, not `score_2`.
 - **A fixed bug gets a regression test**, named after the failure. Several
   existing tests are named this way and carry a comment explaining the original
-  failure — `test_a_silent_file_is_not_mistaken_for_genuine_lossless` is one.
+  failure — `a_silent_file_is_not_mistaken_for_genuine_lossless` is one.
 - **No network in tests.** The Soulseek backend and both HTTP clients are traits,
   and the flows run against recorded responses. That boundary is what makes the
   search and download tests runnable with no daemon and no account -- it is not
@@ -64,8 +64,8 @@ No change lands without tests for its behaviour.
 - **Audio fixtures are generated, not committed.** `tests/support/mod.rs` encodes
   short files with ffmpeg, so the suite exercises real containers written by an
   independent encoder.
-- **Prefer a pure function you can test directly** over reaching into a widget or
-  a subprocess. The spectral classifier and the TUI's rendering are both pure for
+- **Prefer a pure function you can test directly** over reaching into a
+  subprocess. The spectral classifier and the table rendering are both pure for
   this reason.
 
 ## Commits
@@ -93,7 +93,7 @@ rs/crates/stk/src/
   models.rs         the domain types shared across layers
   matching.rs       fuzzy name matching, used by everything
   text/             normalisation and romaji transliteration
-  library/          scanning, tags, the SQLite index
+  library/          scanning, tags, the SQLite index, the --apply write log
   audio/            ffmpeg wrappers, spectral analysis, fingerprinting
   artwork/          providers and the artist-verification guard
   soulseek/         the client trait, the slskd backend, ranking
@@ -107,13 +107,17 @@ There is no `tui/`. The review app was Textual and did not survive the port;
 Two rules keep this from drifting back into what it replaced:
 
 1. **One place per concern.** Container formats are handled in
-   `library/tags.py` and nowhere else. Soulseek's wire format lives in
-   `soulseek/slskd.py` and nowhere else. Subprocesses live in `audio/ffmpeg.py`.
+   `library/tags.rs` and nowhere else. Soulseek's wire format lives in
+   `soulseek/slskd.rs` and nowhere else. Subprocesses live in `audio/ffmpeg.rs`.
 2. **No literals for things that vary.** Paths, thresholds and term lists are
    configuration. If you find yourself typing a path into a module, it belongs in
-   `config.py`.
+   `config.rs`.
 
 ## Anything that writes to a user's files
 
 Must show its plan and do nothing without `--apply`. A music library is not
 recoverable from a backup nobody made.
+
+It must also log what it wrote, through `library/changes.rs`, so `stk changes
+undo` can put it back. A half-covered log is worse than none: it implies a
+completeness it does not have.

@@ -100,6 +100,7 @@ Swagger is only served when `SLSKD_SWAGGER=true`.
 | Queue with a destination | `POST /api/v0/transfers/downloads/batches` with `{username, files: [{filename, size}], options: {destination}}` |
 | Queue without one | `POST /api/v0/transfers/downloads/{username}` with `[{filename, size}]` |
 | List downloads | `GET /api/v0/transfers/downloads` → users → `directories` → `files` |
+| Cancel one | `DELETE /api/v0/transfers/downloads/{username}/{id}`, which is how a stalled transfer is abandoned before its replacement is queued |
 | A transfer | `{id, username, filename, size, state, bytesTransferred, placeInQueue, exception}` |
 
 `state` is a Soulseek.NET flag string, comma-separated: `"Completed, Succeeded"`,
