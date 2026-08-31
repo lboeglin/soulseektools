@@ -8,6 +8,7 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::audio::spectral;
 use crate::matching::MatchThresholds;
 
 /// Thresholds deciding when two names describe the same track.
@@ -102,6 +103,41 @@ impl Default for RankingSettings {
             .to_vec(),
             penalty_per_term: 2_000_000,
             duration_tolerance_seconds: 12.0,
+        }
+    }
+}
+
+/// Tuning for the transcoded-lossless check.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, default)]
+pub struct VerifySettings {
+    pub steep_db_per_khz: f64,
+    pub noise_floor_db: f64,
+    pub near_nyquist_margin_hz: u32,
+    pub probe_seconds: f64,
+    pub probe_count: usize,
+}
+
+impl Default for VerifySettings {
+    fn default() -> Self {
+        Self {
+            steep_db_per_khz: spectral::DEFAULT_STEEP_DB_PER_KHZ,
+            noise_floor_db: spectral::DEFAULT_NOISE_FLOOR_DB,
+            near_nyquist_margin_hz: spectral::DEFAULT_NEAR_NYQUIST_MARGIN_HZ,
+            probe_seconds: 20.0,
+            probe_count: 4,
+        }
+    }
+}
+
+impl VerifySettings {
+    #[must_use]
+    pub fn tuning(&self) -> spectral::Tuning {
+        spectral::Tuning {
+            noise_floor_db: self.noise_floor_db,
+            steep_db_per_khz: self.steep_db_per_khz,
+            near_nyquist_margin_hz: self.near_nyquist_margin_hz,
+            fft_size: spectral::DEFAULT_FFT_SIZE,
         }
     }
 }
