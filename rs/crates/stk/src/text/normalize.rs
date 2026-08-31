@@ -55,8 +55,13 @@ static LEADING_TRACK_NUMBER: LazyLock<Regex> = LazyLock::new(|| {
     ))
     .unwrap()
 });
+/// The characters a directory name may not contain on Windows.
+///
+/// The backslash is in the set deliberately: it is the path separator this
+/// function exists to neutralise, and leaving it out let an artist name create a
+/// nested directory that `fetch::downloaded_path` would then never find (#5).
 static INVALID_FILENAME_CHARS: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new("[<>:\"/|?*\\x00-\\x1F]").unwrap());
+    LazyLock::new(|| Regex::new(r#"[<>:"/\\|?*\x00-\x1F]"#).unwrap());
 
 fn separator() -> String {
     format!(r"[{SPACE}]*[-\u{{2013}}\u{{2014}}_:.|]*[{SPACE}]*")

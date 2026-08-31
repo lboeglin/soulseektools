@@ -96,6 +96,8 @@ def test_strip_artist_prefix_keeps_the_name_when_it_is_the_whole_stem():
     [
         ("DECO*27", "DECO_27"),
         ("AC/DC", "AC_DC"),
+        # A backslash is the separator this function exists to neutralise; see #5.
+        ("AC\\DC", "AC_DC"),
         (
             "\u4e0a\u6d77\u30a2\u30ea\u30b9\u5e7b\u6a02\u56e3",
             "\u4e0a\u6d77\u30a2\u30ea\u30b9\u5e7b\u6a02\u56e3",

@@ -24,7 +24,7 @@ _LEADING_TRACK_NUMBER = re.compile(
     r"^\s*[\(\[]?\d{1,3}(?:[.\-]\d{1,3})?[\)\]]?\s*[-.\u2013\u2014_]?\s*"
 )
 _SEPARATOR = r"\s*[-\u2013\u2014_:.|]*\s*"
-_INVALID_FILENAME_CHARS = re.compile(r'[<>:"/\|?*\x00-\x1f]')
+_INVALID_FILENAME_CHARS = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
 
 
 def normalize(text: str | None) -> str:

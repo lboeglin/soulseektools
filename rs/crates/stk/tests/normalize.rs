@@ -119,6 +119,8 @@ fn sanitize_folder_name_replaces_characters_a_filesystem_rejects() {
     for (raw, expected) in [
         ("DECO*27", "DECO_27"),
         ("AC/DC", "AC_DC"),
+        // A backslash is the separator this function exists to neutralise; see #5.
+        (r"AC\DC", "AC_DC"),
         (
             "\u{4e0a}\u{6d77}\u{30a2}\u{30ea}\u{30b9}\u{5e7b}\u{6a02}\u{56e3}",
             "\u{4e0a}\u{6d77}\u{30a2}\u{30ea}\u{30b9}\u{5e7b}\u{6a02}\u{56e3}",
