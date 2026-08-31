@@ -5,10 +5,12 @@
 //! captured from the Python build against a real library -- before the next is
 //! started. See <https://github.com/lboeglin/soulseektools/issues/1>.
 
+pub mod artwork;
 pub mod audio;
 pub mod config;
 pub mod duplicates;
 pub mod errors;
+pub mod fetch;
 pub mod genres;
 pub mod library;
 pub mod matching;

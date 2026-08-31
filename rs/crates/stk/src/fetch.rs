@@ -1,0 +1,283 @@
+//! Driving a batch: search for what is wanted, queue what was approved, check
+//! what arrived.
+//!
+//! Nothing downloads without a human choosing a candidate. That was true of the
+//! plugin this replaces and stays true here; the difference is that the choice
+//! is recorded in the review queue rather than typed into a spreadsheet column.
+//!
+//! Completed downloads are run through the spectral check in-process, rather
+//! than by shelling out to a script at a hardcoded path as the plugin did.
+
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
+
+use crate::audio::verify::verify_file;
+use crate::config::Settings;
+use crate::library::scan::LOSSLESS_EXTENSIONS;
+use crate::models::{TrackStatus, Verdict, VerifyResult};
+use crate::review::store::ReviewStore;
+use crate::soulseek::base::{SoulseekClient, Transfer, TransferState};
+use crate::soulseek::ranking;
+use crate::text::normalize::{normalize, sanitize_folder_name, UNKNOWN_ARTIST};
+
+/// What one track's search produced.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SearchOutcome {
+    pub track_id: i64,
+    pub query: String,
+    pub found: usize,
+    pub error: String,
+}
+
+/// What happened when an approved candidate was queued.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EnqueueOutcome {
+    pub track_id: i64,
+    pub query: String,
+    pub destination: String,
+    pub queued: bool,
+    pub error: String,
+}
+
+/// A finished transfer, and what the file turned out to be.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CollectOutcome {
+    pub track_id: i64,
+    pub query: String,
+    pub state: TransferState,
+    pub local_path: Option<PathBuf>,
+    pub verdict: Option<VerifyResult>,
+    pub error: String,
+    /// Set when a failure promoted the next candidate rather than giving up (#2).
+    pub retried_with_rank: Option<i64>,
+}
+
+/// Search Soulseek for every track still waiting, and record the candidates.
+pub fn search_pending(
+    store: &mut ReviewStore,
+    client: &dyn SoulseekClient,
+    settings: &Settings,
+    limit: Option<usize>,
+) -> crate::errors::Result<Vec<SearchOutcome>> {
+    let pending = store.tracks(&[TrackStatus::Pending], limit)?;
+    let mut outcomes = Vec::new();
+
+    for entry in pending {
+        let query = normalize(&format!("{} {}", entry.track.artist, entry.track.title));
+        let found = client.search(
+            &query,
+            settings.slskd.search_timeout_seconds,
+            settings.slskd.search_response_limit,
+        );
+
+        match found {
+            Err(error) => {
+                store.mark(entry.id, TrackStatus::Failed, &error.to_string())?;
+                outcomes.push(SearchOutcome {
+                    track_id: entry.id,
+                    query: entry.track.query(),
+                    found: 0,
+                    error: error.to_string(),
+                });
+            }
+            Ok(candidates) => {
+                let scored = ranking::rank(
+                    &entry.track,
+                    &candidates,
+                    &settings.ranking,
+                    Some(settings.review.candidates_per_track),
+                );
+                store.set_candidates(entry.id, &scored)?;
+                outcomes.push(SearchOutcome {
+                    track_id: entry.id,
+                    query: entry.track.query(),
+                    found: scored.len(),
+                    error: String::new(),
+                });
+            }
+        }
+    }
+    Ok(outcomes)
+}
+
+/// Queue every approved pick, sorting each into a folder named for its artist.
+pub fn enqueue_approved(
+    store: &mut ReviewStore,
+    client: &dyn SoulseekClient,
+    limit: Option<usize>,
+    now: f64,
+) -> crate::errors::Result<Vec<EnqueueOutcome>> {
+    let approved_tracks = store.tracks(&[TrackStatus::Approved], limit)?;
+    let mut outcomes = Vec::new();
+
+    for entry in approved_tracks {
+        let Some(approved) = entry.approved().cloned() else {
+            store.mark(
+                entry.id,
+                TrackStatus::Failed,
+                "approved candidate is missing",
+            )?;
+            outcomes.push(EnqueueOutcome {
+                track_id: entry.id,
+                query: entry.track.query(),
+                destination: String::new(),
+                queued: false,
+                error: "no candidate".to_owned(),
+            });
+            continue;
+        };
+
+        let destination = sanitize_folder_name(&entry.track.artist, UNKNOWN_ARTIST);
+        if let Err(error) = client.enqueue(
+            &approved.candidate.username,
+            std::slice::from_ref(&approved.candidate),
+            &destination,
+        ) {
+            store.mark(entry.id, TrackStatus::Failed, &error.to_string())?;
+            outcomes.push(EnqueueOutcome {
+                track_id: entry.id,
+                query: entry.track.query(),
+                destination,
+                queued: false,
+                error: error.to_string(),
+            });
+            continue;
+        }
+
+        // `queued_at` is what makes a stall visible later (#2).
+        store.mark_queued(
+            entry.id,
+            now,
+            &format!("from {}", approved.candidate.username),
+        )?;
+        outcomes.push(EnqueueOutcome {
+            track_id: entry.id,
+            query: entry.track.query(),
+            destination,
+            queued: true,
+            error: String::new(),
+        });
+    }
+    Ok(outcomes)
+}
+
+/// Update queued tracks from the backend's transfer list, verifying what arrived.
+///
+/// A failure promotes the next unused candidate rather than ending the track,
+/// which is the retry path #2 asked for: rank 2 was always sitting in the
+/// database, and nothing ever reached for it.
+pub fn collect(
+    store: &mut ReviewStore,
+    client: &dyn SoulseekClient,
+    settings: &Settings,
+    verify: bool,
+) -> crate::errors::Result<Vec<CollectOutcome>> {
+    let finished: HashMap<String, Transfer> = client
+        .transfers()?
+        .into_iter()
+        .filter(|transfer| transfer.state.finished())
+        .map(|transfer| (transfer.remote_path.clone(), transfer))
+        .collect();
+    if finished.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let queued = store.tracks(&[TrackStatus::Queued], None)?;
+    let mut outcomes = Vec::new();
+
+    for entry in queued {
+        let Some(approved) = entry.approved() else {
+            continue;
+        };
+        let Some(transfer) = finished.get(&approved.candidate.remote_path) else {
+            continue;
+        };
+
+        if transfer.state != TransferState::Completed {
+            let detail = if transfer.error.is_empty() {
+                transfer.state.to_string()
+            } else {
+                transfer.error.clone()
+            };
+            let retried = store.next_candidate(entry.id)?;
+            if retried.is_none() {
+                store.mark(entry.id, TrackStatus::Failed, &detail)?;
+            }
+            outcomes.push(CollectOutcome {
+                track_id: entry.id,
+                query: entry.track.query(),
+                state: transfer.state,
+                local_path: None,
+                verdict: None,
+                error: transfer.error.clone(),
+                retried_with_rank: retried,
+            });
+            continue;
+        }
+
+        let local_path = downloaded_path(settings, &entry.track.artist, transfer);
+        let verdict = if verify {
+            verify_downloaded(local_path.as_deref(), settings)
+        } else {
+            None
+        };
+        store.mark(
+            entry.id,
+            TrackStatus::Downloaded,
+            &describe(verdict.as_ref()),
+        )?;
+        outcomes.push(CollectOutcome {
+            track_id: entry.id,
+            query: entry.track.query(),
+            state: transfer.state,
+            local_path,
+            verdict,
+            error: String::new(),
+            retried_with_rank: None,
+        });
+    }
+    Ok(outcomes)
+}
+
+/// Where the finished file should be on disk.
+///
+/// slskd reports the remote path, not the local one, so the destination is
+/// rebuilt from the configured download directory, the artist folder the batch
+/// was queued into, and the file's own name. `sanitize_folder_name` has to match
+/// what `enqueue_approved` used or the file stops being found.
+#[must_use]
+pub fn downloaded_path(settings: &Settings, artist: &str, transfer: &Transfer) -> Option<PathBuf> {
+    let root = settings.slskd.download_directory.as_ref()?;
+    let filename = transfer
+        .remote_path
+        .rsplit(['\\', '/'])
+        .next()
+        .unwrap_or(&transfer.remote_path);
+    Some(
+        root.join(sanitize_folder_name(artist, UNKNOWN_ARTIST))
+            .join(filename),
+    )
+}
+
+fn verify_downloaded(local_path: Option<&Path>, settings: &Settings) -> Option<VerifyResult> {
+    let path = local_path?;
+    if !path.is_file() {
+        return None;
+    }
+    let suffix = path
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .map(|extension| format!(".{}", extension.to_lowercase()))?;
+    if !LOSSLESS_EXTENSIONS.contains(&suffix.as_str()) {
+        return None;
+    }
+    Some(verify_file(path, &settings.verify))
+}
+
+fn describe(verdict: Option<&VerifyResult>) -> String {
+    match verdict {
+        None => "downloaded".to_owned(),
+        Some(result) if result.verdict == Verdict::Ok => "downloaded, verified lossless".to_owned(),
+        Some(result) => format!("downloaded, {}: {}", result.verdict, result.detail),
+    }
+}
