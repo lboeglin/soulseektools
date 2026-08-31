@@ -1,6 +1,3 @@
 fn main() {
-    println!(
-        "stk-rs {} -- port in progress, no commands yet",
-        stk::VERSION
-    );
+    std::process::exit(stk::cli::run(std::env::args_os().collect()));
 }

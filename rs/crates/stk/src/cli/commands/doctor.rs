@@ -1,0 +1,129 @@
+//! `stk doctor` -- check that everything the CLI depends on is actually present.
+
+use serde_json::json;
+
+use crate::cli::context::{show, table, AppContext};
+use crate::errors::Result;
+
+/// One diagnostic, and what to do when it fails.
+struct Check {
+    name: &'static str,
+    ok: bool,
+    detail: String,
+    required: bool,
+}
+
+impl Check {
+    fn status(&self) -> &'static str {
+        if self.ok {
+            "ok"
+        } else if self.required {
+            "missing"
+        } else {
+            "optional"
+        }
+    }
+}
+
+fn checks(context: &AppContext) -> Vec<Check> {
+    let settings = context.settings();
+    let root = context.library_root();
+    let found = |tool: &str| which::which(tool).ok().map(|path| show(&path));
+
+    let (ffmpeg, ffprobe, fpcalc) = (found("ffmpeg"), found("ffprobe"), found("fpcalc"));
+    let index_path = &settings.index.path;
+
+    vec![
+        Check {
+            name: "config",
+            ok: context.resolved.source_path.is_some(),
+            detail: context
+                .resolved
+                .source_path
+                .as_ref()
+                .map_or_else(|| "using defaults".to_owned(), |path| show(path)),
+            required: false,
+        },
+        Check {
+            name: "library root",
+            ok: root.is_dir(),
+            detail: show(&root),
+            required: true,
+        },
+        Check {
+            name: "library index",
+            ok: index_path.parent().is_some_and(std::path::Path::is_dir) || !index_path.exists(),
+            detail: show(index_path),
+            required: true,
+        },
+        Check {
+            name: "ffmpeg",
+            ok: ffmpeg.is_some(),
+            detail: ffmpeg.unwrap_or_else(|| "needed to verify lossless files".to_owned()),
+            required: true,
+        },
+        Check {
+            name: "ffprobe",
+            ok: ffprobe.is_some(),
+            detail: ffprobe.unwrap_or_else(|| "needed to verify lossless files".to_owned()),
+            required: true,
+        },
+        Check {
+            name: "fpcalc",
+            ok: fpcalc.is_some(),
+            detail: fpcalc.unwrap_or_else(|| {
+                "content duplicates fall back to a decoded-audio hash".to_owned()
+            }),
+            required: false,
+        },
+        Check {
+            name: "slskd url",
+            ok: !settings.slskd.url.is_empty(),
+            detail: settings.slskd.url.clone(),
+            required: true,
+        },
+        Check {
+            name: "slskd api key",
+            ok: settings.slskd.api_key.is_some(),
+            detail: if settings.slskd.api_key.is_some() {
+                "set".to_owned()
+            } else {
+                "export SLSKD_API_KEY to enable downloads".to_owned()
+            },
+            required: false,
+        },
+    ]
+}
+
+/// Report whether the environment can run every command.
+pub fn run(context: &AppContext) -> Result<i32> {
+    let checks = checks(context);
+
+    if context.as_json {
+        context.emit(&json!(checks
+            .iter()
+            .map(|check| json!({
+                "name": check.name,
+                "status": check.status(),
+                "detail": check.detail,
+                "ok": check.ok,
+            }))
+            .collect::<Vec<_>>()));
+    } else {
+        let rows: Vec<Vec<String>> = checks
+            .iter()
+            .map(|check| {
+                let marker = if check.ok { "OK" } else { "--" };
+                vec![
+                    marker.to_owned(),
+                    check.name.to_owned(),
+                    check.detail.clone(),
+                ]
+            })
+            .collect();
+        context.say(&table(&["", "Check", "Detail"], &rows));
+    }
+
+    let broken = checks.iter().any(|check| !check.ok && check.required);
+    Ok(i32::from(broken))
+}

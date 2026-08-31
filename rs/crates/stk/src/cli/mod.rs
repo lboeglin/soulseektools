@@ -1,0 +1,142 @@
+//! The `stk-rs` entry point.
+//!
+//! Global flags live on the root and must precede the subcommand, matching the
+//! Python's typer callback: `stk --json library stats`, not
+//! `stk library stats --json`.
+
+pub mod commands;
+pub mod context;
+
+use std::path::PathBuf;
+
+use clap::{Parser, Subcommand};
+
+use crate::config::{load_settings, Overrides};
+use context::{report, AppContext};
+
+#[derive(Parser, Debug)]
+#[command(
+    name = "stk-rs",
+    version,
+    about = "Build a music library from a streaming export via Soulseek, and keep it clean.",
+    arg_required_else_help = true
+)]
+pub struct Cli {
+    /// Configuration file to use.
+    #[arg(short = 'c', long, global = true, env = "STK_CONFIG")]
+    pub config: Option<PathBuf>,
+
+    /// Override the configured library root.
+    #[arg(short = 'l', long, global = true)]
+    pub library: Option<PathBuf>,
+
+    /// Emit machine-readable output.
+    #[arg(long = "json", global = true)]
+    pub as_json: bool,
+
+    /// Show more detail.
+    #[arg(short = 'v', long, global = true)]
+    pub verbose: bool,
+
+    #[command(subcommand)]
+    pub command: Command,
+}
+
+#[derive(Subcommand, Debug)]
+pub enum Command {
+    /// Inspect and create the configuration file.
+    #[command(subcommand)]
+    Config(commands::config::ConfigCommand),
+
+    /// Report whether the environment can run every command.
+    Doctor,
+
+    /// Analyse the frequency spectrum of every lossless file and report the verdicts.
+    Verify(commands::verify::VerifyArgs),
+
+    /// Search for one track, show what turned up, and download the one you pick.
+    Get(commands::get::GetArgs),
+
+    /// Scan and inspect the library index.
+    #[command(subcommand)]
+    Library(commands::library::LibraryCommand),
+
+    /// Find duplicate tracks by title or by audio.
+    #[command(subcommand)]
+    Dupes(commands::dupes::DupesCommand),
+
+    /// Audit and repair embedded cover art.
+    #[command(subcommand)]
+    Art(commands::art::ArtCommand),
+
+    /// Audit and apply genre tags.
+    #[command(subcommand)]
+    Genre(commands::genre::GenreCommand),
+
+    /// Inspect tags across the library.
+    #[command(subcommand)]
+    Tags(commands::tags::TagsCommand),
+
+    /// Compare a streaming export against the library.
+    #[command(subcommand)]
+    Wantlist(commands::wantlist::WantlistCommand),
+
+    /// Review and approve download candidates.
+    #[command(subcommand)]
+    Review(commands::review::ReviewCommand),
+
+    /// Search Soulseek and download approved candidates.
+    #[command(subcommand)]
+    Fetch(commands::fetch::FetchCommand),
+}
+
+/// Parse the arguments, resolve the settings once, and run the command.
+///
+/// Returns the process exit code rather than exiting, so the whole CLI is
+/// callable from a test.
+#[must_use]
+pub fn run(arguments: Vec<std::ffi::OsString>) -> i32 {
+    let cli = match Cli::try_parse_from(arguments) {
+        Ok(cli) => cli,
+        Err(error) => {
+            // clap prints help and version to stdout with exit 0, and usage
+            // errors to stderr with exit 2, which is what the Python does.
+            let _ = error.print();
+            return i32::from(error.exit_code() != 0) * 2;
+        }
+    };
+
+    let overrides = Overrides {
+        library_root: cli.library.clone(),
+    };
+    let resolved = match load_settings(cli.config.as_deref(), &overrides) {
+        Ok(resolved) => resolved,
+        Err(error) => return report(&error),
+    };
+
+    let context = AppContext {
+        resolved,
+        verbose: cli.verbose,
+        as_json: cli.as_json,
+    };
+
+    let outcome = match cli.command {
+        Command::Config(command) => commands::config::run(&context, command),
+        Command::Doctor => commands::doctor::run(&context),
+        Command::Verify(args) => commands::verify::run(&context, &args),
+        Command::Get(args) => commands::get::run(&context, &args),
+        Command::Library(command) => commands::library::run(&context, command),
+        Command::Dupes(command) => commands::dupes::run(&context, command),
+        Command::Art(command) => commands::art::run(&context, command),
+        Command::Genre(command) => commands::genre::run(&context, command),
+        Command::Tags(command) => commands::tags::run(&context, command),
+        Command::Wantlist(command) => commands::wantlist::run(&context, command),
+        Command::Review(command) => commands::review::run(&context, command),
+        Command::Fetch(command) => commands::fetch::run(&context, command),
+    };
+
+    match outcome {
+        Ok(code) => code,
+        Err(error) => report(&error),
+    }
+}

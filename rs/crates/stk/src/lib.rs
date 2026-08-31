@@ -7,6 +7,7 @@
 
 pub mod artwork;
 pub mod audio;
+pub mod cli;
 pub mod config;
 pub mod duplicates;
 pub mod errors;

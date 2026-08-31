@@ -36,8 +36,30 @@ pub fn iter_audio_files(root: &Path, extensions: &[&str]) -> Vec<PathBuf> {
         .collect();
     let mut found = Vec::new();
     walk(root, &wanted, &mut found);
-    found.sort();
+    found.sort_by_key(|path| sort_key(path));
     found
+}
+
+/// How Python orders paths, which is what the captured report order reflects.
+///
+/// `PurePath` compares its *components*, each through `os.path.normcase`. Two
+/// differences from sorting the flat string, both visible in the real library:
+///
+/// - normcase lowercases on Windows, so `Ado` sorts before `ALICESOFT` rather
+///   than after it;
+/// - comparing component by component puts `S3RL` before `S3RL & Sara`, where
+///   the flat string compares the separator against a space and reverses them.
+fn sort_key(path: &Path) -> Vec<String> {
+    path.components()
+        .map(|component| {
+            let text = component.as_os_str().to_string_lossy().into_owned();
+            if cfg!(windows) {
+                text.to_lowercase()
+            } else {
+                text
+            }
+        })
+        .collect()
 }
 
 fn walk(directory: &Path, wanted: &[String], found: &mut Vec<PathBuf>) {

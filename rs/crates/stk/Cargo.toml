@@ -19,6 +19,7 @@ name = "stk-rs"
 path = "src/bin/stk_rs.rs"
 
 [dependencies]
+clap = { version = "4.5.61", features = ["derive", "env"] }
 csv = "1.4.0"
 fancy-regex = "0.19.0"
 kakasi = "0.1.0"
@@ -30,7 +31,7 @@ regex = "1.13.1"
 reqwest = { version = "0.13.3", default-features = false, features = ["blocking", "json"] }
 rusqlite = { version = "0.40.2", features = ["bundled"] }
 serde = { version = "1.0.229", features = ["derive"] }
-serde_json = "1.0.151"
+serde_json = { version = "1.0.151", features = ["preserve_order"] }
 thiserror = "2.0.20"
 toml = "1.0.7"
 unicode-normalization = "0.1.25"
@@ -44,3 +45,4 @@ rand = "0.9.5"
 rand_distr = "0.5.1"
 realfft = "3.5.0"
 rusqlite = "0.40.2"
+toml = "1.0.7"

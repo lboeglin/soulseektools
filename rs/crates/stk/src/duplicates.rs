@@ -152,13 +152,20 @@ pub fn find_by_audio(
     pairs
 }
 
-/// Best score first, as the Python's `sorted(key=lambda pair: -pair.score)`.
+/// Best score first, then by path.
+///
+/// The Python sorts on the score alone, over pairs yielded in the iteration
+/// order of a `frozenset` of blocking keys -- which Python's per-process hash
+/// randomisation makes different on every run. Equal scores therefore come back
+/// in an arbitrary order there, and in a stable one here.
 fn sort_by_score(pairs: &mut [DuplicatePair]) {
     pairs.sort_by(|left, right| {
         right
             .score
             .partial_cmp(&left.score)
             .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| left.larger().path.cmp(&right.larger().path))
+            .then_with(|| left.smaller().path.cmp(&right.smaller().path))
     });
 }
 
