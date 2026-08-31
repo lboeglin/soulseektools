@@ -8,7 +8,7 @@
 //! The walk itself lands with the index in step 4; the extension sets are here
 //! because the ranker needs to know what is lossless.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 /// Containers whose tags can be read and written.
 pub const TAGGABLE_EXTENSIONS: &[&str] = &[".flac", ".mp3", ".m4a", ".mp4", ".ogg", ".opus"];
@@ -23,6 +23,42 @@ pub const AUDIO_EXTENSIONS: &[&str] = &[
 pub const LOSSLESS_EXTENSIONS: &[&str] = &[
     ".flac", ".wav", ".aiff", ".aif", ".ape", ".wv", ".alac", ".m4a",
 ];
+
+/// Every audio file under `root`, sorted for reproducible output.
+///
+/// The scripts this replaces used a two-level listing, which silently ignored
+/// anything filed under `Artist/Album/track.flac`.
+#[must_use]
+pub fn iter_audio_files(root: &Path, extensions: &[&str]) -> Vec<PathBuf> {
+    let wanted: Vec<String> = extensions
+        .iter()
+        .map(|extension| extension.to_lowercase())
+        .collect();
+    let mut found = Vec::new();
+    walk(root, &wanted, &mut found);
+    found.sort();
+    found
+}
+
+fn walk(directory: &Path, wanted: &[String], found: &mut Vec<PathBuf>) {
+    let Ok(entries) = std::fs::read_dir(directory) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            walk(&path, wanted, found);
+        } else if path.is_file() {
+            let suffix = path
+                .extension()
+                .and_then(|extension| extension.to_str())
+                .map(|extension| format!(".{}", extension.to_lowercase()));
+            if suffix.is_some_and(|suffix| wanted.contains(&suffix)) {
+                found.push(path);
+            }
+        }
+    }
+}
 
 /// The artist implied by a file's position in the library.
 ///

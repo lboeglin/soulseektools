@@ -53,6 +53,14 @@ pub struct LibraryEntry {
     pub title: NameForms,
     pub duration_seconds: Option<f64>,
     pub artwork_bytes: u64,
+
+    /// Stream properties, new in `library.db` v3 (#2). They come off the same
+    /// header read `read_duration` already performs, so storing them costs no
+    /// extra I/O -- and without them "every file under 320 kbps" cannot be asked.
+    pub codec: String,
+    pub bitrate: Option<u32>,
+    pub sample_rate: Option<u32>,
+    pub bit_depth: Option<u32>,
 }
 
 impl LibraryEntry {

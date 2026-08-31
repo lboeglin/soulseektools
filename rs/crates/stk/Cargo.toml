@@ -22,10 +22,12 @@ path = "src/bin/stk_rs.rs"
 csv = "1.4.0"
 fancy-regex = "0.19.0"
 kakasi = "0.1.0"
+lofty = "0.22.2"
 rapidfuzz = "0.5.0"
 rayon = "1.12.0"
 realfft = "3.5.0"
 regex = "1.13.1"
+rusqlite = { version = "0.40.2", features = ["bundled"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
 thiserror = "2.0.20"
@@ -39,3 +41,4 @@ workspace = true
 rand = "0.9.5"
 rand_distr = "0.5.1"
 realfft = "3.5.0"
+rusqlite = "0.40.2"
