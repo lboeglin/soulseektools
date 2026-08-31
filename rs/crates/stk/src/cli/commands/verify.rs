@@ -6,8 +6,9 @@ use clap::Args;
 use serde_json::json;
 
 use crate::audio::{ffmpeg, verify::verify_files};
-use crate::cli::context::{show, table, AppContext};
+use crate::cli::context::{show, table, unix_now, AppContext};
 use crate::errors::{Error, Result};
+use crate::library::index::LibraryIndex;
 use crate::library::scan::{iter_audio_files, Excludes, LOSSLESS_EXTENSIONS};
 use crate::models::{Verdict, VerifyResult};
 
@@ -39,17 +40,52 @@ pub struct VerifyArgs {
     /// Print only SUSPECT and FAKE results.
     #[arg(long)]
     pub only_flagged: bool,
+
+    /// Analyse only files the index has no current verdict for.
+    #[arg(long)]
+    pub changed: bool,
 }
 
 /// Analyse the frequency spectrum of every lossless file and report the verdicts.
+///
+/// `--changed` is opt-in rather than the default because the report carries
+/// `detail`, the cutoff and the steepness, none of which the two stored columns
+/// can reproduce: skipping by default would quietly turn "the library" into
+/// "whatever moved since last time".
 pub fn run(context: &AppContext, args: &VerifyArgs) -> Result<i32> {
-    let paths = targets(context, args.target.as_deref())?;
-    if paths.is_empty() {
+    let all = targets(context, args.target.as_deref())?;
+    if all.is_empty() {
         context.say("No lossless files to check.");
         return Ok(0);
     }
 
+    let mut index = context.open_index()?;
+    let total = all.len();
+    let paths: Vec<PathBuf> = if args.changed {
+        let mut wanted = Vec::new();
+        for path in all {
+            if !already_judged(&index, &path)? {
+                wanted.push(path);
+            }
+        }
+        wanted
+    } else {
+        all
+    };
+
+    let skipped = total - paths.len();
+    if paths.is_empty() {
+        context.say(&format!(
+            "Nothing to check: all {skipped} file(s) still carry their last verdict."
+        ));
+        return Ok(0);
+    }
+
     let results = verify_files(&paths, &context.settings().verify);
+    let now = unix_now();
+    for result in &results {
+        index.set_verdict(&result.path, result.verdict, now)?;
+    }
 
     if args.spectrograms {
         render_spectrograms(context, &results);
@@ -64,12 +100,29 @@ pub fn run(context: &AppContext, args: &VerifyArgs) -> Result<i32> {
     }
 
     print_table(context, &results, args.only_flagged);
+    if skipped > 0 {
+        context.say(&format!(
+            "Skipped {skipped} file(s) with a current verdict."
+        ));
+    }
     if let Some(destination) = &args.report {
         context.say(&format!("Report written to {}", show(destination)));
     }
 
     let any_fake = results.iter().any(|result| result.verdict == Verdict::Fake);
     Ok(i32::from(any_fake))
+}
+
+/// Whether `--changed` may skip a file.
+///
+/// An `ERROR` verdict is not a judgement about the audio, it is a report that
+/// the audio could not be read -- usually a missing ffmpeg or a truncated
+/// download. Caching it would make the failure permanent, so it is retried.
+fn already_judged(index: &LibraryIndex, path: &Path) -> Result<bool> {
+    Ok(matches!(
+        index.current_verdict(path)?,
+        Some(Verdict::Ok | Verdict::Suspect | Verdict::Fake)
+    ))
 }
 
 fn targets(context: &AppContext, target: Option<&Path>) -> Result<Vec<PathBuf>> {

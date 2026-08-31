@@ -77,6 +77,14 @@ impl AppContext {
     }
 }
 
+/// Wall-clock seconds since the epoch, as both databases store timestamps.
+#[must_use]
+pub fn unix_now() -> f64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0.0, |since| since.as_secs_f64())
+}
+
 /// Print an error the way the Python's `fail` does, and give the exit code.
 #[must_use]
 pub fn fail(message: &str) -> i32 {

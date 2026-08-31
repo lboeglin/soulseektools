@@ -3,7 +3,7 @@
 use clap::Subcommand;
 use serde_json::json;
 
-use crate::cli::context::{show, table, AppContext};
+use crate::cli::context::{show, table, unix_now, AppContext};
 use crate::config::SlskdSettings;
 use crate::errors::Result;
 use crate::fetch;
@@ -97,10 +97,7 @@ fn search(context: &AppContext, limit: Option<usize>) -> Result<i32> {
 fn download(context: &AppContext, limit: Option<usize>, collect_only: bool) -> Result<i32> {
     let client = client(&context.settings().slskd)?;
     let mut store = context.open_review()?;
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs_f64();
+    let now = unix_now();
 
     let queued = if collect_only {
         Vec::new()

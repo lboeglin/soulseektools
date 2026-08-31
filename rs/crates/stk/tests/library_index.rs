@@ -618,3 +618,50 @@ fn the_deepest_root_owns_a_file() {
     assert_eq!(owner, inner);
     assert_eq!(owning_root(Path::new(r"F:\Elsewhere\a.flac"), &roots), None);
 }
+
+/// A re-described file drops its verdict: `upsert` replaces the whole row, so
+/// the judgement cannot outlive the audio it was made about.
+#[test]
+fn reindexing_a_file_clears_its_verdict() {
+    needs_ffmpeg!();
+    let scratch = Scratch::new("index-verdict-cleared");
+    let root = library_root(&scratch);
+    let track = root.join("DECO_27").join("01 - Roki.flac");
+    let mut index = open(&scratch, "index.db");
+    refresh(&mut index, &root);
+    index
+        .set_verdict(&track, stk::models::Verdict::Ok, 1.0)
+        .expect("a recorded verdict");
+
+    index
+        .reindex(&track, std::slice::from_ref(&root))
+        .expect("a reindex");
+
+    assert_eq!(index.verdict(&track).expect("a lookup"), None);
+}
+
+#[test]
+fn a_verdict_goes_stale_when_the_file_moves_under_it() {
+    needs_ffmpeg!();
+    let scratch = Scratch::new("index-verdict-stale");
+    let root = library_root(&scratch);
+    let track = root.join("DECO_27").join("01 - Roki.flac");
+    let mut index = open(&scratch, "index.db");
+    refresh(&mut index, &root);
+    index
+        .set_verdict(&track, stk::models::Verdict::Ok, 1.0)
+        .expect("a recorded verdict");
+
+    assert_eq!(
+        index.current_verdict(&track).expect("a lookup"),
+        Some(stk::models::Verdict::Ok)
+    );
+
+    encode(&track, &Encoded::default());
+
+    assert_eq!(index.current_verdict(&track).expect("a lookup"), None);
+    assert_eq!(
+        index.verdict(&track).expect("a lookup"),
+        Some(stk::models::Verdict::Ok)
+    );
+}

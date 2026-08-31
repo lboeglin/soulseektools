@@ -14,7 +14,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
 use serde_json::Value;
-use support::{encode, Encoded, Scratch};
+use support::{encode, noise_source, Encoded, Scratch};
 
 fn exclusive() -> MutexGuard<'static, ()> {
     static LOCK: Mutex<()> = Mutex::new(());
@@ -463,6 +463,96 @@ fn verify_checks_a_single_file() {
 
     let track = root.join("ZUN").join("Heian Alien.flac");
     assert_eq!(run(&["verify", &track.display().to_string()]), 0);
+    drop(harness);
+}
+
+/// A library whose one file the spectral check can actually judge.
+///
+/// The tone `library` writes is too short and too narrow to classify, so it
+/// verifies as ERROR; broadband noise is what produces a real verdict.
+fn verifiable_library(harness: &Harness) -> PathBuf {
+    let root = harness.join("Music");
+    noise_source(&root.join("ZUN").join("Noise.flac"), 8, 44100);
+    root
+}
+
+/// #2 wanted verify to stop being a one-shot report.
+#[test]
+fn verify_records_its_verdict_in_the_index() {
+    needs_ffmpeg!();
+    let _guard = exclusive();
+    let harness = Harness::new("cli-verify-verdict");
+    let root = verifiable_library(&harness);
+    harness.with_config(&root);
+    run(&["library", "scan"]);
+
+    assert_eq!(run(&["verify"]), 0);
+
+    let index = stk::library::index::LibraryIndex::open(&harness.join("library.db"))
+        .expect("the index the scan wrote");
+    assert_eq!(
+        index
+            .verdict(&root.join("ZUN").join("Noise.flac"))
+            .expect("a lookup"),
+        Some(stk::models::Verdict::Ok)
+    );
+    drop(harness);
+}
+
+#[test]
+fn verify_changed_skips_a_file_that_still_carries_its_verdict() {
+    needs_ffmpeg!();
+    let _guard = exclusive();
+    let harness = Harness::new("cli-verify-changed");
+    let root = verifiable_library(&harness);
+    harness.with_config(&root);
+    run(&["library", "scan"]);
+    run(&["verify"]);
+
+    let report = harness.join("second.csv");
+    assert_eq!(
+        run(&[
+            "verify",
+            "--changed",
+            "--report",
+            &report.display().to_string()
+        ]),
+        0
+    );
+
+    // Nothing was analysed, so nothing was reported -- the run said so rather
+    // than writing an empty document.
+    assert!(!report.exists());
+    drop(harness);
+}
+
+#[test]
+fn verify_changed_comes_back_to_a_file_that_moved() {
+    needs_ffmpeg!();
+    let _guard = exclusive();
+    let harness = Harness::new("cli-verify-moved");
+    let root = verifiable_library(&harness);
+    harness.with_config(&root);
+    run(&["library", "scan"]);
+    run(&["verify"]);
+
+    // Deliberately not rescanned: the stored verdict has to go stale on the
+    // file's own `(size, mtime)`, not only when the index row is rewritten.
+    noise_source(&root.join("ZUN").join("Noise.flac"), 6, 44100);
+
+    let report = harness.join("second.csv");
+    assert_eq!(
+        run(&[
+            "verify",
+            "--changed",
+            "--report",
+            &report.display().to_string()
+        ]),
+        0
+    );
+
+    let written = std::fs::read_to_string(&report).expect("a report");
+    assert!(written.contains("Noise.flac"), "{written}");
     drop(harness);
 }
 

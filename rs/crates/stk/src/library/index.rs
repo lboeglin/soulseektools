@@ -408,8 +408,11 @@ impl LibraryIndex {
     /// Record what `stk verify` concluded, so the next run can skip the file.
     ///
     /// New in schema v3 (#2): `verify` is the most expensive command in the tool
-    /// and currently redoes every file each run, including ones whose
-    /// `(size, mtime)` have not moved.
+    /// and redid every file each run, including ones whose `(size, mtime)` had
+    /// not moved.
+    ///
+    /// A verdict outlives only the file it was made about: `upsert` replaces the
+    /// whole row, so re-describing a changed file drops it.
     pub fn set_verdict(&mut self, path: &Path, verdict: Verdict, at: f64) -> Result<()> {
         self.connection
             .execute(
@@ -431,6 +434,38 @@ impl LibraryIndex {
             .optional()
             .map_err(|error| sqlite_error(&error))?;
         Ok(stored.flatten().and_then(|value| value.parse().ok()))
+    }
+
+    /// The stored verdict, but only while it still describes the file on disk.
+    ///
+    /// The comparison is the index's own invalidation rule -- the `(size, mtime)`
+    /// the row was written from -- so a re-encoded or replaced file falls back to
+    /// being analysed rather than answering with a verdict about its predecessor.
+    pub fn current_verdict(&self, path: &Path) -> Result<Option<Verdict>> {
+        let stored: Option<(Option<String>, i64, f64)> = self
+            .connection
+            .query_row(
+                "SELECT verdict, size, mtime FROM files WHERE path = ?1",
+                params![path.display().to_string()],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .optional()
+            .map_err(|error| sqlite_error(&error))?;
+
+        let Some((Some(verdict), size, mtime)) = stored else {
+            return Ok(None);
+        };
+        let Ok(metadata) = path.metadata() else {
+            return Ok(None);
+        };
+        let current = (
+            i64::try_from(metadata.len()).unwrap_or(i64::MAX),
+            modified_seconds(&metadata),
+        );
+        if current != (size, mtime) {
+            return Ok(None);
+        }
+        Ok(verdict.parse().ok())
     }
 
     /// A cached fingerprint, or `None` if absent or computed before an edit.
