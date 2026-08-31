@@ -497,7 +497,7 @@ fn a_v2_database_is_upgraded_in_place_rather_than_rewritten() {
     assert_eq!(entry.tags.artist, "ZUN");
     assert_eq!(entry.codec, "");
     assert_eq!(entry.bitrate, None);
-    assert_eq!(index.schema_version().expect("a version"), 3);
+    assert_eq!(index.schema_version().expect("a version"), 4);
 }
 
 /// `verify` stops being a one-shot report once its verdict is persisted (#2).

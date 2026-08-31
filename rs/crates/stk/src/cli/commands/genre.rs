@@ -3,9 +3,10 @@
 use clap::Subcommand;
 use serde_json::json;
 
-use crate::cli::context::{show, table, AppContext};
+use crate::cli::context::{show, table, unix_now, AppContext};
 use crate::errors::Result;
 use crate::genres;
+use crate::library::changes::ChangeLog;
 
 #[derive(Subcommand, Debug)]
 pub enum GenreCommand {
@@ -128,9 +129,16 @@ fn apply_genres(context: &AppContext, apply: bool) -> Result<i32> {
 
     let mut failures: Vec<(String, String)> = Vec::new();
     if apply {
+        let log = ChangeLog::open(&index, "genre apply", unix_now())?;
         for change in &changes {
             match genres::apply_change(change) {
                 Ok(()) => {
+                    log.genre(
+                        &mut index,
+                        &change.entry.path,
+                        &change.current,
+                        &change.proposed,
+                    )?;
                     index.reindex(&change.entry.path, &roots)?;
                 }
                 Err(error) => {

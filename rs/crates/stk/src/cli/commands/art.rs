@@ -4,8 +4,10 @@ use clap::Subcommand;
 use serde_json::json;
 
 use crate::artwork::service::{self, ArtworkResult, HttpTransport};
-use crate::cli::context::{show, table, AppContext};
+use crate::cli::context::{show, table, unix_now, AppContext};
 use crate::errors::Result;
+use crate::library::changes::ChangeLog;
+use crate::library::tags;
 
 #[derive(Subcommand, Debug)]
 pub enum ArtCommand {
@@ -116,13 +118,22 @@ fn fetch(
     }
 
     let http = HttpTransport::new(&settings)?;
+    let log = ChangeLog::open(&index, "art fetch", unix_now())?;
     let mut results = Vec::new();
     for entry in &needing {
         let mut result = service::find_artwork(entry, &providers, &settings, &http);
         if result.ok() && apply {
+            // Read before embedding: afterwards the cover this replaced is gone.
+            let previous = tags::read_artwork(&entry.path).ok().flatten();
             if let Err(error) = service::embed(&result) {
                 result.error = error.to_string();
             } else {
+                log.artwork(
+                    &mut index,
+                    &entry.path,
+                    previous.as_ref(),
+                    result.artwork.as_ref(),
+                )?;
                 index.reindex(&entry.path, &roots)?;
             }
         }

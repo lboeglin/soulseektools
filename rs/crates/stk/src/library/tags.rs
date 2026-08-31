@@ -235,6 +235,21 @@ pub fn write_artwork(path: &Path, artwork: &Artwork) -> Result<()> {
         .map_err(|error| Error::Tag(format!("{}: {error}", path.display())))
 }
 
+/// Remove every embedded image, which is what undoing a first-time cover
+/// embed comes to (#2).
+pub fn clear_artwork(path: &Path) -> Result<()> {
+    require_artwork_container(path)?;
+    let mut file = read_file(path)?;
+    let tag_type = existing_or_default_tag_type(&file);
+    let tag = tag_for_writing(&mut file, tag_type);
+    while !tag.pictures().is_empty() {
+        tag.remove_picture(0);
+    }
+
+    file.save_to_path(path, WriteOptions::default())
+        .map_err(|error| Error::Tag(format!("{}: {error}", path.display())))
+}
+
 /// How a multi-valued genre has to be handed to a tag block.
 ///
 /// ID3v2 keeps only the last of several `Genre` items, because a TCON frame is

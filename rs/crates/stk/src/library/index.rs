@@ -9,10 +9,11 @@
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
-use rusqlite::{params, Connection, OptionalExtension};
+use rusqlite::{params, params_from_iter, Connection, OptionalExtension};
 
 use crate::audio::fingerprint::{Fingerprint, FingerprintKind, Values};
 use crate::errors::{Error, Result};
+use crate::library::changes::{Change, ChangeFilter, NewChange};
 use crate::library::scan::{
     folder_artist, iter_audio_files, owning_root, Excludes, AUDIO_EXTENSIONS,
 };
@@ -21,8 +22,8 @@ use crate::matching::NameForms;
 use crate::models::{LibraryEntry, TrackTags, Verdict};
 use crate::text::normalize::strip_artist_prefix;
 
-/// Bumped from 2 to 3 by the schema additions in #2.
-pub const SCHEMA_VERSION: i64 = 3;
+/// Bumped from 3 to 4 by the write log's run grouping (#2).
+pub const SCHEMA_VERSION: i64 = 4;
 
 /// The lowest version this can open without migrating.
 ///
@@ -71,6 +72,7 @@ CREATE TABLE IF NOT EXISTS fingerprints (
 
 CREATE TABLE IF NOT EXISTS changes (
     id          INTEGER PRIMARY KEY,
+    run_id      INTEGER NOT NULL DEFAULT 0,
     applied_at  REAL NOT NULL,
     command     TEXT NOT NULL,
     path        TEXT NOT NULL,
@@ -78,6 +80,12 @@ CREATE TABLE IF NOT EXISTS changes (
     old_value   BLOB,
     new_value   BLOB
 );
+";
+
+/// Indexes over columns a migration may still be about to add, so they are
+/// created after it rather than alongside the tables.
+const MIGRATED_INDEXES: &str = "
+CREATE INDEX IF NOT EXISTS changes_run ON changes (run_id);
 ";
 
 /// The six columns schema v3 adds to `files`, from #2.
@@ -94,6 +102,13 @@ const V3_COLUMNS: &[(&str, &str)] = &[
     ("verdict", "TEXT"),
     ("verdict_at", "REAL"),
 ];
+
+/// The column schema v4 adds to `changes`, so an undo can revert a whole
+/// `--apply` run and not only its last row.
+///
+/// In [`SCHEMA`] as well, for a database created from scratch; here for one the
+/// port already wrote a v3 `changes` table into.
+const V4_CHANGE_COLUMNS: &[(&str, &str)] = &[("run_id", "INTEGER NOT NULL DEFAULT 0")];
 
 const COLUMNS: &[&str] = &[
     "path",
@@ -119,6 +134,21 @@ const COLUMNS: &[&str] = &[
     "sample_rate",
     "bit_depth",
 ];
+
+const CHANGE_COLUMNS: &str = "id, run_id, applied_at, command, path, field, old_value, new_value";
+
+fn row_to_change(row: &rusqlite::Row<'_>) -> rusqlite::Result<Change> {
+    Ok(Change {
+        id: row.get(0)?,
+        run_id: row.get(1)?,
+        applied_at: row.get(2)?,
+        command: row.get(3)?,
+        path: PathBuf::from(row.get::<_, String>(4)?),
+        field: row.get(5)?,
+        old_value: row.get(6)?,
+        new_value: row.get(7)?,
+    })
+}
 
 /// What a refresh changed, for reporting and for asserting incrementality.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -193,6 +223,32 @@ pub fn describe(path: &Path, root: &Path) -> Result<LibraryEntry> {
     })
 }
 
+/// Bring one table up to date in place, so a database an older build wrote
+/// opens without being rewritten.
+fn add_missing_columns(
+    connection: &Connection,
+    table: &str,
+    columns: &[(&str, &str)],
+) -> Result<()> {
+    let existing: HashSet<String> = connection
+        .prepare(&format!("SELECT name FROM pragma_table_info('{table}')"))
+        .and_then(|mut statement| {
+            statement
+                .query_map([], |row| row.get::<_, String>(0))?
+                .collect()
+        })
+        .map_err(|error| sqlite_error(&error))?;
+
+    for (name, kind) in columns {
+        if !existing.contains(*name) {
+            connection
+                .execute_batch(&format!("ALTER TABLE {table} ADD COLUMN {name} {kind}"))
+                .map_err(|error| sqlite_error(&error))?;
+        }
+    }
+    Ok(())
+}
+
 fn modified_seconds(metadata: &std::fs::Metadata) -> f64 {
     metadata
         .modified()
@@ -222,21 +278,11 @@ impl LibraryIndex {
             .execute_batch(SCHEMA)
             .map_err(|error| sqlite_error(&error))?;
 
-        let existing: HashSet<String> = connection
-            .prepare("SELECT name FROM pragma_table_info('files')")
-            .and_then(|mut statement| {
-                statement
-                    .query_map([], |row| row.get::<_, String>(0))?
-                    .collect()
-            })
+        add_missing_columns(&connection, "files", V3_COLUMNS)?;
+        add_missing_columns(&connection, "changes", V4_CHANGE_COLUMNS)?;
+        connection
+            .execute_batch(MIGRATED_INDEXES)
             .map_err(|error| sqlite_error(&error))?;
-        for (name, kind) in V3_COLUMNS {
-            if !existing.contains(*name) {
-                connection
-                    .execute_batch(&format!("ALTER TABLE files ADD COLUMN {name} {kind}"))
-                    .map_err(|error| sqlite_error(&error))?;
-            }
-        }
 
         connection
             .execute(
@@ -523,6 +569,88 @@ impl LibraryIndex {
             )
             .map_err(|error| sqlite_error(&error))?;
         Ok(())
+    }
+
+    /// The run a fresh `--apply` invocation should stamp its rows with.
+    pub fn next_run_id(&self) -> Result<i64> {
+        self.connection
+            .query_row(
+                "SELECT COALESCE(MAX(run_id), 0) + 1 FROM changes",
+                [],
+                |row| row.get(0),
+            )
+            .map_err(|error| sqlite_error(&error))
+    }
+
+    /// The most recent run, which is what `undo --last` means.
+    pub fn last_run_id(&self) -> Result<Option<i64>> {
+        self.connection
+            .query_row("SELECT MAX(run_id) FROM changes", [], |row| row.get(0))
+            .optional()
+            .map(Option::flatten)
+            .map_err(|error| sqlite_error(&error))
+    }
+
+    pub fn record_change(&mut self, change: &NewChange) -> Result<i64> {
+        self.connection
+            .execute(
+                "INSERT INTO changes (run_id, applied_at, command, path, field, old_value, new_value)                  VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                params![
+                    change.run_id,
+                    change.applied_at,
+                    change.command,
+                    change.path.display().to_string(),
+                    change.field.as_str(),
+                    change.old_value,
+                    change.new_value,
+                ],
+            )
+            .map_err(|error| sqlite_error(&error))?;
+        Ok(self.connection.last_insert_rowid())
+    }
+
+    /// Logged writes, newest first.
+    pub fn changes(&self, filter: &ChangeFilter) -> Result<Vec<Change>> {
+        let mut query = format!("SELECT {CHANGE_COLUMNS} FROM changes");
+        let mut conditions = Vec::new();
+        let mut arguments: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
+        if let Some(command) = &filter.command {
+            conditions.push(format!("command = ?{}", arguments.len() + 1));
+            arguments.push(Box::new(command.clone()));
+        }
+        if let Some(run) = filter.run {
+            conditions.push(format!("run_id = ?{}", arguments.len() + 1));
+            arguments.push(Box::new(run));
+        }
+        if !conditions.is_empty() {
+            query.push_str(" WHERE ");
+            query.push_str(&conditions.join(" AND "));
+        }
+        query.push_str(" ORDER BY id DESC");
+        if let Some(limit) = filter.limit {
+            use std::fmt::Write as _;
+            let _ = write!(query, " LIMIT {limit}");
+        }
+
+        self.connection
+            .prepare(&query)
+            .and_then(|mut statement| {
+                statement
+                    .query_map(params_from_iter(arguments.iter()), row_to_change)?
+                    .collect()
+            })
+            .map_err(|error| sqlite_error(&error))
+    }
+
+    pub fn change(&self, id: i64) -> Result<Option<Change>> {
+        self.connection
+            .query_row(
+                &format!("SELECT {CHANGE_COLUMNS} FROM changes WHERE id = ?1"),
+                params![id],
+                row_to_change,
+            )
+            .optional()
+            .map_err(|error| sqlite_error(&error))
     }
 
     fn upsert(&mut self, entry: &LibraryEntry) -> Result<()> {

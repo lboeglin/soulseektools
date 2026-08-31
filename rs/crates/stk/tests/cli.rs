@@ -133,6 +133,20 @@ fn run(arguments: &[&str]) -> i32 {
     stk::cli::run(argv)
 }
 
+/// Every row the write log holds, newest first.
+fn logged(harness: &Harness) -> Vec<stk::library::changes::Change> {
+    stk::library::index::LibraryIndex::open(&harness.join("library.db"))
+        .expect("the index")
+        .changes(&stk::library::changes::ChangeFilter::default())
+        .expect("the logged rows")
+}
+
+fn genres_of(path: &Path) -> Vec<String> {
+    stk::library::tags::read_tags(path)
+        .expect("readable tags")
+        .genres
+}
+
 /// A small library laid out the way the real one is.
 fn library(harness: &Harness) -> PathBuf {
     let root = harness.join("Music");
@@ -437,6 +451,96 @@ fn genre_apply_with_the_flag_writes_the_tag() {
             .genres,
         vec!["Touhou".to_owned()]
     );
+    drop(harness);
+}
+
+/// #2's write log: every `--apply` mutation leaves a row, and none does
+/// without the flag.
+#[test]
+fn genre_apply_logs_what_it_wrote_only_when_applied() {
+    needs_ffmpeg!();
+    let _guard = exclusive();
+    let harness = Harness::new("cli-genre-log");
+    let root = library(&harness);
+    harness.with_config(&root);
+    std::fs::write(
+        harness.join("genres.toml"),
+        "ZUN = \"Touhou\"
+",
+    )
+    .expect("a genre map");
+    run(&["library", "scan"]);
+
+    assert_eq!(run(&["genre", "apply"]), 0);
+    assert!(logged(&harness).is_empty());
+
+    assert_eq!(run(&["genre", "apply", "--apply"]), 0);
+
+    let changes = logged(&harness);
+    assert_eq!(changes.len(), 1);
+    assert_eq!(changes[0].command, "genre apply");
+    assert_eq!(changes[0].field, "genre");
+    drop(harness);
+}
+
+#[test]
+fn changes_undo_puts_a_genre_back_only_with_apply() {
+    needs_ffmpeg!();
+    let _guard = exclusive();
+    let harness = Harness::new("cli-changes-undo");
+    let root = library(&harness);
+    harness.with_config(&root);
+    std::fs::write(
+        harness.join("genres.toml"),
+        "ZUN = \"Touhou\"
+",
+    )
+    .expect("a genre map");
+    run(&["library", "scan"]);
+    run(&["genre", "apply", "--apply"]);
+
+    let track = root.join("ZUN").join("Heian Alien.flac");
+    assert_eq!(genres_of(&track), vec!["Touhou".to_owned()]);
+
+    assert_eq!(run(&["changes", "undo", "--last"]), 0);
+    assert_eq!(genres_of(&track), vec!["Touhou".to_owned()]);
+
+    assert_eq!(run(&["changes", "undo", "--last", "--apply"]), 0);
+    assert!(genres_of(&track).is_empty());
+    drop(harness);
+}
+
+#[test]
+fn changes_list_renders_and_serialises() {
+    needs_ffmpeg!();
+    let _guard = exclusive();
+    let harness = Harness::new("cli-changes-list");
+    let root = library(&harness);
+    harness.with_config(&root);
+    std::fs::write(
+        harness.join("genres.toml"),
+        "ZUN = \"Touhou\"
+",
+    )
+    .expect("a genre map");
+    run(&["library", "scan"]);
+    run(&["genre", "apply", "--apply"]);
+
+    assert_eq!(run(&["changes", "list"]), 0);
+    assert_eq!(run(&["--json", "changes", "list"]), 0);
+    assert_eq!(run(&["changes", "list", "--command", "genre apply"]), 0);
+    drop(harness);
+}
+
+#[test]
+fn changes_undo_needs_to_be_told_what_to_undo() {
+    let _guard = exclusive();
+    let harness = Harness::new("cli-changes-undo-args");
+    harness.with_config(&harness.join("Music"));
+
+    assert_eq!(run(&["changes", "undo"]), 1);
+    assert_eq!(run(&["changes", "undo", "1", "--last"]), 1);
+    assert_eq!(run(&["changes", "undo", "404"]), 1);
     drop(harness);
 }
 

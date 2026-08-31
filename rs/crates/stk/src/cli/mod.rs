@@ -88,6 +88,10 @@ pub enum Command {
     /// Search Soulseek and download approved candidates.
     #[command(subcommand)]
     Fetch(commands::fetch::FetchCommand),
+
+    /// Inspect and undo what the writing commands changed.
+    #[command(subcommand)]
+    Changes(commands::changes::ChangesCommand),
 }
 
 /// Parse the arguments, resolve the settings once, and run the command.
@@ -133,6 +137,7 @@ pub fn run(arguments: Vec<std::ffi::OsString>) -> i32 {
         Command::Wantlist(command) => commands::wantlist::run(&context, command),
         Command::Review(command) => commands::review::run(&context, command),
         Command::Fetch(command) => commands::fetch::run(&context, command),
+        Command::Changes(command) => commands::changes::run(&context, command),
     };
 
     match outcome {
