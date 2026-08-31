@@ -202,6 +202,16 @@ impl<H: Http> SoulseekClient for SlskdClient<H> {
             .collect())
     }
 
+    fn cancel(&self, username: &str, transfer_id: &str) -> Result<()> {
+        self.http
+            .request(
+                "DELETE",
+                &format!("/transfers/downloads/{username}/{transfer_id}"),
+                None,
+            )
+            .map(|_| ())
+    }
+
     fn transfers(&self) -> Result<Vec<Transfer>> {
         let response = self.get("/transfers/downloads")?;
         Ok(as_list(response.as_ref())

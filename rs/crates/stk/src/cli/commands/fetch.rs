@@ -99,87 +99,138 @@ fn download(context: &AppContext, limit: Option<usize>, collect_only: bool) -> R
     let mut store = context.open_review()?;
     let now = unix_now();
 
-    let queued = if collect_only {
-        Vec::new()
+    // Before queueing, so a promoted candidate goes out in this same run.
+    // `--collect` queues nothing new, stalls included.
+    let (stalled, queued) = if collect_only {
+        (Vec::new(), Vec::new())
     } else {
-        fetch::enqueue_approved(&mut store, &client, limit, now)?
+        (
+            fetch::retry_stalled(&mut store, &client, context.settings(), now)?,
+            fetch::enqueue_approved(&mut store, &client, limit, now)?,
+        )
     };
     let collected = fetch::collect(&mut store, &client, context.settings(), true)?;
 
     if context.as_json {
         context.emit(&json!({
-            "queued": queued
-                .iter()
-                .map(|outcome| json!({
-                    "track_id": outcome.track_id,
-                    "query": outcome.query,
-                    "destination": outcome.destination,
-                    "ok": outcome.queued,
-                    "error": outcome.error,
-                }))
-                .collect::<Vec<_>>(),
-            "collected": collected
-                .iter()
-                .map(|outcome| json!({
-                    "track_id": outcome.track_id,
-                    "query": outcome.query,
-                    "state": outcome.state.to_string(),
-                    "local_path": outcome.local_path.as_deref().map(show),
-                    "verdict": outcome
-                        .verdict
-                        .as_ref()
-                        .map(|verdict| verdict.verdict.to_string()),
-                    "error": outcome.error,
-                    "retried_with_rank": outcome.retried_with_rank,
-                }))
-                .collect::<Vec<_>>(),
+            "stalled": stalled.iter().map(stall_row).collect::<Vec<_>>(),
+            "queued": queued.iter().map(enqueue_row).collect::<Vec<_>>(),
+            "collected": collected.iter().map(collect_row).collect::<Vec<_>>(),
         }));
         return Ok(0);
     }
 
-    if !queued.is_empty() {
-        let rows: Vec<Vec<String>> = queued
-            .iter()
-            .map(|outcome| {
-                let marker = if outcome.queued { "OK" } else { "--" };
-                vec![
-                    marker.to_owned(),
-                    outcome.query.clone(),
-                    outcome.error.clone(),
-                ]
-            })
-            .collect();
-        context.say(&table(&["", "Track", "Note"], &rows));
-    }
-
-    if !collected.is_empty() {
-        let rows: Vec<Vec<String>> = collected
-            .iter()
-            .map(|outcome| {
-                let verdict = outcome
-                    .verdict
-                    .as_ref()
-                    .map_or_else(String::new, |verdict| verdict.verdict.to_string());
-                let note = if let Some(rank) = outcome.retried_with_rank {
-                    format!("retrying with candidate {rank}")
-                } else {
-                    outcome.error.clone()
-                };
-                vec![
-                    outcome.state.to_string(),
-                    outcome.query.clone(),
-                    verdict,
-                    note,
-                ]
-            })
-            .collect();
-        context.say(&table(&["State", "Track", "Verdict", "Note"], &rows));
-    }
+    report_stalled(context, &stalled);
+    report_queued(context, &queued);
+    report_collected(context, &collected);
 
     context.say(&format!(
-        "Queued {} track(s); recorded {} finished transfer(s)",
+        "Queued {} track(s); recorded {} finished transfer(s);          gave up on {} stalled one(s)",
         queued.iter().filter(|outcome| outcome.queued).count(),
-        collected.len()
+        collected.len(),
+        stalled.len()
     ));
     Ok(0)
+}
+
+fn stall_row(outcome: &fetch::StallOutcome) -> serde_json::Value {
+    json!({
+        "track_id": outcome.track_id,
+        "query": outcome.query,
+        "waited_seconds": outcome.waited_seconds,
+        "retried_with_rank": outcome.retried_with_rank,
+        "error": outcome.error,
+    })
+}
+
+fn enqueue_row(outcome: &fetch::EnqueueOutcome) -> serde_json::Value {
+    json!({
+        "track_id": outcome.track_id,
+        "query": outcome.query,
+        "destination": outcome.destination,
+        "ok": outcome.queued,
+        "error": outcome.error,
+    })
+}
+
+fn collect_row(outcome: &fetch::CollectOutcome) -> serde_json::Value {
+    json!({
+        "track_id": outcome.track_id,
+        "query": outcome.query,
+        "state": outcome.state.to_string(),
+        "local_path": outcome.local_path.as_deref().map(show),
+        "verdict": outcome
+            .verdict
+            .as_ref()
+            .map(|verdict| verdict.verdict.to_string()),
+        "error": outcome.error,
+        "retried_with_rank": outcome.retried_with_rank,
+    })
+}
+
+fn report_stalled(context: &AppContext, stalled: &[fetch::StallOutcome]) {
+    if stalled.is_empty() {
+        return;
+    }
+    let rows: Vec<Vec<String>> = stalled
+        .iter()
+        .map(|outcome| {
+            let note = match outcome.retried_with_rank {
+                Some(rank) => format!("retrying with candidate {rank}"),
+                None => "no candidates left".to_owned(),
+            };
+            vec![
+                outcome.query.clone(),
+                format!("{:.0}s", outcome.waited_seconds),
+                note,
+                outcome.error.clone(),
+            ]
+        })
+        .collect();
+    context.say(&table(&["Stalled", "Waited", "Note", "Error"], &rows));
+}
+
+fn report_queued(context: &AppContext, queued: &[fetch::EnqueueOutcome]) {
+    if queued.is_empty() {
+        return;
+    }
+    let rows: Vec<Vec<String>> = queued
+        .iter()
+        .map(|outcome| {
+            let marker = if outcome.queued { "OK" } else { "--" };
+            vec![
+                marker.to_owned(),
+                outcome.query.clone(),
+                outcome.error.clone(),
+            ]
+        })
+        .collect();
+    context.say(&table(&["", "Track", "Note"], &rows));
+}
+
+fn report_collected(context: &AppContext, collected: &[fetch::CollectOutcome]) {
+    if collected.is_empty() {
+        return;
+    }
+    let rows: Vec<Vec<String>> = collected
+        .iter()
+        .map(|outcome| {
+            let verdict = outcome
+                .verdict
+                .as_ref()
+                .map_or_else(String::new, |verdict| verdict.verdict.to_string());
+            let note = if let Some(rank) = outcome.retried_with_rank {
+                format!("retrying with candidate {rank}")
+            } else {
+                outcome.error.clone()
+            };
+            vec![
+                outcome.state.to_string(),
+                outcome.query.clone(),
+                verdict,
+                note,
+            ]
+        })
+        .collect();
+    context.say(&table(&["State", "Track", "Verdict", "Note"], &rows));
 }

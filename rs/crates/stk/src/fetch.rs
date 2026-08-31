@@ -137,6 +137,79 @@ fn search_concurrently(
         )
 }
 
+/// A transfer that sat too long, and what was done about it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct StallOutcome {
+    pub track_id: i64,
+    pub query: String,
+    pub waited_seconds: f64,
+    /// The rank promoted in its place, absent when the candidates ran out.
+    pub retried_with_rank: Option<i64>,
+    pub error: String,
+}
+
+/// Give up on transfers that have sat in the queue too long, and try the next
+/// candidate instead.
+///
+/// `collect` only ever sees transfers slskd already considers finished, so a
+/// download sitting behind a peer that never uploads is invisible to it: this
+/// is what makes `queued_at` worth recording (#2). Soulseek queues stall
+/// constantly, and the candidate that would have worked was in the database all
+/// along.
+///
+/// The stalled transfer is cancelled rather than left in place. A peer that
+/// wakes up hours later would otherwise deliver the file a second time, beside
+/// the copy the retry already fetched.
+pub fn retry_stalled(
+    store: &mut ReviewStore,
+    client: &dyn SoulseekClient,
+    settings: &Settings,
+    now: f64,
+) -> crate::errors::Result<Vec<StallOutcome>> {
+    let stalled = store.stalled(now, settings.slskd.stall_after_seconds)?;
+    if stalled.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let unfinished: HashMap<String, Transfer> = client
+        .transfers()?
+        .into_iter()
+        .filter(|transfer| !transfer.state.finished())
+        .map(|transfer| (transfer.remote_path.clone(), transfer))
+        .collect();
+
+    let mut outcomes = Vec::new();
+    for entry in stalled {
+        let Some(approved) = entry.approved() else {
+            continue;
+        };
+
+        let mut error = String::new();
+        if let Some(transfer) = unfinished.get(&approved.candidate.remote_path) {
+            if let Err(reason) = client.cancel(&transfer.username, &transfer.id) {
+                error = reason.to_string();
+            }
+        }
+
+        let retried = store.next_candidate(entry.id)?;
+        if retried.is_none() {
+            store.mark(
+                entry.id,
+                TrackStatus::Failed,
+                "stalled, and no candidates left",
+            )?;
+        }
+        outcomes.push(StallOutcome {
+            track_id: entry.id,
+            query: entry.track.query(),
+            waited_seconds: entry.queued_at.map_or(0.0, |queued| now - queued),
+            retried_with_rank: retried,
+            error,
+        });
+    }
+    Ok(outcomes)
+}
+
 /// Queue every approved pick, sorting each into a folder named for its artist.
 pub fn enqueue_approved(
     store: &mut ReviewStore,

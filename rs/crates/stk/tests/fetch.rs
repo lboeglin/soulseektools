@@ -37,6 +37,7 @@ struct FakeClient {
     // searches fan out, and a fake has to satisfy the same bound.
     searched: Mutex<Vec<String>>,
     enqueued: Mutex<Vec<(String, String)>>,
+    cancelled: Mutex<Vec<(String, String)>>,
 }
 
 impl FakeClient {
@@ -89,6 +90,14 @@ impl SoulseekClient for FakeClient {
 
     fn transfers(&self) -> Result<Vec<Transfer>> {
         Ok(self.transfers.clone())
+    }
+
+    fn cancel(&self, username: &str, transfer_id: &str) -> Result<()> {
+        self.cancelled
+            .lock()
+            .expect("the fake is not poisoned")
+            .push((username.to_owned(), transfer_id.to_owned()));
+        Ok(())
     }
 }
 
@@ -753,6 +762,10 @@ fn searches_run_concurrently_rather_than_one_after_another() {
         fn transfers(&self) -> Result<Vec<Transfer>> {
             Ok(Vec::new())
         }
+
+        fn cancel(&self, _user: &str, _transfer_id: &str) -> Result<()> {
+            Ok(())
+        }
     }
 
     let scratch = Scratch::new("fetch-concurrent");
@@ -804,7 +817,7 @@ fn concurrent_results_stay_matched_to_their_tracks() {
         ])
         .expect("added tracks");
 
-    let client = FakeClient::with_candidates(vec![candidate(r"@@peerA\Music\Roki.flac")]);
+    let client = FakeClient::with_candidates(vec![candidate(r"@@peerA\\Music\\Roki.flac")]);
     let outcomes = fetch::search_pending(&mut store, &client, &settings, None).expect("a search");
 
     // Only Roki matches the one candidate offered, so the pairing is visible in
@@ -815,4 +828,114 @@ fn concurrent_results_stay_matched_to_their_tracks() {
         .collect();
     assert_eq!(by_query["DECO*27 - Roki"], 1);
     assert_eq!(by_query["ZUN - Heian Alien"], 0);
+}
+
+/// #2's other half of the retry: a transfer nobody is uploading never reaches
+/// `collect`, because slskd does not consider it finished.
+#[test]
+fn a_stalled_transfer_is_cancelled_and_the_next_candidate_promoted() {
+    let scratch = Scratch::new("fetch-stalled");
+    let settings = settings(&scratch);
+    let mut store = store(&scratch);
+    store.add(&[roki()]).expect("an added track");
+    let searcher = FakeClient::with_candidates(vec![
+        candidate("@@peerA\\Music\\Roki.flac"),
+        candidate("@@peerB\\Music\\Roki.flac"),
+    ]);
+    fetch::search_pending(&mut store, &searcher, &settings, None).expect("a search");
+    let track_id = store.tracks(&[], None).expect("tracks")[0].id;
+    store.approve(track_id, 1).expect("an approval");
+    fetch::enqueue_approved(&mut store, &FakeClient::default(), None, 1000.0).expect("an enqueue");
+
+    let client = FakeClient::with_transfers(vec![transfer(
+        "@@peerA\\Music\\Roki.flac",
+        TransferState::Queued,
+        "",
+    )]);
+    let now = 1000.0 + settings.slskd.stall_after_seconds + 1.0;
+    let outcomes = fetch::retry_stalled(&mut store, &client, &settings, now).expect("a retry");
+
+    assert_eq!(outcomes.len(), 1);
+    assert_eq!(outcomes[0].retried_with_rank, Some(2));
+    assert_eq!(
+        *client.cancelled.lock().expect("the fake is not poisoned"),
+        vec![("peerA".to_owned(), "t1".to_owned())]
+    );
+
+    let entry = &store.tracks(&[], None).expect("tracks")[0];
+    assert_eq!(entry.status, TrackStatus::Approved);
+    assert_eq!(entry.approved_rank, Some(2));
+    assert_eq!(entry.attempts, 1);
+}
+
+#[test]
+fn a_transfer_still_inside_its_grace_period_is_left_alone() {
+    let scratch = Scratch::new("fetch-not-stalled");
+    let settings = settings(&scratch);
+    let mut store = store(&scratch);
+    queued(&mut store, &settings);
+
+    let client = FakeClient::with_transfers(vec![transfer(
+        "@@peerA\\Music\\Roki.flac",
+        TransferState::Queued,
+        "",
+    )]);
+    let now = 1000.0 + settings.slskd.stall_after_seconds - 1.0;
+    let outcomes = fetch::retry_stalled(&mut store, &client, &settings, now).expect("a retry");
+
+    assert!(outcomes.is_empty());
+    assert!(client
+        .cancelled
+        .lock()
+        .expect("the fake is not poisoned")
+        .is_empty());
+    assert_eq!(
+        store.tracks(&[], None).expect("tracks")[0].status,
+        TrackStatus::Queued
+    );
+}
+
+#[test]
+fn a_stalled_track_with_nothing_left_to_try_fails() {
+    let scratch = Scratch::new("fetch-stalled-exhausted");
+    let settings = settings(&scratch);
+    let mut store = store(&scratch);
+    queued(&mut store, &settings);
+
+    let client = FakeClient::with_transfers(vec![transfer(
+        "@@peerA\\Music\\Roki.flac",
+        TransferState::Queued,
+        "",
+    )]);
+    let now = 1000.0 + settings.slskd.stall_after_seconds + 1.0;
+    let outcomes = fetch::retry_stalled(&mut store, &client, &settings, now).expect("a retry");
+
+    assert_eq!(outcomes.len(), 1);
+    assert_eq!(outcomes[0].retried_with_rank, None);
+    let entry = &store.tracks(&[], None).expect("tracks")[0];
+    assert_eq!(entry.status, TrackStatus::Failed);
+    assert_eq!(entry.detail, "stalled, and no candidates left");
+}
+
+/// A finished transfer is `collect`'s business, not the stall pass's.
+#[test]
+fn a_finished_transfer_is_not_cancelled_by_the_stall_pass() {
+    let scratch = Scratch::new("fetch-stalled-finished");
+    let settings = settings(&scratch);
+    let mut store = store(&scratch);
+    queued(&mut store, &settings);
+
+    let client = FakeClient::with_transfers(vec![transfer(
+        "@@peerA\\Music\\Roki.flac",
+        TransferState::Completed,
+        "",
+    )]);
+    let now = 1000.0 + settings.slskd.stall_after_seconds + 1.0;
+    fetch::retry_stalled(&mut store, &client, &settings, now).expect("a retry");
+
+    assert!(client
+        .cancelled
+        .lock()
+        .expect("the fake is not poisoned")
+        .is_empty());
 }

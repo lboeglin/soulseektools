@@ -114,4 +114,11 @@ pub trait SoulseekClient: Sync {
 
     /// Every download the backend is tracking.
     fn transfers(&self) -> Result<Vec<Transfer>>;
+
+    /// Abandon one queued or running download.
+    ///
+    /// A transfer that has stalled long enough to be retried elsewhere has to
+    /// go: a peer that wakes up hours later would otherwise deliver the file a
+    /// second time, beside the copy the retry already fetched.
+    fn cancel(&self, username: &str, transfer_id: &str) -> Result<()>;
 }

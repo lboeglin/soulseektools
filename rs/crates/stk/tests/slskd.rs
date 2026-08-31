@@ -325,6 +325,23 @@ fn an_unreachable_daemon_is_reported() {
     assert!(error.to_string().contains("cannot reach slskd"), "{error}");
 }
 
+/// The stall retry cancels the abandoned transfer so a peer that wakes up
+/// later cannot deliver the file a second time (#2).
+#[test]
+fn cancelling_a_transfer_deletes_it_from_the_daemon() {
+    let client = client(Recorded::default());
+
+    client.cancel("peerA", "t1").expect("a cancellation");
+
+    assert_eq!(
+        client
+            .into_http()
+            .calls_to("DELETE", "/transfers/downloads/peerA/t1")
+            .len(),
+        1
+    );
+}
+
 #[test]
 fn a_destination_uses_the_batch_endpoint() {
     let http = Recorded::default().with(
