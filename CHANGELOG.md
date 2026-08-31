@@ -7,10 +7,29 @@ follows [semantic versioning](https://semver.org/).
 ## [Unreleased]
 
 The project became an installable package with a single `stk` command, replacing
-a set of ad-hoc scripts and a Nicotine+ plugin.
+a set of ad-hoc scripts and a Nicotine+ plugin, and was then ported to Rust.
 
 ### Added
 
+- Rust implementation of the whole CLI, under `rs/`, built as `stk-rs` while the
+  Python `stk` is still installed. Ported step by step against `oracle/` --
+  output captured from the Python build against a real 266-file library -- and
+  every capture reproduces: the 434 name forms on both their normalised and
+  romanised columns, all 258 rows of the verify report, and the tag dump, stats,
+  genre, artwork and duplicate documents.
+- `stk get` takes several tracks, and a list from a file or from stdin, where it
+  previously took exactly one query.
+- `library.db` v3: `files` gains `codec`, `bitrate`, `sample_rate`, `bit_depth`,
+  `verdict` and `verdict_at`, plus a `changes` table for an `--apply` write log.
+  Columns are added in place, so a database either build created opens in the
+  other without migration.
+- `review.db` v2: `tracks` gains `queued_at` and `attempts`. A failed transfer
+  now promotes the next candidate rather than ending the track, and a transfer
+  queued too long can be reported as stalled.
+- `library.roots` and `library.exclude`, for a library spread across more than
+  one drive and for keeping audiobooks and sample packs out of the index.
+- Concurrency where the time actually goes: the verify fan-out over files, and
+  the slskd searches, which ran one at a time and were mostly spent waiting.
 - `stk` CLI covering the whole workflow: `config`, `doctor`, `library`,
   `wantlist`, `fetch`, `review`, `verify`, `dupes`, `art`, `genre`, `tags`.
 - Terminal review app (`stk review`), replacing hand-editing an `approve` column
@@ -63,6 +82,9 @@ a set of ad-hoc scripts and a Nicotine+ plugin.
 
 ### Fixed
 
+- `sanitize_folder_name` did not strip backslashes, so an artist name containing
+  one produced a nested directory and the finished download was then looked for
+  somewhere it had never been written (#5).
 - A silent or inaudible file normalised to its own peak read as 0 dB in every
   band and was confidently reported as genuinely lossless. It is now reported as
   unanalysable, as is any file whose content stops below every encoder cutoff
