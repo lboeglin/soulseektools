@@ -118,7 +118,7 @@ fn apply_genres(context: &AppContext, apply: bool) -> Result<i32> {
         }
     };
 
-    let root = context.library_root();
+    let roots = context.library_roots();
     let mut index = context.open_index()?;
     let entries = index.entries()?;
     let changes: Vec<genres::GenreChange> = genres::plan_changes(&entries, &genre_map)
@@ -131,7 +131,7 @@ fn apply_genres(context: &AppContext, apply: bool) -> Result<i32> {
         for change in &changes {
             match genres::apply_change(change) {
                 Ok(()) => {
-                    index.reindex(&change.entry.path, &root)?;
+                    index.reindex(&change.entry.path, &roots)?;
                 }
                 Err(error) => {
                     failures.push((show(&change.entry.path), error.to_string()));

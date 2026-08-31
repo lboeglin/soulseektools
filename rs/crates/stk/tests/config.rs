@@ -260,6 +260,10 @@ fn an_explicit_override_beats_the_environment() {
     .expect("settings");
 
     assert_eq!(resolved.settings.library.root, PathBuf::from("from-flag"));
+    assert_eq!(
+        resolved.settings.library.all_roots(),
+        vec![PathBuf::from("from-flag")]
+    );
 }
 
 #[test]
@@ -314,8 +318,8 @@ fn a_relative_library_root_resolves_against_the_config_file() {
     );
 
     assert_eq!(
-        load(Some(&path)).resolved_library_root(),
-        scratch.join("Music")
+        load(Some(&path)).resolved_library_roots(),
+        vec![scratch.join("Music")]
     );
 }
 
@@ -333,7 +337,7 @@ fn an_absolute_library_root_is_left_alone() {
         ),
     );
 
-    assert_eq!(load(Some(&path)).resolved_library_root(), absolute);
+    assert_eq!(load(Some(&path)).resolved_library_roots(), vec![absolute]);
 }
 
 #[test]
@@ -371,8 +375,6 @@ fn the_written_file_says_where_secrets_come_from() {
     assert!(text.contains("SLSKD_API_KEY"), "{text}");
 }
 
-/// The two config additions from #2, which `stk.toml` cannot carry until `py/`
-/// is removed: pydantic's `extra="forbid"` would reject them.
 #[test]
 fn multiple_roots_and_exclusions_are_accepted() {
     let _guard = exclusive();
@@ -391,7 +393,6 @@ fn multiple_roots_and_exclusions_are_accepted() {
 
 #[test]
 fn a_single_root_still_reads_as_one_root() {
-    // `stk.toml` keeps using `root` while both builds share it.
     let _guard = exclusive();
     let scratch = Scratch::new("config-one-root");
     let _environment = CleanEnvironment::enter(scratch.path());

@@ -27,7 +27,7 @@ impl Check {
 
 fn checks(context: &AppContext) -> Vec<Check> {
     let settings = context.settings();
-    let root = context.library_root();
+    let roots = context.library_roots();
     let found = |tool: &str| which::which(tool).ok().map(|path| show(&path));
 
     let (ffmpeg, ffprobe, fpcalc) = (found("ffmpeg"), found("ffprobe"), found("fpcalc"));
@@ -46,8 +46,12 @@ fn checks(context: &AppContext) -> Vec<Check> {
         },
         Check {
             name: "library root",
-            ok: root.is_dir(),
-            detail: show(&root),
+            ok: roots.iter().all(|root| root.is_dir()),
+            detail: roots
+                .iter()
+                .map(|root| show(root))
+                .collect::<Vec<_>>()
+                .join(", "),
             required: true,
         },
         Check {

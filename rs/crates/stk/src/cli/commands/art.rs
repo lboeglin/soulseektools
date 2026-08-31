@@ -98,7 +98,7 @@ fn fetch(
         }
     };
 
-    let root = context.library_root();
+    let roots = context.library_roots();
     let mut index = context.open_index()?;
     let entries = index.entries()?;
 
@@ -123,7 +123,7 @@ fn fetch(
             if let Err(error) = service::embed(&result) {
                 result.error = error.to_string();
             } else {
-                index.reindex(&entry.path, &root)?;
+                index.reindex(&entry.path, &roots)?;
             }
         }
         results.push(result);

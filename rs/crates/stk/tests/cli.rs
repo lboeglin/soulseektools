@@ -70,6 +70,39 @@ impl Harness {
         std::fs::write(self.scratch.join("stk.toml"), body).expect("a written config");
     }
 
+    /// The same, for a library spread over several roots with folders skipped.
+    fn with_roots_config(&self, roots: &[PathBuf], exclude: &[&str]) {
+        let listed = roots
+            .iter()
+            .map(|root| quoted(root))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let skipped = exclude
+            .iter()
+            .map(|pattern| toml::Value::String((*pattern).to_owned()).to_string())
+            .collect::<Vec<_>>()
+            .join(", ");
+        let body = format!(
+            "[library]
+roots = [{listed}]
+exclude = [{skipped}]
+
+[index]
+path = {}
+
+             [review]
+path = {}
+
+[genres]
+map_path = {}
+",
+            quoted(&self.scratch.join("library.db")),
+            quoted(&self.scratch.join("review.db")),
+            quoted(&self.scratch.join("genres.toml")),
+        );
+        std::fs::write(self.scratch.join("stk.toml"), body).expect("a written config");
+    }
+
     fn join(&self, name: &str) -> PathBuf {
         self.scratch.join(name)
     }
@@ -224,6 +257,48 @@ fn library_scan_then_stats() {
     assert_eq!(run(&["library", "scan"]), 0);
     assert_eq!(run(&["library", "stats"]), 0);
     assert_eq!(run(&["--json", "library", "stats"]), 0);
+
+    let index = stk::library::index::LibraryIndex::open(&harness.join("library.db"))
+        .expect("the index the scan wrote");
+    assert_eq!(index.count().expect("a count"), 2);
+    drop(harness);
+}
+
+/// The config half of #2's multiple roots: two drives, one index.
+#[test]
+fn library_scan_covers_every_configured_root() {
+    needs_ffmpeg!();
+    let _guard = exclusive();
+    let harness = Harness::new("cli-scan-roots");
+    let first = library(&harness);
+    let second = harness.join("More");
+    encode(
+        &second.join("ZUN").join("Bad Apple.flac"),
+        &Encoded::default(),
+    );
+    harness.with_roots_config(&[first, second], &[]);
+
+    assert_eq!(run(&["library", "scan"]), 0);
+
+    let index = stk::library::index::LibraryIndex::open(&harness.join("library.db"))
+        .expect("the index the scan wrote");
+    assert_eq!(index.count().expect("a count"), 3);
+    drop(harness);
+}
+
+#[test]
+fn library_scan_skips_an_excluded_folder() {
+    needs_ffmpeg!();
+    let _guard = exclusive();
+    let harness = Harness::new("cli-scan-exclude");
+    let root = library(&harness);
+    encode(
+        &root.join("Audiobooks").join("Chapter 1.mp3"),
+        &Encoded::default(),
+    );
+    harness.with_roots_config(&[root], &["**/Audiobooks/**"]);
+
+    assert_eq!(run(&["library", "scan"]), 0);
 
     let index = stk::library::index::LibraryIndex::open(&harness.join("library.db"))
         .expect("the index the scan wrote");

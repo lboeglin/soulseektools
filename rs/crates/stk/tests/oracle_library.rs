@@ -17,6 +17,7 @@ use std::path::{Path, PathBuf};
 use serde_json::Value;
 
 use stk::library::index::{default_extensions, LibraryIndex};
+use stk::library::scan::Excludes;
 use stk::matching::MatchThresholds;
 use stk::models::LibraryEntry;
 use support::Scratch;
@@ -53,7 +54,13 @@ fn library_root() -> Option<PathBuf> {
 fn scanned(scratch: &Scratch, root: &Path) -> Vec<LibraryEntry> {
     let mut index = LibraryIndex::open(&scratch.join("index.db")).expect("an index");
     index
-        .refresh(root, default_extensions(), false, None)
+        .refresh(
+            std::slice::from_ref(&root.to_path_buf()),
+            default_extensions(),
+            &Excludes::default(),
+            false,
+            None,
+        )
         .expect("a refresh");
     index.entries().expect("entries")
 }

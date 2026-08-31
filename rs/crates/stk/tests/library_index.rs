@@ -5,7 +5,7 @@ mod support;
 use std::path::{Path, PathBuf};
 
 use stk::library::index::{default_extensions, describe, LibraryIndex};
-use stk::library::scan::{folder_artist, iter_audio_files};
+use stk::library::scan::{folder_artist, iter_audio_files, owning_root, Excludes};
 use stk::library::tags;
 use support::{encode, Encoded, Scratch};
 
@@ -59,8 +59,16 @@ fn open(scratch: &Scratch, name: &str) -> LibraryIndex {
 }
 
 fn refresh(index: &mut LibraryIndex, root: &Path) -> stk::library::index::RefreshResult {
+    refresh_roots(index, &[root.to_path_buf()], &Excludes::default())
+}
+
+fn refresh_roots(
+    index: &mut LibraryIndex,
+    roots: &[PathBuf],
+    exclude: &Excludes,
+) -> stk::library::index::RefreshResult {
     index
-        .refresh(root, default_extensions(), false, None)
+        .refresh(roots, default_extensions(), exclude, false, None)
         .expect("a refresh")
 }
 
@@ -70,7 +78,7 @@ fn scan_walks_nested_album_folders() {
     let scratch = Scratch::new("index-walk");
     let root = library_root(&scratch);
 
-    let found = iter_audio_files(&root, default_extensions());
+    let found = iter_audio_files(&root, default_extensions(), &Excludes::default());
 
     assert!(found.contains(&root.join("ZUN").join("Nested").join("15 Heian Alien.flac")));
     assert_eq!(found.len(), 4);
@@ -82,7 +90,7 @@ fn scan_honours_the_extension_filter() {
     let scratch = Scratch::new("index-filter");
     let root = library_root(&scratch);
 
-    let found = iter_audio_files(&root, &[".flac"]);
+    let found = iter_audio_files(&root, &[".flac"], &Excludes::default());
 
     assert!(found.iter().all(|path| path.extension().unwrap() == "flac"));
     assert_eq!(found.len(), 2);
@@ -95,7 +103,7 @@ fn scan_ignores_non_audio_files() {
     let root = library_root(&scratch);
     std::fs::write(root.join("DECO_27").join("cover.jpg"), b"not audio").expect("a written file");
 
-    let found = iter_audio_files(&root, default_extensions());
+    let found = iter_audio_files(&root, default_extensions(), &Excludes::default());
 
     assert!(found.iter().all(|path| path.extension().unwrap() != "jpg"));
 }
@@ -244,7 +252,13 @@ fn full_refresh_rereads_everything() {
     refresh(&mut index, &root);
 
     let result = index
-        .refresh(&root, default_extensions(), true, None)
+        .refresh(
+            std::slice::from_ref(&root),
+            default_extensions(),
+            &Excludes::default(),
+            true,
+            None,
+        )
         .expect("a refresh");
 
     assert_eq!(result.updated, 4);
@@ -371,7 +385,13 @@ fn refresh_reports_progress_per_file() {
     let mut seen: Vec<PathBuf> = Vec::new();
     let mut record = |path: &Path| seen.push(path.to_path_buf());
     index
-        .refresh(&root, default_extensions(), false, Some(&mut record))
+        .refresh(
+            std::slice::from_ref(&root),
+            default_extensions(),
+            &Excludes::default(),
+            false,
+            Some(&mut record),
+        )
         .expect("a refresh");
 
     assert_eq!(seen.len(), 4);
@@ -408,7 +428,9 @@ fn reindex_picks_up_a_tag_this_tool_just_wrote() {
         .is_empty());
 
     tags::write_genres(&track, &["Touhou".to_owned()]).expect("written genres");
-    index.reindex(&track, &root).expect("a reindex");
+    index
+        .reindex(&track, std::slice::from_ref(&root))
+        .expect("a reindex");
 
     assert_eq!(
         index
@@ -429,7 +451,7 @@ fn reindexing_a_file_that_is_gone_does_nothing() {
     let mut index = open(&scratch, "index.db");
 
     assert!(index
-        .reindex(&root.join("absent.flac"), &root)
+        .reindex(&root.join("absent.flac"), std::slice::from_ref(&root))
         .expect("a reindex")
         .is_none());
 }
@@ -498,4 +520,101 @@ fn a_verdict_is_recorded_against_the_file() {
         index.verdict(&track).expect("a lookup"),
         Some(stk::models::Verdict::Fake)
     );
+}
+
+/// Multiple roots, from #2: a library spread across two drives.
+#[test]
+fn files_under_two_roots_land_in_one_index() {
+    needs_ffmpeg!();
+    let scratch = Scratch::new("index-two-roots");
+    let first = library_root(&scratch);
+    let second = scratch.join("More");
+    encode(
+        &second.join("ZUN").join("Bad Apple.flac"),
+        &Encoded {
+            metadata: &[("artist", "ZUN"), ("title", "Bad Apple")],
+            ..Encoded::default()
+        },
+    );
+    let mut index = open(&scratch, "index.db");
+
+    let roots = vec![first.clone(), second.clone()];
+    let result = refresh_roots(&mut index, &roots, &Excludes::default());
+
+    assert_eq!(result.added, 5);
+    assert_eq!(index.count().expect("a count"), 5);
+    let entry = index
+        .entry(&second.join("ZUN").join("Bad Apple.flac"))
+        .expect("a lookup")
+        .expect("the second root's file");
+    assert_eq!(entry.folder_artist, "ZUN");
+}
+
+/// A refresh deletes what it did not walk, so a per-root loop would make each
+/// root evict the other's rows.
+#[test]
+fn a_second_root_does_not_evict_the_first_roots_files() {
+    needs_ffmpeg!();
+    let scratch = Scratch::new("index-no-evict");
+    let first = library_root(&scratch);
+    let second = scratch.join("More");
+    encode(
+        &second.join("ZUN").join("Bad Apple.flac"),
+        &Encoded::default(),
+    );
+    let mut index = open(&scratch, "index.db");
+
+    let roots = vec![first.clone(), second];
+    refresh_roots(&mut index, &roots, &Excludes::default());
+    let result = refresh_roots(&mut index, &roots, &Excludes::default());
+
+    assert_eq!(result.removed, 0);
+    assert_eq!(result.unchanged, 5);
+}
+
+/// Exclusions, from #2: audiobooks and sample packs stay out of the index.
+#[test]
+fn an_excluded_folder_stays_out_of_the_walk() {
+    needs_ffmpeg!();
+    let scratch = Scratch::new("index-exclude");
+    let root = library_root(&scratch);
+    encode(
+        &root.join("Audiobooks").join("Chapter 1.mp3"),
+        &Encoded::default(),
+    );
+    let exclude = Excludes::new(&["**/Audiobooks/**".to_owned()]).expect("compiled globs");
+
+    let found = iter_audio_files(&root, default_extensions(), &exclude);
+
+    assert_eq!(found.len(), 4);
+    assert!(found
+        .iter()
+        .all(|path| !path.starts_with(root.join("Audiobooks"))));
+}
+
+#[test]
+fn an_exclusion_matches_whatever_the_platform_separator_is() {
+    let root = Path::new("E:").join("Music");
+    let exclude = Excludes::new(&["**/Samples/**".to_owned()]).expect("compiled globs");
+
+    assert!(exclude.matches(&root, &root.join("Samples").join("kick.wav")));
+    assert!(!exclude.matches(&root, &root.join("ZUN").join("kick.wav")));
+}
+
+#[test]
+fn an_unparseable_exclusion_is_reported_rather_than_ignored() {
+    assert!(Excludes::new(&["[".to_owned()]).is_err());
+}
+
+/// Roots may nest, and the deeper one is what names the artist.
+#[test]
+fn the_deepest_root_owns_a_file() {
+    let outer = PathBuf::from(r"E:\Music");
+    let inner = outer.join("Live");
+    let roots = vec![outer.clone(), inner.clone()];
+
+    let owner = owning_root(&inner.join("ZUN").join("a.flac"), &roots).expect("an owning root");
+
+    assert_eq!(owner, inner);
+    assert_eq!(owning_root(Path::new(r"F:\Elsewhere\a.flac"), &roots), None);
 }

@@ -191,11 +191,10 @@ impl Default for SlskdSettings {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, default)]
 pub struct LibrarySettings {
-    /// The single root the Python build knows about.
+    /// The single-root spelling, kept because most libraries have one.
     ///
-    /// Kept alongside `roots` so one `stk.toml` serves both trees while `py/`
-    /// exists: pydantic's `extra="forbid"` would reject a `roots` key outright.
-    /// It folds into [`Self::roots`] on read.
+    /// It folds into [`Self::roots`] on read, so nothing downstream has to know
+    /// which of the two a config used.
     pub root: PathBuf,
     /// Every root to scan (#2). Empty means "just `root`".
     pub roots: Vec<PathBuf>,
@@ -432,13 +431,7 @@ pub struct Resolved {
 }
 
 impl Resolved {
-    /// The library root as an absolute path, relative to the config file.
-    #[must_use]
-    pub fn resolved_library_root(&self) -> PathBuf {
-        self.resolve(&self.settings.library.root)
-    }
-
-    /// Every configured root, each made absolute the same way.
+    /// Every configured root, each made absolute relative to the config file.
     #[must_use]
     pub fn resolved_library_roots(&self) -> Vec<PathBuf> {
         self.settings
@@ -589,6 +582,8 @@ fn parse_scalar(value: &str) -> toml::Value {
     }
 }
 
+/// `--library` names one root, so it has to overwrite both spellings: leaving a
+/// `roots` list from the file in place would make the flag do nothing.
 fn apply_overrides(table: &mut toml::Table, overrides: &Overrides) {
     let Some(root) = &overrides.library_root else {
         return;
@@ -597,10 +592,9 @@ fn apply_overrides(table: &mut toml::Table, overrides: &Overrides) {
         .entry("library".to_owned())
         .or_insert_with(|| toml::Value::Table(toml::Table::new()));
     if let Some(entry) = entry.as_table_mut() {
-        entry.insert(
-            "root".to_owned(),
-            toml::Value::String(root.display().to_string()),
-        );
+        let root = toml::Value::String(root.display().to_string());
+        entry.insert("roots".to_owned(), toml::Value::Array(vec![root.clone()]));
+        entry.insert("root".to_owned(), root);
     }
 }
 

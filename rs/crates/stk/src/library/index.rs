@@ -13,7 +13,9 @@ use rusqlite::{params, Connection, OptionalExtension};
 
 use crate::audio::fingerprint::{Fingerprint, FingerprintKind, Values};
 use crate::errors::{Error, Result};
-use crate::library::scan::{folder_artist, iter_audio_files, AUDIO_EXTENSIONS};
+use crate::library::scan::{
+    folder_artist, iter_audio_files, owning_root, Excludes, AUDIO_EXTENSIONS,
+};
 use crate::library::tags;
 use crate::matching::NameForms;
 use crate::models::{LibraryEntry, TrackTags, Verdict};
@@ -265,14 +267,19 @@ impl LibraryIndex {
             .unwrap_or(SCHEMA_VERSION))
     }
 
-    /// Bring the index in line with the files under `root`.
+    /// Bring the index in line with the files under every configured root.
     ///
     /// Only files whose size or modification time changed are re-read, unless
     /// `full` forces every file to be reprocessed.
+    ///
+    /// Every root has to be walked in one call: what the walk did not see is
+    /// deleted at the end, so refreshing one root at a time would make each root
+    /// evict the others.
     pub fn refresh(
         &mut self,
-        root: &Path,
+        roots: &[PathBuf],
         extensions: &[&str],
+        exclude: &Excludes,
         full: bool,
         mut on_file: Option<&mut dyn FnMut(&Path)>,
     ) -> Result<RefreshResult> {
@@ -291,36 +298,42 @@ impl LibraryIndex {
         let mut result = RefreshResult::default();
         let mut seen: HashSet<String> = HashSet::new();
 
-        for path in iter_audio_files(root, extensions) {
-            let key = path.display().to_string();
-            seen.insert(key.clone());
-            if let Some(report) = on_file.as_mut() {
-                report(&path);
-            }
-
-            let Ok(metadata) = path.metadata() else {
-                continue;
-            };
-            let cached = known.get(&key);
-            let current = (
-                i64::try_from(metadata.len()).unwrap_or(i64::MAX),
-                modified_seconds(&metadata),
-            );
-            if !full && cached == Some(&current) {
-                result.unchanged += 1;
-                continue;
-            }
-
-            match describe(&path, root) {
-                Ok(entry) => {
-                    self.upsert(&entry)?;
-                    if cached.is_none() {
-                        result.added += 1;
-                    } else {
-                        result.updated += 1;
-                    }
+        for root in roots {
+            for path in iter_audio_files(root, extensions, exclude) {
+                let key = path.display().to_string();
+                if !seen.insert(key.clone()) {
+                    continue;
                 }
-                Err(error) => result.failed.push((path, error.to_string())),
+                if let Some(report) = on_file.as_mut() {
+                    report(&path);
+                }
+
+                let Ok(metadata) = path.metadata() else {
+                    continue;
+                };
+                let cached = known.get(&key);
+                let current = (
+                    i64::try_from(metadata.len()).unwrap_or(i64::MAX),
+                    modified_seconds(&metadata),
+                );
+                if !full && cached == Some(&current) {
+                    result.unchanged += 1;
+                    continue;
+                }
+
+                // Nested roots offer the same file twice, and the deeper one is
+                // the one whose first component names the artist.
+                match describe(&path, owning_root(&path, roots).unwrap_or(root)) {
+                    Ok(entry) => {
+                        self.upsert(&entry)?;
+                        if cached.is_none() {
+                            result.added += 1;
+                        } else {
+                            result.updated += 1;
+                        }
+                    }
+                    Err(error) => result.failed.push((path, error.to_string())),
+                }
             }
         }
 
@@ -383,11 +396,11 @@ impl LibraryIndex {
     ///
     /// A command that edits tags and leaves the cache alone makes the next
     /// command report what was true before the edit.
-    pub fn reindex(&mut self, path: &Path, root: &Path) -> Result<Option<LibraryEntry>> {
+    pub fn reindex(&mut self, path: &Path, roots: &[PathBuf]) -> Result<Option<LibraryEntry>> {
         if !path.is_file() {
             return Ok(None);
         }
-        let entry = describe(path, root)?;
+        let entry = describe(path, owning_root(path, roots).unwrap_or(Path::new("")))?;
         self.upsert(&entry)?;
         Ok(Some(entry))
     }

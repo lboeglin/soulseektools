@@ -31,7 +31,8 @@ pub fn run(context: &AppContext, command: LibraryCommand) -> Result<i32> {
 }
 
 fn scan(context: &AppContext, full: bool) -> Result<i32> {
-    let root = context.require_library_root()?;
+    let roots = context.require_library_roots()?;
+    let exclude = context.excludes()?;
     let extensions: Vec<&str> = context
         .settings()
         .library
@@ -41,12 +42,12 @@ fn scan(context: &AppContext, full: bool) -> Result<i32> {
         .collect();
 
     let mut index = context.open_index()?;
-    let result = index.refresh(&root, &extensions, full, None)?;
+    let result = index.refresh(&roots, &extensions, &exclude, full, None)?;
     let total = index.count()?;
 
     if context.as_json {
         context.emit(&json!({
-            "root": show(&root),
+            "roots": roots.iter().map(|root| show(root)).collect::<Vec<_>>(),
             "added": result.added,
             "updated": result.updated,
             "unchanged": result.unchanged,
@@ -63,7 +64,11 @@ fn scan(context: &AppContext, full: bool) -> Result<i32> {
 
     context.say(&format!(
         "Indexed {total} file(s) under {}: {} added, {} updated, {} unchanged, {} removed",
-        show(&root),
+        roots
+            .iter()
+            .map(|root| show(root))
+            .collect::<Vec<_>>()
+            .join(", "),
         result.added,
         result.updated,
         result.unchanged,

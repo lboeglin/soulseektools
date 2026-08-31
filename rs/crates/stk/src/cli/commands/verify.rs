@@ -8,7 +8,7 @@ use serde_json::json;
 use crate::audio::{ffmpeg, verify::verify_files};
 use crate::cli::context::{show, table, AppContext};
 use crate::errors::{Error, Result};
-use crate::library::scan::{iter_audio_files, LOSSLESS_EXTENSIONS};
+use crate::library::scan::{iter_audio_files, Excludes, LOSSLESS_EXTENSIONS};
 use crate::models::{Verdict, VerifyResult};
 
 pub const REPORT_FIELDS: &[&str] = &[
@@ -74,12 +74,20 @@ pub fn run(context: &AppContext, args: &VerifyArgs) -> Result<i32> {
 
 fn targets(context: &AppContext, target: Option<&Path>) -> Result<Vec<PathBuf>> {
     match target {
-        None => Ok(iter_audio_files(
-            &context.require_library_root()?,
-            LOSSLESS_EXTENSIONS,
-        )),
+        None => {
+            let exclude = context.excludes()?;
+            Ok(context
+                .require_library_roots()?
+                .iter()
+                .flat_map(|root| iter_audio_files(root, LOSSLESS_EXTENSIONS, &exclude))
+                .collect())
+        }
         Some(path) if path.is_file() => Ok(vec![path.to_path_buf()]),
-        Some(path) if path.is_dir() => Ok(iter_audio_files(path, LOSSLESS_EXTENSIONS)),
+        Some(path) if path.is_dir() => Ok(iter_audio_files(
+            path,
+            LOSSLESS_EXTENSIONS,
+            &Excludes::default(),
+        )),
         Some(path) => Err(Error::Config(format!(
             "no such file or folder: {}",
             show(path)

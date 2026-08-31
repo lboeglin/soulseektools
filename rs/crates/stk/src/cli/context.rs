@@ -8,6 +8,7 @@ use serde_json::Value;
 use crate::config::Resolved;
 use crate::errors::{Error, Result};
 use crate::library::index::LibraryIndex;
+use crate::library::scan::Excludes;
 use crate::review::store::ReviewStore;
 
 /// What every command needs: resolved settings and output verbosity.
@@ -24,19 +25,30 @@ impl AppContext {
     }
 
     #[must_use]
-    pub fn library_root(&self) -> PathBuf {
-        self.resolved.resolved_library_root()
+    pub fn library_roots(&self) -> Vec<PathBuf> {
+        self.resolved.resolved_library_roots()
     }
 
-    pub fn require_library_root(&self) -> Result<PathBuf> {
-        let root = self.library_root();
-        if root.is_dir() {
-            return Ok(root);
+    pub fn require_library_roots(&self) -> Result<Vec<PathBuf>> {
+        let roots = self.library_roots();
+        let missing: Vec<String> = roots
+            .iter()
+            .filter(|root| !root.is_dir())
+            .map(|root| root.display().to_string())
+            .collect();
+        if missing.is_empty() {
+            return Ok(roots);
         }
         Err(Error::Config(format!(
             "library root does not exist: {}\nhint: set it with 'stk config init' or --library",
-            root.display()
+            missing.join(", ")
         )))
+    }
+
+    /// The compiled `library.exclude` globs, built in one place so every walk
+    /// skips the same folders.
+    pub fn excludes(&self) -> Result<Excludes> {
+        Excludes::new(&self.settings().library.exclude)
     }
 
     pub fn open_index(&self) -> Result<LibraryIndex> {

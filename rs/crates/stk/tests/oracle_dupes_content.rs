@@ -24,6 +24,7 @@ use serde_json::Value;
 use stk::audio::fingerprint::{available_kind, FingerprintKind};
 use stk::duplicates::{self, DEFAULT_AUDIO_THRESHOLD, DEFAULT_DURATION_TOLERANCE_SECONDS};
 use stk::library::index::{default_extensions, LibraryIndex};
+use stk::library::scan::Excludes;
 use support::Scratch;
 
 fn oracle(name: &str) -> Option<PathBuf> {
@@ -87,7 +88,13 @@ fn content_duplicates_match_the_oracle() {
     let scratch = Scratch::new("oracle-dupes-content");
     let mut index = LibraryIndex::open(&scratch.join("index.db")).expect("an index");
     index
-        .refresh(&root, default_extensions(), false, None)
+        .refresh(
+            std::slice::from_ref(&root),
+            default_extensions(),
+            &Excludes::default(),
+            false,
+            None,
+        )
         .expect("a refresh");
     let entries = index.entries().expect("entries");
 
