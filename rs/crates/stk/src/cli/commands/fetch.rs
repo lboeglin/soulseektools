@@ -67,6 +67,7 @@ fn search(context: &AppContext, limit: Option<usize>) -> Result<i32> {
                 "query": outcome.query,
                 "found": outcome.found,
                 "error": outcome.error,
+                "preferred_uploader": outcome.preferred_uploader,
             }))
             .collect::<Vec<_>>()));
         return Ok(0);

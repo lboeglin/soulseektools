@@ -12,12 +12,12 @@
 //! contains it: someone asking for "Live and Learn" is not asking to reject
 //! every result containing "live".
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::LazyLock;
 
 use regex::Regex;
 
-use crate::config::RankingSettings;
+use crate::config::{RankingSettings, UploaderSettings};
 use crate::library::scan::LOSSLESS_EXTENSIONS;
 use crate::matching::{similarity, NameForms};
 use crate::models::{Candidate, ScoredCandidate, Track};
@@ -36,7 +36,11 @@ fn audio_extensions() -> &'static HashSet<&'static str> {
     &SET
 }
 
-const TIER_WEIGHT: i64 = 10_000_000;
+/// The gap between quality tiers, which every other weight sits inside.
+///
+/// Public so `config` can bound the uploader window against it rather than
+/// repeating the number.
+pub const TIER_WEIGHT: i64 = 10_000_000;
 const QUALITY_WEIGHT: i64 = 10;
 const TITLE_WEIGHT: f64 = 500.0;
 const FREE_SLOT_BONUS: i64 = 1000;
@@ -223,4 +227,119 @@ fn duration_differs(candidate: &Candidate, track: &Track, tolerance_seconds: f64
         return false;
     }
     (offered - wanted).abs() > tolerance_seconds
+}
+
+/// The peer a batch settled on, and what preferring them cost.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PreferredUploader {
+    pub username: String,
+    /// Tracks whose first candidate is now theirs.
+    pub covered: usize,
+    /// Total score given up across those tracks.
+    pub sacrificed: i64,
+}
+
+/// The flag a promoted candidate carries, so the reordering is not silent.
+pub const PREFERRED_FLAG: &str = "preferred-uploader";
+
+/// Prefer one peer across a whole batch, where doing so costs almost nothing.
+///
+/// Soulseek's cost is per queue position, not per file: eight tracks from one
+/// peer is one wait, one rip and one tagging convention, where eight peers is
+/// eight of each, any of which can stall on its own.
+///
+/// The trade is only made where that peer's own candidate is already close. The
+/// window is narrower than every structural gap in the score -- a quality tier,
+/// a content penalty, a sample rate -- and wider than the availability band, so
+/// a preference can reorder candidates differing in free slots, queue length
+/// and name match, and can never swap a lossless file for a lossy one, take a
+/// live version, or accept a worse master.
+///
+/// Each list is reordered in place, best first. This must run *before* the
+/// ranks are written: `set_candidates` numbers them densely from the order it
+/// is handed, and reordering a stored list would repoint an existing approval
+/// at a different file.
+pub fn prefer_one_uploader(
+    batch: &mut [Vec<ScoredCandidate>],
+    settings: &UploaderSettings,
+) -> Option<PreferredUploader> {
+    // Counted against the un-reordered lists, so the outcome cannot depend on
+    // the order the tracks happen to arrive in.
+    let mut coverage: HashMap<&str, (usize, i64)> = HashMap::new();
+    for list in batch.iter() {
+        for (username, sacrifice) in within_window(list, settings) {
+            let entry = coverage.entry(username).or_insert((0, 0));
+            entry.0 += 1;
+            entry.1 += sacrifice;
+        }
+    }
+
+    let (username, covered, sacrificed) = coverage
+        .into_iter()
+        .map(|(username, (covered, sacrificed))| (username, covered, sacrificed))
+        // Most tracks first; then the cheapest; then by name, so one batch
+        // always settles on the same peer.
+        .max_by(|left, right| {
+            left.1
+                .cmp(&right.1)
+                .then_with(|| right.2.cmp(&left.2))
+                .then_with(|| right.0.cmp(left.0))
+        })?;
+    if covered < settings.minimum_coverage {
+        return None;
+    }
+    let username = username.to_owned();
+
+    for list in batch.iter_mut() {
+        let Some(position) = best_from(list, &username, settings) else {
+            continue;
+        };
+        let mut promoted = list.remove(position);
+        promoted.flags.push(PREFERRED_FLAG.to_owned());
+        list.insert(0, promoted);
+    }
+
+    Some(PreferredUploader {
+        username,
+        covered,
+        sacrificed,
+    })
+}
+
+/// Each peer offering this track a candidate close enough to count, and what
+/// taking their best would give up.
+fn within_window<'a>(
+    list: &'a [ScoredCandidate],
+    settings: &UploaderSettings,
+) -> HashMap<&'a str, i64> {
+    let mut peers: HashMap<&str, i64> = HashMap::new();
+    let Some(best) = list.first().filter(|scored| !scored.rejected()) else {
+        return peers;
+    };
+
+    for scored in list {
+        let sacrifice = best.score - scored.score;
+        if scored.rejected() || sacrifice > settings.score_window {
+            continue;
+        }
+        let peer = peers
+            .entry(scored.candidate.username.as_str())
+            .or_insert(sacrifice);
+        *peer = (*peer).min(sacrifice);
+    }
+    peers
+}
+
+/// Where this peer's best in-window candidate sits in the list.
+fn best_from(
+    list: &[ScoredCandidate],
+    username: &str,
+    settings: &UploaderSettings,
+) -> Option<usize> {
+    let best = list.first().filter(|scored| !scored.rejected())?.score;
+    list.iter().position(|scored| {
+        scored.candidate.username == username
+            && !scored.rejected()
+            && best - scored.score <= settings.score_window
+    })
 }

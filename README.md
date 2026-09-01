@@ -107,6 +107,9 @@ The settings worth knowing about:
 | `ranking.require_lossless` | Discard lossy results entirely. Off by default. |
 | `ranking.min_bitrate` | Discard lossy results below this. Lossless is never discarded. |
 | `slskd.stall_after_seconds` | How long a download may sit queued before the next candidate is tried. |
+| `uploader.prefer_one` | Take a batch from one peer where the per-track choice is close. On by default. |
+| `uploader.score_window` | How close "close" is. Wider than availability, narrower than any quality gap. |
+| `uploader.minimum_coverage` | How many of the batch's tracks a peer must hold to be preferred. |
 | `verify.steep_db_per_khz` | How sharp a frequency cutoff must be to look artificial. |
 | `artwork.require_artist_match` | Refuse cover art belonging to a different artist. |
 | `artwork.contact` | A URL or email identifying you to MusicBrainz. Optional. |
@@ -175,6 +178,17 @@ rather than a one-shot. It changes what you are told, not what is queued.
 ```bash
 stk fetch search
 ```
+
+Searches run concurrently, and the results are scored as a batch rather than one
+track at a time. Where several tracks could come from the same peer at
+essentially the same quality, that peer is preferred for all of them: eight
+tracks from one uploader is one queue position, one rip and one tagging
+convention, where eight uploaders is eight of each, any of which can stall on
+its own. The trade is only made when the per-track choice is genuinely close —
+the window is narrower than any difference of codec, bitrate tier, sample rate
+or content, so it can never buy a lossy file or a live recording — and a
+promoted result is flagged `preferred-uploader` in the review list, so the
+reordering is never silent. `uploader.prefer_one = false` turns it off.
 
 Each result is scored on format, bitrate, uploader availability, how well the
 name matches — and on its **full remote path**. That last part matters: a file

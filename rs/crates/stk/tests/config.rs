@@ -406,3 +406,68 @@ fn a_single_root_still_reads_as_one_root() {
         vec![PathBuf::from("E:/Music")]
     );
 }
+
+#[test]
+fn an_invalid_organise_pattern_is_a_configuration_error() {
+    let _guard = exclusive();
+    let scratch = Scratch::new("config-organise-pattern");
+    let path = scratch.join("stk.toml");
+    std::fs::write(
+        &path,
+        "[organise]
+pattern = \"{nonsense}/{title}\"
+",
+    )
+    .expect("a written config");
+
+    let error = load_settings(Some(&path), &Overrides::default()).expect_err("a rejected config");
+    assert!(error.to_string().contains("{nonsense}"), "{error}");
+}
+
+#[test]
+fn an_organise_pattern_that_could_escape_the_root_is_rejected() {
+    let _guard = exclusive();
+    let scratch = Scratch::new("config-organise-escape");
+    let path = scratch.join("stk.toml");
+    std::fs::write(
+        &path,
+        "[organise]
+pattern = \"../{title}\"
+",
+    )
+    .expect("a written config");
+
+    assert!(load_settings(Some(&path), &Overrides::default()).is_err());
+}
+
+#[test]
+fn the_uploader_window_may_not_cross_a_content_penalty() {
+    // A window that wide would let batch coherence buy a live recording.
+    let _guard = exclusive();
+    let scratch = Scratch::new("config-uploader-window");
+    let path = scratch.join("stk.toml");
+    std::fs::write(
+        &path,
+        "[uploader]
+score_window = 5000000
+",
+    )
+    .expect("a written config");
+
+    let error = load_settings(Some(&path), &Overrides::default()).expect_err("a rejected config");
+    assert!(
+        error.to_string().contains("uploader.score_window"),
+        "{error}"
+    );
+}
+
+#[test]
+fn preferring_one_uploader_is_on_by_default() {
+    // A human still approves every download, and the reorder is reported, so a
+    // feature that has to be switched on is a feature nobody uses.
+    let settings = Settings::default();
+
+    assert!(settings.uploader.prefer_one);
+    assert_eq!(settings.uploader.score_window, 2000);
+    assert!(settings.uploader.score_window < settings.ranking.penalty_per_term);
+}

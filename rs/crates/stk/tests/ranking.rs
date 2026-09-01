@@ -6,9 +6,9 @@
 //!
 //! Ported from `py/tests/unit/test_ranking.py`.
 
-use stk::config::RankingSettings;
+use stk::config::{RankingSettings, UploaderSettings};
 use stk::models::{Candidate, ScoredCandidate, Track};
-use stk::soulseek::ranking::rank;
+use stk::soulseek::ranking::{prefer_one_uploader, rank, PREFERRED_FLAG};
 
 fn track() -> Track {
     Track {
@@ -298,4 +298,213 @@ fn the_number_of_results_can_be_capped() {
 #[test]
 fn no_candidates_yields_no_results() {
     assert!(ranked(&track(), &[]).is_empty());
+}
+
+/// A batch is a list per track; these are built by hand so the pass is tested
+/// without a client, a store or a search.
+fn scored(username: &str, score: i64) -> ScoredCandidate {
+    ScoredCandidate {
+        candidate: Candidate {
+            username: username.to_owned(),
+            remote_path: format!(r"@@{username}\Music\track.flac"),
+            ..Candidate::default()
+        },
+        score,
+        title_ratio: 1.0,
+        flags: Vec::new(),
+    }
+}
+
+fn uploader() -> UploaderSettings {
+    UploaderSettings::default()
+}
+
+fn first_peers(batch: &[Vec<ScoredCandidate>]) -> Vec<&str> {
+    batch
+        .iter()
+        .map(|list| {
+            list.first()
+                .map_or("", |scored| scored.candidate.username.as_str())
+        })
+        .collect()
+}
+
+/// Three tracks, each won by a different peer, with `bulk` a close second on
+/// every one of them. The shape the issue describes: twelve tracks from twelve
+/// strangers, or all of them from the one peer who has the lot.
+fn close_batch() -> Vec<Vec<ScoredCandidate>> {
+    (0..3)
+        .map(|index| {
+            vec![
+                scored(&format!("solo{index}"), 37_000_000),
+                scored("bulk", 36_999_500),
+            ]
+        })
+        .collect()
+}
+
+#[test]
+fn a_peer_covering_more_of_the_batch_wins_a_close_race() {
+    let mut batch = close_batch();
+
+    let preferred = prefer_one_uploader(&mut batch, &uploader()).expect("a preferred peer");
+
+    assert_eq!(preferred.username, "bulk");
+    assert_eq!(preferred.covered, 3);
+    assert_eq!(first_peers(&batch), vec!["bulk", "bulk", "bulk"]);
+}
+
+#[test]
+fn a_promoted_candidate_says_why_it_moved() {
+    // A silent reordering of a list a human reads is worse than none.
+    let mut batch = close_batch();
+    prefer_one_uploader(&mut batch, &uploader()).expect("a preferred peer");
+
+    assert!(batch[0][0].flags.iter().any(|flag| flag == PREFERRED_FLAG));
+    assert!(
+        batch[0][1].flags.is_empty(),
+        "the one it passed is untouched"
+    );
+}
+
+#[test]
+fn a_peer_covering_fewer_tracks_than_the_minimum_changes_nothing() {
+    let mut batch: Vec<Vec<ScoredCandidate>> = (0..2)
+        .map(|index| {
+            vec![
+                scored(&format!("solo{index}"), 37_000_000),
+                scored("bulk", 36_999_500),
+            ]
+        })
+        .collect();
+
+    assert_eq!(prefer_one_uploader(&mut batch, &uploader()), None);
+    assert_eq!(first_peers(&batch), vec!["solo0", "solo1"]);
+}
+
+#[test]
+fn a_batch_of_one_track_is_left_alone() {
+    let mut batch = vec![vec![
+        scored("solo0", 37_000_000),
+        scored("bulk", 36_999_500),
+    ]];
+
+    assert_eq!(prefer_one_uploader(&mut batch, &uploader()), None);
+}
+
+#[test]
+fn preferring_one_uploader_never_swaps_a_lossless_file_for_a_lossy_one() {
+    // A quality tier is 10,000,000 apart; the window is 2,000.
+    let mut batch: Vec<Vec<ScoredCandidate>> = (0..5)
+        .map(|index| {
+            vec![
+                scored(&format!("solo{index}"), 37_000_000),
+                scored("bulk", 27_000_000),
+            ]
+        })
+        .collect();
+
+    assert_eq!(prefer_one_uploader(&mut batch, &uploader()), None);
+    assert_eq!(first_peers(&batch)[0], "solo0");
+}
+
+#[test]
+fn a_penalised_candidate_is_never_promoted_to_keep_one_uploader() {
+    // One penalise term costs 2,000,000 -- a live recording is not a close call.
+    let mut batch: Vec<Vec<ScoredCandidate>> = (0..5)
+        .map(|index| {
+            vec![
+                scored(&format!("solo{index}"), 37_000_000),
+                scored("bulk", 35_000_000),
+            ]
+        })
+        .collect();
+
+    assert_eq!(prefer_one_uploader(&mut batch, &uploader()), None);
+}
+
+#[test]
+fn a_rejected_candidate_is_never_promoted() {
+    let mut batch: Vec<Vec<ScoredCandidate>> = (0..4)
+        .map(|index| {
+            vec![
+                scored(&format!("solo{index}"), 37_000_000),
+                scored("bulk", -1),
+            ]
+        })
+        .collect();
+
+    assert_eq!(prefer_one_uploader(&mut batch, &uploader()), None);
+}
+
+#[test]
+fn the_batch_pass_keeps_the_rest_of_a_list_in_score_order() {
+    let mut batch: Vec<Vec<ScoredCandidate>> = (0..3)
+        .map(|index| {
+            vec![
+                scored(&format!("solo{index}"), 37_000_000),
+                scored(&format!("other{index}"), 36_999_800),
+                scored("bulk", 36_999_500),
+            ]
+        })
+        .collect();
+
+    prefer_one_uploader(&mut batch, &uploader()).expect("a preferred peer");
+
+    assert_eq!(
+        batch[0]
+            .iter()
+            .map(|scored| scored.candidate.username.as_str())
+            .collect::<Vec<_>>(),
+        vec!["bulk", "solo0", "other0"]
+    );
+}
+
+#[test]
+fn the_preferred_peer_is_the_same_whatever_order_the_tracks_arrive_in() {
+    // Coverage is counted against the un-reordered lists for exactly this.
+    let mut forwards = close_batch();
+    let mut backwards = close_batch();
+    backwards.reverse();
+
+    assert_eq!(
+        prefer_one_uploader(&mut forwards, &uploader()),
+        prefer_one_uploader(&mut backwards, &uploader())
+    );
+}
+
+#[test]
+fn a_tie_on_coverage_is_settled_by_what_it_costs() {
+    let mut batch: Vec<Vec<ScoredCandidate>> = (0..3)
+        .map(|index| {
+            vec![
+                scored(&format!("solo{index}"), 37_000_000),
+                scored("cheap", 36_999_900),
+                scored("dear", 36_999_100),
+            ]
+        })
+        .collect();
+
+    let preferred = prefer_one_uploader(&mut batch, &uploader()).expect("a preferred peer");
+
+    assert_eq!(preferred.username, "cheap");
+    assert_eq!(preferred.sacrificed, 300);
+}
+
+#[test]
+fn preferring_one_uploader_can_be_widened_or_narrowed() {
+    let narrow = UploaderSettings {
+        score_window: 100,
+        ..uploader()
+    };
+    let mut batch = close_batch();
+
+    assert_eq!(prefer_one_uploader(&mut batch, &narrow), None);
+    assert_eq!(first_peers(&batch)[0], "solo0");
+}
+
+#[test]
+fn an_empty_batch_settles_on_nobody() {
+    assert_eq!(prefer_one_uploader(&mut [], &uploader()), None);
+    assert_eq!(prefer_one_uploader(&mut [Vec::new()], &uploader()), None);
 }

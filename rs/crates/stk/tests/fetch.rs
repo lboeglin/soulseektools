@@ -939,3 +939,178 @@ fn a_finished_transfer_is_not_cancelled_by_the_stall_pass() {
         .expect("the fake is not poisoned")
         .is_empty());
 }
+
+/// A client whose shortlist depends on which track is being searched for.
+///
+/// The shape the batch pass exists for needs a *different* peer winning each
+/// track on its own merits; one shared shortlist cannot express that.
+struct PerTrackClient {
+    lists: Vec<(String, Vec<Candidate>)>,
+}
+
+impl SoulseekClient for PerTrackClient {
+    fn is_connected(&self) -> bool {
+        true
+    }
+
+    fn search(&self, text: &str, _timeout: u32, _limit: u32) -> Result<Vec<Candidate>> {
+        Ok(self
+            .lists
+            .iter()
+            .find(|(needle, _)| text.contains(needle.as_str()))
+            .map(|(_, list)| list.clone())
+            .unwrap_or_default())
+    }
+
+    fn enqueue(
+        &self,
+        _username: &str,
+        _files: &[Candidate],
+        _destination: &str,
+    ) -> Result<Vec<Transfer>> {
+        Ok(Vec::new())
+    }
+
+    fn transfers(&self) -> Result<Vec<Transfer>> {
+        Ok(Vec::new())
+    }
+
+    fn cancel(&self, _username: &str, _id: &str) -> Result<()> {
+        Ok(())
+    }
+}
+
+/// A candidate that differs from its neighbours only in availability, so every
+/// gap between them sits inside the uploader window and none of them is a
+/// difference of codec, master or content.
+fn from_peer(username: &str, title: &str, queue_length: u32, free_upload_slots: bool) -> Candidate {
+    Candidate {
+        username: username.to_owned(),
+        remote_path: format!(r"@@{username}\Music\{title}.flac"),
+        size: 30_000_000,
+        bit_depth: Some(16),
+        sample_rate: Some(44100),
+        free_upload_slots,
+        queue_length,
+        ..Candidate::default()
+    }
+}
+
+const BATCH: [&str; 3] = ["roki", "ghost rule", "sanbika"];
+
+fn batch_tracks() -> Vec<Track> {
+    BATCH
+        .iter()
+        .map(|title| Track::new("DECO*27", title))
+        .collect()
+}
+
+/// Each track won by its own peer, with `bulk` a close second on every one.
+fn batch_client(extra_fillers: bool) -> PerTrackClient {
+    PerTrackClient {
+        lists: BATCH
+            .iter()
+            .enumerate()
+            .map(|(index, title)| {
+                let mut list = vec![from_peer(&format!("solo{index}"), title, 0, true)];
+                if extra_fillers {
+                    // Named per track, so only `bulk` covers the batch -- and
+                    // placed above it, so `bulk` falls past a cap of two.
+                    list.push(from_peer(&format!("fillerA{index}"), title, 300, true));
+                    list.push(from_peer(&format!("fillerB{index}"), title, 600, true));
+                }
+                list.push(from_peer("bulk", title, 0, false));
+                ((*title).to_owned(), list)
+            })
+            .collect(),
+    }
+}
+
+fn queued_with(store: &mut ReviewStore, tracks: &[Track]) {
+    store.add(tracks).expect("added tracks");
+}
+
+#[test]
+fn a_peer_holding_most_of_the_batch_is_offered_first_for_all_of_them() {
+    let scratch = Scratch::new("fetch-prefer-peer");
+    let settings = settings(&scratch);
+    let mut store = store(&scratch);
+    queued_with(&mut store, &batch_tracks());
+
+    let outcomes =
+        fetch::search_pending(&mut store, &batch_client(false), &settings, None).expect("a search");
+
+    assert!(outcomes
+        .iter()
+        .all(|outcome| outcome.preferred_uploader == "bulk"));
+    for entry in store.tracks(&[], None).expect("the queued tracks") {
+        assert_eq!(entry.candidates[0].candidate.username, "bulk");
+    }
+}
+
+#[test]
+fn the_batch_pass_sees_candidates_below_the_review_cap() {
+    // The regression the restructure exists for: ranking used to truncate to
+    // `candidates_per_track` before anything looked across the batch, so a peer
+    // holding most of it was invisible on every track where they placed fourth.
+    let scratch = Scratch::new("fetch-prefer-deep");
+    let mut settings = settings(&scratch);
+    settings.review.candidates_per_track = 2;
+    let mut store = store(&scratch);
+    queued_with(&mut store, &batch_tracks());
+
+    fetch::search_pending(&mut store, &batch_client(true), &settings, None).expect("a search");
+
+    for entry in store.tracks(&[], None).expect("the queued tracks") {
+        assert_eq!(entry.candidates.len(), 2, "the review cap still holds");
+        assert_eq!(entry.candidates[0].candidate.username, "bulk");
+    }
+}
+
+#[test]
+fn ranks_stay_dense_after_the_batch_pass() {
+    // `ReviewTrack::approved` resolves positionally and `next_candidate` assumes
+    // 1..n, so the reorder has to happen before the ranks are written.
+    let scratch = Scratch::new("fetch-prefer-ranks");
+    let settings = settings(&scratch);
+    let mut store = store(&scratch);
+    queued_with(&mut store, &batch_tracks());
+
+    fetch::search_pending(&mut store, &batch_client(true), &settings, None).expect("a search");
+
+    for entry in store.tracks(&[], None).expect("the queued tracks") {
+        let ranks = entry.candidates.len();
+        store.approve(entry.id, 1).expect("an approval");
+        let approved = store
+            .track(entry.id)
+            .expect("a lookup")
+            .expect("the track")
+            .approved()
+            .expect("the approved candidate")
+            .clone();
+
+        assert_eq!(approved.candidate.username, "bulk");
+        // Rank 1 resolved to the first candidate, so the ranks are 1..n in list
+        // order and nothing was renumbered behind the positional lookup.
+        assert_eq!(ranks, entry.candidates.len());
+    }
+}
+
+#[test]
+fn turning_the_preference_off_leaves_the_scores_in_charge() {
+    let scratch = Scratch::new("fetch-prefer-off");
+    let mut settings = settings(&scratch);
+    settings.uploader.prefer_one = false;
+    let mut store = store(&scratch);
+    queued_with(&mut store, &batch_tracks());
+
+    let outcomes =
+        fetch::search_pending(&mut store, &batch_client(false), &settings, None).expect("a search");
+
+    assert!(outcomes
+        .iter()
+        .all(|outcome| outcome.preferred_uploader.is_empty()));
+    for entry in store.tracks(&[], None).expect("the queued tracks") {
+        assert!(entry.candidates[0].candidate.username.starts_with("solo"));
+    }
+}

@@ -16,7 +16,7 @@ use std::path::{Path, PathBuf};
 use crate::audio::verify::verify_file;
 use crate::config::Settings;
 use crate::library::scan::LOSSLESS_EXTENSIONS;
-use crate::models::{TrackStatus, Verdict, VerifyResult};
+use crate::models::{ScoredCandidate, TrackStatus, Verdict, VerifyResult};
 use crate::review::store::ReviewStore;
 use crate::soulseek::base::{SoulseekClient, Transfer, TransferState};
 use crate::soulseek::ranking;
@@ -29,6 +29,8 @@ pub struct SearchOutcome {
     pub query: String,
     pub found: usize,
     pub error: String,
+    /// The peer the batch pass moved to the front for this track (#3).
+    pub preferred_uploader: String,
 }
 
 /// What happened when an approved candidate was queued.
@@ -73,34 +75,71 @@ pub fn search_pending(
     let searched: Vec<crate::errors::Result<Vec<crate::models::Candidate>>> =
         search_concurrently(&pending, client, settings);
 
-    let mut outcomes = Vec::new();
-    for (entry, found) in pending.into_iter().zip(searched) {
+    // Scored first, and deeper than the review cap: truncating per track before
+    // anything looked across the batch is what made a peer holding most of it
+    // invisible on every track where they placed fourth (#3).
+    let pool = settings
+        .uploader
+        .pool_per_track
+        .max(settings.review.candidates_per_track);
+    let mut ranked: Vec<Vec<ScoredCandidate>> = Vec::with_capacity(pending.len());
+    let mut errors: Vec<String> = Vec::with_capacity(pending.len());
+    for (entry, found) in pending.iter().zip(searched) {
         match found {
             Err(error) => {
-                store.mark(entry.id, TrackStatus::Failed, &error.to_string())?;
-                outcomes.push(SearchOutcome {
-                    track_id: entry.id,
-                    query: entry.track.query(),
-                    found: 0,
-                    error: error.to_string(),
-                });
+                ranked.push(Vec::new());
+                errors.push(error.to_string());
             }
             Ok(candidates) => {
-                let scored = ranking::rank(
+                ranked.push(ranking::rank(
                     &entry.track,
                     &candidates,
                     &settings.ranking,
-                    Some(settings.review.candidates_per_track),
-                );
-                store.set_candidates(entry.id, &scored)?;
-                outcomes.push(SearchOutcome {
-                    track_id: entry.id,
-                    query: entry.track.query(),
-                    found: scored.len(),
-                    error: String::new(),
-                });
+                    Some(pool),
+                ));
+                errors.push(String::new());
             }
         }
+    }
+
+    let preferred = settings
+        .uploader
+        .prefer_one
+        .then(|| ranking::prefer_one_uploader(&mut ranked, &settings.uploader))
+        .flatten();
+
+    let mut outcomes = Vec::with_capacity(pending.len());
+    for ((entry, mut scored), error) in pending.into_iter().zip(ranked).zip(errors) {
+        if !error.is_empty() {
+            store.mark(entry.id, TrackStatus::Failed, &error)?;
+            outcomes.push(SearchOutcome {
+                track_id: entry.id,
+                query: entry.track.query(),
+                found: 0,
+                error,
+                preferred_uploader: String::new(),
+            });
+            continue;
+        }
+
+        scored.truncate(settings.review.candidates_per_track);
+        let taken = preferred
+            .as_ref()
+            .filter(|preferred| {
+                scored
+                    .first()
+                    .is_some_and(|first| first.candidate.username == preferred.username)
+            })
+            .map_or_else(String::new, |preferred| preferred.username.clone());
+
+        store.set_candidates(entry.id, &scored)?;
+        outcomes.push(SearchOutcome {
+            track_id: entry.id,
+            query: entry.track.query(),
+            found: scored.len(),
+            error: String::new(),
+            preferred_uploader: taken,
+        });
     }
     Ok(outcomes)
 }

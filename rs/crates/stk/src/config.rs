@@ -111,6 +111,53 @@ impl Default for RankingSettings {
     }
 }
 
+/// Preferring one uploader across a batch (#3).
+///
+/// Soulseek's cost is per queue position, not per file, so eight tracks from
+/// one peer beats eight tracks from eight peers whenever the per-track choice
+/// is close.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, default)]
+pub struct UploaderSettings {
+    pub prefer_one: bool,
+
+    /// How far below a track's best a candidate may score and still be taken
+    /// from the preferred peer.
+    ///
+    /// 2000 is the exact span of the availability part of the score: a free
+    /// slot is worth 1000, a full queue costs up to 500, and the name match up
+    /// to 500 more. Everything structural is further away than that -- a
+    /// content penalty is 2,000,000, a quality tier 10,000,000, one sample-rate
+    /// step within lossless 624,000 -- so a preference can trade availability
+    /// and name match and can never trade a codec, a master or a live version.
+    pub score_window: i64,
+
+    /// How many of the batch's tracks a peer must cover to be preferred.
+    ///
+    /// A count rather than a fraction, so it behaves the same over ten tracks
+    /// and over four hundred: a fraction would demand forty tracks from one
+    /// peer on a large batch, which essentially never happens, and would
+    /// silently switch the feature off on exactly the runs it helps most.
+    pub minimum_coverage: usize,
+
+    /// How many candidates per track the batch pass may look at.
+    ///
+    /// Deeper than the review cap, or a peer holding most of the batch is
+    /// invisible on every track where they placed fourth.
+    pub pool_per_track: usize,
+}
+
+impl Default for UploaderSettings {
+    fn default() -> Self {
+        Self {
+            prefer_one: true,
+            score_window: 2000,
+            minimum_coverage: 3,
+            pool_per_track: 25,
+        }
+    }
+}
+
 /// Tuning for the transcoded-lossless check.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, default)]
@@ -361,6 +408,7 @@ pub struct Settings {
     pub matching: MatchingSettings,
     pub slskd: SlskdSettings,
     pub ranking: RankingSettings,
+    pub uploader: UploaderSettings,
     pub verify: VerifySettings,
     pub artwork: ArtworkSettings,
     pub genres: GenreSettings,
@@ -742,6 +790,24 @@ impl Settings {
         }
         if self.slskd.request_timeout_seconds <= 0.0 {
             return bad("slskd.request_timeout_seconds", "must be greater than 0");
+        }
+        if self.uploader.minimum_coverage < 2 {
+            return bad("uploader.minimum_coverage", "must be at least 2");
+        }
+        if self.uploader.pool_per_track == 0 {
+            return bad("uploader.pool_per_track", "must be at least 1");
+        }
+        // Bounded against the scale it is compared on: a window wide enough to
+        // cross a content penalty or a quality tier would let batch coherence
+        // buy a live recording or a lossy file.
+        if self.uploader.score_window < 0
+            || self.uploader.score_window >= self.ranking.penalty_per_term
+            || self.uploader.score_window >= crate::soulseek::ranking::TIER_WEIGHT
+        {
+            return bad(
+                "uploader.score_window",
+                "must be between 0 and the smaller of ranking.penalty_per_term and a quality tier",
+            );
         }
         if !(1..=4).contains(&self.organise.track_number_width) {
             return bad("organise.track_number_width", "must be between 1 and 4");
