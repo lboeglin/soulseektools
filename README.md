@@ -111,6 +111,9 @@ The settings worth knowing about:
 | `artwork.require_artist_match` | Refuse cover art belonging to a different artist. |
 | `artwork.contact` | A URL or email identifying you to MusicBrainz. Optional. |
 | `genres.map_path` | Your artist-to-genre map. Start from `data/genres.example.toml`. |
+| `organise.pattern` | Where a file belongs, from its tags. Default `{artist}/{album}/{track} - {title}`. |
+| `organise.track_number_width` | How many digits a track number is padded to. Default 2. |
+| `organise.destination` | Consolidate everything here. Unset means each file stays under its own root. |
 
 ## Getting tracks by name
 
@@ -214,6 +217,7 @@ stk genre check            # genres in use, and artists your map does not cover
 stk genre apply --apply    # write the mapped genres
 stk tags dump              # every file's artist/album/title/genre as CSV
 stk tags apply sheet.csv   # write back an edited one
+stk organise --apply       # move files into the layout their tags describe
 stk playlist genre Touhou  # an m3u8 of everything carrying a genre
 stk changes list           # what those --apply runs actually wrote
 stk library trend          # whether any of it is winning
@@ -237,6 +241,37 @@ A scan that found exactly what the last one found records nothing, so scanning
 four times on a quiet afternoon leaves one point rather than four. `Flagged`
 counts what `stk verify` doubted -- `FAKE` and `SUSPECT` together -- and stays
 empty until you have run it.
+
+### Organising files
+
+Downloads land as `<download dir>/<Artist>/<whatever the peer called it>`, which
+is often `01 track.flac` or worse. `stk organise` moves them into the layout
+their tags describe:
+
+```bash
+stk organise                                    # see the plan
+stk organise --apply                            # move them
+stk organise --pattern "{artist}/{title}"       # try a layout for one run
+stk organise --from ~/Downloads/slskd --apply   # tidy what a fetch left behind
+```
+
+The default pattern is `{artist}/{album}/{track} - {title}`; the placeholders
+are `{artist}`, `{album_artist}`, `{album}`, `{title}` and `{track}`. Directories
+are separated with `/` on every platform, and the extension is never part of the
+pattern -- it comes from the file, since a rename must not lie about the
+container.
+
+A placeholder with nothing to fill it takes the punctuation next to it away too,
+so a file with no track number becomes `Title.flac` rather than ` - Title.flac`,
+and one with no album loses the album directory rather than gaining an
+`Unknown Album`. A file with nothing at all to name it after is left where it is.
+
+Nothing is ever overwritten. A destination that already holds a different file
+is reported and skipped, as are two files that would land on the same name --
+both are found while planning, before anything moves. Emptied folders are
+removed behind the move, but only if they are genuinely empty: one still holding
+a `cover.jpg` is left alone. Every move is logged, so
+`stk changes undo --last --apply` puts them all back.
 
 ### Fixing tags in bulk
 

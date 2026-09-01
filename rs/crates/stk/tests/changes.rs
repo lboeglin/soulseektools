@@ -550,3 +550,118 @@ fn an_undone_tag_write_is_logged_in_its_turn() {
     assert_eq!(changes[0].command, "changes undo");
     assert_eq!(changes[0].new_value.as_deref(), Some("Heian Alien"));
 }
+
+#[test]
+fn a_move_is_logged_against_the_files_new_home() {
+    // Keyed on the destination, because `plan_undo` opens by asking whether the
+    // file it is about to put back is still where the log left it.
+    needs_ffmpeg!();
+    let scratch = Scratch::new("changes-move-row");
+    let root = library(&scratch);
+    let from = root.join("ZUN").join("Heian Alien.flac");
+    let to = root.join("ZUN").join("Faith").join("01 - Heian Alien.flac");
+    let mut index = indexed(&scratch, &root);
+
+    let log = ChangeLog::open(&index, "organise", 100.0).expect("a run");
+    log.moved(&mut index, &from, &to).expect("a logged move");
+    stk::organise::move_file(&from, &to).expect("a move");
+
+    let changes = index
+        .changes(&ChangeFilter::default())
+        .expect("the logged rows");
+    assert_eq!(changes[0].field, "move");
+    assert_eq!(changes[0].path, to);
+    assert_eq!(
+        changes[0].old_value.as_deref(),
+        Some(from.display().to_string().as_str())
+    );
+}
+
+#[test]
+fn undoing_a_move_puts_the_file_back_where_it_came_from() {
+    needs_ffmpeg!();
+    let scratch = Scratch::new("changes-move-undo");
+    let root = library(&scratch);
+    let from = root.join("ZUN").join("Heian Alien.flac");
+    let to = root.join("ZUN").join("Faith").join("01 - Heian Alien.flac");
+    let mut index = indexed(&scratch, &root);
+
+    let log = ChangeLog::open(&index, "organise", 100.0).expect("a run");
+    log.moved(&mut index, &from, &to).expect("a logged move");
+    stk::organise::move_file(&from, &to).expect("a move");
+    index
+        .relocate(&from, &to, std::slice::from_ref(&root))
+        .expect("a relocated row");
+
+    let change = index
+        .changes(&ChangeFilter::default())
+        .expect("the logged rows")
+        .remove(0);
+    let plan = plan_undo(&index, change).expect("a plan");
+    assert!(plan.ready(), "{:?}", plan.blocked);
+
+    let undo = ChangeLog::open(&index, "changes undo", 200.0).expect("a run");
+    apply_undo(&mut index, &plan, &undo, std::slice::from_ref(&root)).expect("an undo");
+
+    assert!(from.is_file());
+    assert!(!to.is_file());
+    assert!(index.entry(&from).expect("a lookup").is_some());
+    assert!(index.entry(&to).expect("a lookup").is_none());
+}
+
+#[test]
+fn undoing_a_move_is_blocked_when_something_took_the_old_place() {
+    // Putting the file back would overwrite a different file, which is not
+    // something --force should be able to buy.
+    needs_ffmpeg!();
+    let scratch = Scratch::new("changes-move-taken");
+    let root = library(&scratch);
+    let from = root.join("ZUN").join("Heian Alien.flac");
+    let to = root.join("ZUN").join("Faith").join("01 - Heian Alien.flac");
+    let mut index = indexed(&scratch, &root);
+
+    let log = ChangeLog::open(&index, "organise", 100.0).expect("a run");
+    log.moved(&mut index, &from, &to).expect("a logged move");
+    stk::organise::move_file(&from, &to).expect("a move");
+
+    encode(
+        &from,
+        &Encoded {
+            metadata: &[("title", "Something Else")],
+            ..Encoded::default()
+        },
+    );
+
+    let change = index
+        .changes(&ChangeFilter::default())
+        .expect("the logged rows")
+        .remove(0);
+    let plan = plan_undo(&index, change).expect("a plan");
+
+    assert!(matches!(plan.blocked, Some(Blocked::SourceOccupied(_))));
+    assert!(!plan.allowed(true), "no flag should destroy another file");
+}
+
+#[test]
+fn a_move_that_never_happened_cannot_be_undone() {
+    // The row is written before the rename, so a rename that then failed leaves
+    // a row for a file that is not there. Detectable and inert.
+    needs_ffmpeg!();
+    let scratch = Scratch::new("changes-move-phantom");
+    let root = library(&scratch);
+    let from = root.join("ZUN").join("Heian Alien.flac");
+    let to = root.join("ZUN").join("Faith").join("01 - Heian Alien.flac");
+    let mut index = indexed(&scratch, &root);
+
+    let log = ChangeLog::open(&index, "organise", 100.0).expect("a run");
+    log.moved(&mut index, &from, &to).expect("a logged move");
+
+    let change = index
+        .changes(&ChangeFilter::default())
+        .expect("the logged rows")
+        .remove(0);
+    let plan = plan_undo(&index, change).expect("a plan");
+
+    assert_eq!(plan.blocked, Some(Blocked::FileGone));
+    assert!(from.is_file(), "the source is untouched");
+}

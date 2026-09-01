@@ -298,6 +298,42 @@ impl Default for ArtworkSettings {
     }
 }
 
+/// How files are laid out on disk (#3).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, default)]
+pub struct OrganiseSettings {
+    /// Where a file belongs, relative to its library root.
+    ///
+    /// Directories are separated with `/` on every platform. The extension is
+    /// never part of it: a pattern that could change one would let a rename lie
+    /// about the container.
+    pub pattern: String,
+
+    /// How many digits a track number is padded to.
+    ///
+    /// A setting rather than a `{track:02}` format spec: nobody varies the
+    /// padding within one pattern, and a mini-language is a parser and a
+    /// validation surface for something that never changes.
+    pub track_number_width: usize,
+
+    /// Remove the directories a move emptied.
+    pub remove_empty_directories: bool,
+
+    /// Where organised files go. Unset means each stays under its own root.
+    pub destination: Option<PathBuf>,
+}
+
+impl Default for OrganiseSettings {
+    fn default() -> Self {
+        Self {
+            pattern: "{artist}/{album}/{track} - {title}".to_owned(),
+            track_number_width: 2,
+            remove_empty_directories: true,
+            destination: None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, default)]
 pub struct GenreSettings {
@@ -328,6 +364,7 @@ pub struct Settings {
     pub verify: VerifySettings,
     pub artwork: ArtworkSettings,
     pub genres: GenreSettings,
+    pub organise: OrganiseSettings,
 }
 
 /// Where `platformdirs` puts application data, reproduced exactly.
@@ -445,6 +482,15 @@ impl Resolved {
     #[must_use]
     pub fn resolved_genre_map_path(&self) -> PathBuf {
         self.resolve(&self.settings.genres.map_path)
+    }
+
+    #[must_use]
+    pub fn resolved_organise_destination(&self) -> Option<PathBuf> {
+        self.settings
+            .organise
+            .destination
+            .as_ref()
+            .map(|path| self.resolve(path))
     }
 
     fn resolve(&self, path: &Path) -> PathBuf {
@@ -696,6 +742,16 @@ impl Settings {
         }
         if self.slskd.request_timeout_seconds <= 0.0 {
             return bad("slskd.request_timeout_seconds", "must be greater than 0");
+        }
+        if !(1..=4).contains(&self.organise.track_number_width) {
+            return bad("organise.track_number_width", "must be between 1 and 4");
+        }
+        // Parsed here so a pattern that will not work fails at load, like every
+        // other invalid setting, rather than at the moment of moving files.
+        if let Err(error) = crate::organise::Pattern::parse(&self.organise.pattern) {
+            return Err(Error::Config(format!(
+                "invalid configuration ({location}): {error}"
+            )));
         }
         Ok(())
     }

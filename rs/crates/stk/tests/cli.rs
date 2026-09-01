@@ -953,6 +953,120 @@ fn trend_on_an_index_that_was_never_scanned_says_so() {
 }
 
 #[test]
+fn organise_without_the_flag_moves_nothing() {
+    needs_ffmpeg!();
+    let _guard = exclusive();
+    let harness = Harness::new("cli-organise-dry");
+    let root = library(&harness);
+    harness.with_config(&root);
+    run(&["library", "scan"]);
+
+    assert_eq!(run(&["organise"]), 0);
+
+    assert!(root.join("DECO_27").join("01 - Roki.flac").is_file());
+    assert!(logged(&harness).is_empty());
+    drop(harness);
+}
+
+#[test]
+fn organise_moves_the_file_and_carries_its_index_row_along() {
+    needs_ffmpeg!();
+    let _guard = exclusive();
+    let harness = Harness::new("cli-organise");
+    let root = library(&harness);
+    harness.with_config(&root);
+    run(&["library", "scan"]);
+
+    assert_eq!(run(&["organise", "--apply"]), 0);
+
+    // The fixture tags this one artist "DECO*27", album "Ghost", no track.
+    let moved = root.join("DECO_27").join("Ghost").join("Roki.flac");
+    assert!(moved.is_file(), "{}", moved.display());
+    assert!(!root.join("DECO_27").join("01 - Roki.flac").exists());
+
+    let index =
+        stk::library::index::LibraryIndex::open(&harness.join("library.db")).expect("the index");
+    assert!(index.entry(&moved).expect("a lookup").is_some());
+    assert!(index
+        .entry(&root.join("DECO_27").join("01 - Roki.flac"))
+        .expect("a lookup")
+        .is_none());
+
+    let changes = logged(&harness);
+    assert!(changes.iter().any(|row| row.field == "move"));
+    assert!(changes.iter().all(|row| row.command == "organise"));
+    drop(harness);
+}
+
+#[test]
+fn undoing_an_organise_run_puts_the_files_back() {
+    needs_ffmpeg!();
+    let _guard = exclusive();
+    let harness = Harness::new("cli-organise-undo");
+    let root = library(&harness);
+    harness.with_config(&root);
+    run(&["library", "scan"]);
+    run(&["organise", "--apply"]);
+
+    assert_eq!(run(&["changes", "undo", "--last", "--apply"]), 0);
+
+    assert!(root.join("DECO_27").join("01 - Roki.flac").is_file());
+    assert!(root.join("ZUN").join("Heian Alien.flac").is_file());
+    drop(harness);
+}
+
+#[test]
+fn organise_accepts_a_pattern_for_one_run() {
+    needs_ffmpeg!();
+    let _guard = exclusive();
+    let harness = Harness::new("cli-organise-pattern");
+    let root = library(&harness);
+    harness.with_config(&root);
+    run(&["library", "scan"]);
+
+    assert_eq!(
+        run(&["organise", "--pattern", "{artist}/{title}", "--apply"]),
+        0
+    );
+
+    assert!(root.join("DECO_27").join("Roki.flac").is_file());
+    drop(harness);
+}
+
+#[test]
+fn organise_rejects_a_pattern_it_cannot_use() {
+    let _guard = exclusive();
+    let harness = Harness::new("cli-organise-bad-pattern");
+    harness.with_config(&harness.join("Music"));
+
+    assert_eq!(run(&["organise", "--pattern", "{nonsense}/{title}"]), 1);
+    drop(harness);
+}
+
+#[test]
+fn organise_leaves_no_empty_artist_folder_behind() {
+    needs_ffmpeg!();
+    let _guard = exclusive();
+    let harness = Harness::new("cli-organise-prune");
+    let root = harness.join("Music");
+    encode(
+        &root.join("Loose").join("track.flac"),
+        &Encoded {
+            metadata: &[("artist", "ZUN"), ("title", "Native Faith")],
+            ..Encoded::default()
+        },
+    );
+    harness.with_config(&root);
+    run(&["library", "scan"]);
+
+    assert_eq!(run(&["organise", "--apply"]), 0);
+
+    assert!(root.join("ZUN").join("Native Faith.flac").is_file());
+    assert!(!root.join("Loose").exists(), "the emptied folder is gone");
+    drop(harness);
+}
+
+#[test]
 fn a_genre_playlist_holds_only_the_files_carrying_that_genre() {
     needs_ffmpeg!();
     let _guard = exclusive();

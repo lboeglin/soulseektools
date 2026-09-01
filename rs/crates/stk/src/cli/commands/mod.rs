@@ -9,6 +9,7 @@ pub mod fetch;
 pub mod genre;
 pub mod get;
 pub mod library;
+pub mod organise;
 pub mod playlist;
 pub mod review;
 pub mod tags;

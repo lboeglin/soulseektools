@@ -608,6 +608,52 @@ impl LibraryIndex {
         Ok(())
     }
 
+    /// Follow a file this tool moved.
+    ///
+    /// The fingerprint is carried across rather than dropped: it is keyed by
+    /// path, and the audio did not change because the file did. The rest of the
+    /// row is re-derived, since `folder_artist` and every name form come from
+    /// where the file sits.
+    ///
+    /// The verdict does not survive, for the same reason `upsert` does not name
+    /// it: a row is replaced wholesale, and a stale verdict is worse than none.
+    pub fn relocate(
+        &mut self,
+        from: &Path,
+        to: &Path,
+        roots: &[PathBuf],
+    ) -> Result<Option<LibraryEntry>> {
+        let (from, to) = (from.display().to_string(), to.display().to_string());
+        let transaction = self
+            .connection
+            .transaction()
+            .map_err(|error| sqlite_error(&error))?;
+        transaction
+            .execute("DELETE FROM files WHERE path = ?1", params![from])
+            .map_err(|error| sqlite_error(&error))?;
+        transaction
+            .execute(
+                "UPDATE OR REPLACE fingerprints SET path = ?2 WHERE path = ?1",
+                params![from, to],
+            )
+            .map_err(|error| sqlite_error(&error))?;
+        transaction.commit().map_err(|error| sqlite_error(&error))?;
+
+        self.reindex(Path::new(&to), roots)
+    }
+
+    /// Forget a file that has been moved away or removed.
+    pub fn forget(&mut self, path: &Path) -> Result<()> {
+        let path = path.display().to_string();
+        self.connection
+            .execute("DELETE FROM files WHERE path = ?1", params![path])
+            .map_err(|error| sqlite_error(&error))?;
+        self.connection
+            .execute("DELETE FROM fingerprints WHERE path = ?1", params![path])
+            .map_err(|error| sqlite_error(&error))?;
+        Ok(())
+    }
+
     /// How many files carry each verdict `stk verify` has recorded.
     pub fn verdict_counts(&self) -> Result<std::collections::BTreeMap<Verdict, usize>> {
         let rows: Vec<(String, i64)> = self

@@ -44,6 +44,8 @@ pub enum ChangeField {
     Album,
     Title,
     TrackNumber,
+    /// Where the file is, rather than what it says.
+    Move,
 }
 
 impl ChangeField {
@@ -57,6 +59,7 @@ impl ChangeField {
             Self::Album => "album",
             Self::Title => "title",
             Self::TrackNumber => "track_number",
+            Self::Move => "move",
         }
     }
 
@@ -92,6 +95,7 @@ impl FromStr for ChangeField {
             Self::Album,
             Self::Title,
             Self::TrackNumber,
+            Self::Move,
         ]
         .into_iter()
         .find(|field| field.as_str() == text)
@@ -202,6 +206,30 @@ impl ChangeLog {
         })
     }
 
+    /// Log a file move, keyed on where the file has ended up.
+    ///
+    /// `path` is the destination, not the source. [`plan_undo`] opens by asking
+    /// whether the file it is about to put back is still where the log left it,
+    /// and a row keyed on the source would be blocked as gone the moment the
+    /// move succeeded. It is also the column `stk changes list` prints, which
+    /// should say where the file actually is.
+    ///
+    /// Written *before* the rename, not after. A row for a rename that then
+    /// failed is refused by `plan_undo` as a file that is gone -- detectable and
+    /// inert. A rename with no row is the gap in the record the log exists to
+    /// close.
+    pub fn moved(&self, index: &mut LibraryIndex, from: &Path, to: &Path) -> Result<i64> {
+        index.record_change(&NewChange {
+            run_id: self.run_id,
+            applied_at: self.applied_at,
+            command: self.command.clone(),
+            path: to.to_path_buf(),
+            field: ChangeField::Move,
+            old_value: Some(from.display().to_string()),
+            new_value: Some(to.display().to_string()),
+        })
+    }
+
     /// `new` is absent when the cover was removed rather than replaced, which
     /// is what undoing a first-time embed comes to.
     pub fn artwork(
@@ -235,13 +263,17 @@ pub enum Blocked {
     FileChanged,
     SidecarGone(PathBuf),
     UnknownField(String),
+    /// Something else now sits where a moved file came from (#3).
+    SourceOccupied(PathBuf),
 }
 
 impl Blocked {
     /// Whether `--force` may go ahead anyway.
     ///
     /// A file edited since the row was written is a judgement call, and the
-    /// user's to make. The rest are missing pieces no flag can conjure back.
+    /// user's to make. The rest are missing pieces no flag can conjure back --
+    /// and `SourceOccupied` risks destroying a *different* file, which is not
+    /// something a flag should buy.
     #[must_use]
     pub fn forceable(&self) -> bool {
         matches!(self, Self::FileChanged)
@@ -257,6 +289,9 @@ impl fmt::Display for Blocked {
                 write!(formatter, "the saved cover is gone from {}", path.display())
             }
             Self::UnknownField(field) => write!(formatter, "unknown change field: {field}"),
+            Self::SourceOccupied(path) => {
+                write!(formatter, "{} is not free any more", path.display())
+            }
         }
     }
 }
@@ -336,10 +371,23 @@ pub fn plan_undo(index: &LibraryIndex, change: Change) -> Result<UndoPlan> {
         ChangeField::Album => planned_tag(&change, TagField::Album)?,
         ChangeField::Title => planned_tag(&change, TagField::Title)?,
         ChangeField::TrackNumber => planned_tag(&change, TagField::TrackNumber)?,
+        ChangeField::Move => {
+            let back = PathBuf::from(change.old_value.clone().unwrap_or_default());
+            (
+                Some(change.path.display().to_string()),
+                format!("move it back to {}", back.display()),
+            )
+        }
     };
 
     let blocked = if current == change.new_value {
-        missing_sidecar(index, field, change.old_value.as_deref())
+        // A move's current value is its own location, so the comparison above
+        // can never catch anything: the hazard is that the place it came from
+        // is no longer free.
+        match field {
+            ChangeField::Move => source_occupied(&change),
+            _ => missing_sidecar(index, field, change.old_value.as_deref()),
+        }
     } else {
         Some(Blocked::FileChanged)
     };
@@ -395,6 +443,15 @@ pub fn apply_undo(
         ChangeField::Album => restore_tag(index, change, log, TagField::Album)?,
         ChangeField::Title => restore_tag(index, change, log, TagField::Title)?,
         ChangeField::TrackNumber => restore_tag(index, change, log, TagField::TrackNumber)?,
+        ChangeField::Move => {
+            let back = PathBuf::from(change.old_value.clone().unwrap_or_default());
+            crate::organise::move_file(&change.path, &back)?;
+            log.moved(index, &change.path, &back)?;
+            // `relocate` reindexes the destination itself, and the path this
+            // function reindexes below no longer holds a file.
+            index.relocate(&change.path, &back, roots)?;
+            return Ok(());
+        }
     }
 
     index.reindex(&change.path, roots)?;
@@ -481,6 +538,13 @@ pub fn decode_genres(value: Option<&str>) -> Vec<String> {
     value
         .and_then(|text| serde_json::from_str(text).ok())
         .unwrap_or_default()
+}
+
+/// Whether something else has taken the place a moved file came from.
+fn source_occupied(change: &Change) -> Option<Blocked> {
+    let back = PathBuf::from(change.old_value.clone().unwrap_or_default());
+    (back.exists() && !crate::organise::same_file(&back, &change.path))
+        .then_some(Blocked::SourceOccupied(back))
 }
 
 fn missing_sidecar(

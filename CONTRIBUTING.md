@@ -92,6 +92,7 @@ rs/crates/stk/src/
   config.rs         layered settings; every tunable lives here
   models.rs         the domain types shared across layers
   matching.rs       fuzzy name matching, used by everything
+  organise.rs       the layout pattern, and moving files into it
   playlist.rs       rendering M3U, so an order can leave the library again
   tagsheet.rs       reading an edited `tags dump` back
   text/             normalisation and romaji transliteration

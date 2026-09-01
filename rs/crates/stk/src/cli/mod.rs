@@ -77,6 +77,10 @@ pub enum Command {
     #[command(subcommand)]
     Tags(commands::tags::TagsCommand),
 
+    /// Move files into the layout their tags describe.
+    #[command(alias = "organize")]
+    Organise(commands::organise::OrganiseArgs),
+
     /// Write playlists from the library.
     #[command(subcommand)]
     Playlist(commands::playlist::PlaylistCommand),
@@ -138,6 +142,7 @@ pub fn run(arguments: Vec<std::ffi::OsString>) -> i32 {
         Command::Art(command) => commands::art::run(&context, command),
         Command::Genre(command) => commands::genre::run(&context, command),
         Command::Tags(command) => commands::tags::run(&context, command),
+        Command::Organise(args) => commands::organise::run(&context, &args),
         Command::Playlist(command) => commands::playlist::run(&context, command),
         Command::Wantlist(command) => commands::wantlist::run(&context, command),
         Command::Review(command) => commands::review::run(&context, command),
