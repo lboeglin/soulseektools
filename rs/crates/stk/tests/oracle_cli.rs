@@ -115,6 +115,21 @@ fn first_difference(left: &str, right: &str) -> Option<String> {
         })
 }
 
+/// A CSV's header row and its records, both as plain cells.
+fn table(text: &str) -> (Vec<String>, Vec<Vec<String>>) {
+    let mut reader = csv::Reader::from_reader(text.as_bytes());
+    let header = reader
+        .headers()
+        .map(|record| record.iter().map(str::to_owned).collect())
+        .unwrap_or_default();
+    let rows = reader
+        .records()
+        .filter_map(std::result::Result::ok)
+        .map(|record| record.iter().map(str::to_owned).collect())
+        .collect();
+    (header, rows)
+}
+
 fn read(path: &Path) -> String {
     let bytes = std::fs::read(path).expect("a readable file");
     // Both sides may carry a UTF-8 BOM; it is checked separately.
@@ -152,14 +167,20 @@ fn tags_dump_matches_the_oracle() {
     // mutagen read about one MP3 frame apart; `oracle_library.rs` records the
     // measurements and why the tolerance is the honest answer.
     let (theirs, ours) = (read(&expected), read(&output));
-    let rows = |text: &str| {
-        csv::Reader::from_reader(text.as_bytes())
-            .records()
-            .filter_map(std::result::Result::ok)
-            .map(|record| record.iter().map(str::to_owned).collect::<Vec<_>>())
-            .collect::<Vec<_>>()
-    };
-    let (theirs, ours) = (rows(&theirs), rows(&ours));
+    let (their_header, theirs) = table(&theirs);
+    let (our_header, ours) = table(&ours);
+
+    // Compared by name, and only then by position: zipping the rows alone would
+    // pass a dump that had quietly grown, renamed or reordered a column, and a
+    // gate that accepts a changed contract without noticing is worse than none.
+    assert_eq!(
+        their_header, our_header,
+        "the dump's columns are the oracle's contract"
+    );
+    let duration = our_header
+        .iter()
+        .position(|column| column == "duration_seconds")
+        .expect("a duration column");
 
     assert_eq!(
         theirs.len(),
@@ -172,12 +193,12 @@ fn tags_dump_matches_the_oracle() {
     let mut differences = Vec::new();
     let mut tolerated = 0;
     for (theirs, ours) in theirs.iter().zip(&ours) {
+        assert_eq!(theirs.len(), ours.len(), "every row has every column");
         for (index, (theirs, ours)) in theirs.iter().zip(ours).enumerate() {
             if theirs == ours {
                 continue;
             }
-            // The last column is `duration_seconds`.
-            if index == 6 && within_duration_tolerance(theirs, ours) {
+            if index == duration && within_duration_tolerance(theirs, ours) {
                 tolerated += 1;
                 continue;
             }
