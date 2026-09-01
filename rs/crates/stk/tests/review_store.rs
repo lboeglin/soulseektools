@@ -212,6 +212,54 @@ fn approving_a_candidate_that_does_not_exist_is_an_error() {
     assert_eq!(stored.status, TrackStatus::AwaitingReview);
 }
 
+/// A second track with candidates of its own, for the batch approvals (#6).
+fn second_reviewable(store: &mut ReviewStore) -> i64 {
+    store
+        .add(&[track("ZUN", "Heian Alien")])
+        .expect("a second track");
+    let track_id = store.tracks(&[], None).expect("tracks")[1].id;
+    store
+        .set_candidates(track_id, &[scored(1, &[]), scored(2, &[])])
+        .expect("recorded candidates");
+    track_id
+}
+
+#[test]
+fn several_tracks_can_be_approved_as_one_decision() {
+    let scratch = Scratch::new("review-approve-all");
+    let mut store = store(&scratch);
+    let first = reviewable(&mut store);
+    let second = second_reviewable(&mut store);
+
+    store
+        .approve_all(&[(first, 2), (second, 1)])
+        .expect("an approval");
+
+    for (track_id, rank) in [(first, 2), (second, 1)] {
+        let stored = store.track(track_id).expect("a lookup").expect("the track");
+        assert_eq!(stored.status, TrackStatus::Approved);
+        assert_eq!(stored.approved_rank, Some(rank));
+    }
+}
+
+/// An album is taken or left as a unit, so one rank that does not exist has to
+/// leave every other track in the offer undecided (#6).
+#[test]
+fn approving_several_tracks_at_once_is_all_or_nothing() {
+    let scratch = Scratch::new("review-approve-all-fails");
+    let mut store = store(&scratch);
+    let first = reviewable(&mut store);
+    let second = second_reviewable(&mut store);
+
+    assert!(store.approve_all(&[(first, 1), (second, 9)]).is_err());
+
+    for track_id in [first, second] {
+        let stored = store.track(track_id).expect("a lookup").expect("the track");
+        assert_eq!(stored.status, TrackStatus::AwaitingReview);
+        assert!(stored.approved().is_none());
+    }
+}
+
 #[test]
 fn rejecting_records_the_reason_and_clears_any_choice() {
     let scratch = Scratch::new("review-reject");

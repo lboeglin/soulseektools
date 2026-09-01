@@ -9,7 +9,7 @@ use std::collections::{BTreeMap, HashSet};
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 
-use rusqlite::{params, params_from_iter, Connection, OptionalExtension};
+use rusqlite::{params, params_from_iter, Connection, OptionalExtension, Transaction};
 
 use crate::errors::{Error, Result};
 use crate::models::{Candidate, ScoredCandidate, Track, TrackStatus};
@@ -315,44 +315,24 @@ impl ReviewStore {
 
     /// Choose one candidate, clearing any previous choice.
     pub fn approve(&mut self, track_id: i64, rank: i64) -> Result<()> {
+        self.approve_all(&[(track_id, rank)])
+    }
+
+    /// Choose a candidate for several tracks as one decision, or for none (#6).
+    ///
+    /// What an album offer is approved through: a folder covers many tracks and
+    /// is taken or left as a unit, so a rank that turns out not to exist has to
+    /// leave the whole offer undecided rather than half of it. Returning early
+    /// drops the transaction, which rolls it back -- the same reason a bad rank
+    /// has always left the previous choice standing.
+    pub fn approve_all(&mut self, picks: &[(i64, i64)]) -> Result<()> {
         let transaction = self
             .connection
             .transaction()
             .map_err(|error| sqlite_error(&error))?;
-        transaction
-            .execute(
-                "UPDATE candidates SET approved = 0 WHERE track_id = ?1",
-                params![track_id],
-            )
-            .map_err(|error| sqlite_error(&error))?;
-        let updated = transaction
-            .execute(
-                "UPDATE candidates SET approved = 1 WHERE track_id = ?1 AND rank = ?2",
-                params![track_id, rank],
-            )
-            .map_err(|error| sqlite_error(&error))?;
-
-        if updated == 0 {
-            // Rolled back rather than committed, so a bad rank leaves the
-            // previous choice standing.
-            transaction
-                .rollback()
-                .map_err(|error| sqlite_error(&error))?;
-            return Err(Error::Config(format!(
-                "track {track_id} has no candidate {rank}"
-            )));
+        for (track_id, rank) in picks {
+            approve_within(&transaction, *track_id, *rank)?;
         }
-
-        transaction
-            .execute(
-                "UPDATE tracks SET status = ?2, detail = ?3 WHERE id = ?1",
-                params![
-                    track_id,
-                    TrackStatus::Approved.as_str(),
-                    format!("candidate {rank}")
-                ],
-            )
-            .map_err(|error| sqlite_error(&error))?;
         transaction.commit().map_err(|error| sqlite_error(&error))
     }
 
@@ -485,6 +465,40 @@ impl ReviewStore {
             attempts: row.attempts,
         })
     }
+}
+
+/// Select one candidate for one track, inside a transaction the caller owns.
+fn approve_within(transaction: &Transaction<'_>, track_id: i64, rank: i64) -> Result<()> {
+    transaction
+        .execute(
+            "UPDATE candidates SET approved = 0 WHERE track_id = ?1",
+            params![track_id],
+        )
+        .map_err(|error| sqlite_error(&error))?;
+    let updated = transaction
+        .execute(
+            "UPDATE candidates SET approved = 1 WHERE track_id = ?1 AND rank = ?2",
+            params![track_id, rank],
+        )
+        .map_err(|error| sqlite_error(&error))?;
+
+    if updated == 0 {
+        return Err(Error::Config(format!(
+            "track {track_id} has no candidate {rank}"
+        )));
+    }
+
+    transaction
+        .execute(
+            "UPDATE tracks SET status = ?2, detail = ?3 WHERE id = ?1",
+            params![
+                track_id,
+                TrackStatus::Approved.as_str(),
+                format!("candidate {rank}")
+            ],
+        )
+        .map_err(|error| sqlite_error(&error))?;
+    Ok(())
 }
 
 struct PartialTrack {
