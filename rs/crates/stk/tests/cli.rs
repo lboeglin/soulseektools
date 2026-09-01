@@ -694,6 +694,139 @@ fn verify_writes_a_report_with_a_bom() {
 }
 
 #[test]
+fn a_genre_playlist_holds_only_the_files_carrying_that_genre() {
+    needs_ffmpeg!();
+    let _guard = exclusive();
+    let harness = Harness::new("cli-playlist-genre");
+    let root = library(&harness);
+    harness.with_config(&root);
+    run(&["library", "scan"]);
+
+    let list = harness.join("vocaloid.m3u8");
+    assert_eq!(
+        run(&[
+            "playlist",
+            "genre",
+            "Vocaloid",
+            "-o",
+            &list.display().to_string(),
+        ]),
+        0
+    );
+
+    let text = std::fs::read_to_string(&list).expect("a written playlist");
+    assert!(text.starts_with("#EXTM3U"), "{text}");
+    assert!(text.contains("Roki"), "{text}");
+    assert!(!text.contains("Heian Alien"), "{text}");
+    drop(harness);
+}
+
+#[test]
+fn an_artist_playlist_matches_the_normalised_name() {
+    needs_ffmpeg!();
+    let _guard = exclusive();
+    let harness = Harness::new("cli-playlist-artist");
+    let root = library(&harness);
+    harness.with_config(&root);
+    run(&["library", "scan"]);
+
+    let list = harness.join("deco.m3u8");
+    assert_eq!(
+        run(&[
+            "playlist",
+            "artist",
+            "DECO*27",
+            "-o",
+            &list.display().to_string(),
+        ]),
+        0
+    );
+
+    let text = std::fs::read_to_string(&list).expect("a written playlist");
+    assert!(text.contains("Roki"), "{text}");
+    assert!(!text.contains("Heian Alien"), "{text}");
+    drop(harness);
+}
+
+#[test]
+fn an_exported_playlist_keeps_the_export_row_order() {
+    // The order was in the export and nowhere else: the index reads back sorted
+    // by path, which would put DECO_27 before ZUN.
+    needs_ffmpeg!();
+    let _guard = exclusive();
+    let harness = Harness::new("cli-playlist-export");
+    let root = library(&harness);
+    harness.with_config(&root);
+    run(&["library", "scan"]);
+
+    let export = harness.join("export.csv");
+    std::fs::write(
+        &export,
+        "Track name,Artist name
+Heian Alien,ZUN
+Roki,DECO*27
+",
+    )
+    .expect("a written export");
+
+    let list = harness.join("export.m3u8");
+    assert_eq!(
+        run(&[
+            "playlist",
+            "export",
+            &export.display().to_string(),
+            "-o",
+            &list.display().to_string(),
+        ]),
+        0
+    );
+
+    let text = std::fs::read_to_string(&list).expect("a written playlist");
+    let heian = text.find("Heian Alien").expect("the first export row");
+    let roki = text.find("Roki").expect("the second export row");
+    assert!(heian < roki, "{text}");
+    drop(harness);
+}
+
+#[test]
+fn a_relative_playlist_can_be_moved_with_the_music() {
+    needs_ffmpeg!();
+    let _guard = exclusive();
+    let harness = Harness::new("cli-playlist-relative");
+    let root = library(&harness);
+    harness.with_config(&root);
+    run(&["library", "scan"]);
+
+    let list = root.join("lists").join("all.m3u8");
+    assert_eq!(
+        run(&[
+            "playlist",
+            "artist",
+            "ZUN",
+            "--relative",
+            "-o",
+            &list.display().to_string(),
+        ]),
+        0
+    );
+
+    let text = std::fs::read_to_string(&list).expect("a written playlist");
+    assert!(text.contains("../ZUN/Heian Alien.flac"), "{text}");
+    drop(harness);
+}
+
+#[test]
+fn a_relative_playlist_without_a_destination_is_refused() {
+    // Relative to what? Writing absolute paths anyway would look like it worked.
+    let _guard = exclusive();
+    let harness = Harness::new("cli-playlist-relative-stdout");
+    harness.with_config(&harness.join("Music"));
+
+    assert_eq!(run(&["playlist", "artist", "ZUN", "--relative"]), 1);
+    drop(harness);
+}
+
+#[test]
 fn wantlist_diff_queues_what_is_missing() {
     needs_ffmpeg!();
     let _guard = exclusive();

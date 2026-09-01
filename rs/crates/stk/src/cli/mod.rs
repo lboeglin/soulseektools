@@ -77,6 +77,10 @@ pub enum Command {
     #[command(subcommand)]
     Tags(commands::tags::TagsCommand),
 
+    /// Write playlists from the library.
+    #[command(subcommand)]
+    Playlist(commands::playlist::PlaylistCommand),
+
     /// Compare a streaming export against the library.
     #[command(subcommand)]
     Wantlist(commands::wantlist::WantlistCommand),
@@ -134,6 +138,7 @@ pub fn run(arguments: Vec<std::ffi::OsString>) -> i32 {
         Command::Art(command) => commands::art::run(&context, command),
         Command::Genre(command) => commands::genre::run(&context, command),
         Command::Tags(command) => commands::tags::run(&context, command),
+        Command::Playlist(command) => commands::playlist::run(&context, command),
         Command::Wantlist(command) => commands::wantlist::run(&context, command),
         Command::Review(command) => commands::review::run(&context, command),
         Command::Fetch(command) => commands::fetch::run(&context, command),

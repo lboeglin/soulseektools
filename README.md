@@ -213,11 +213,31 @@ stk art fetch --apply      # look art up and embed the verified matches
 stk genre check            # genres in use, and artists your map does not cover
 stk genre apply --apply    # write the mapped genres
 stk tags dump              # every file's artist/album/title/genre as CSV
+stk playlist genre Touhou  # an m3u8 of everything carrying a genre
 stk changes list           # what those --apply runs actually wrote
 ```
 
 **Nothing is written without `--apply`.** Run the command, read the plan, then
 run it again with the flag.
+
+### Playlists
+
+The library is built from an ordered export and the order then survives
+nowhere: the index is keyed by path and reads back sorted by path.
+
+```bash
+stk playlist export "My Spotify Library.csv" -o library.m3u8
+stk playlist genre Eurobeat -o eurobeat.m3u8
+stk playlist artist "DECO*27" -o deco.m3u8
+```
+
+`export` writes the tracks the library actually holds, in the export's own row
+order. `genre` and `artist` match on the normalised name, so `DECO*27` also
+finds the `DECO_27` folder. With no `-o` the playlist goes to stdout.
+
+Paths are absolute by default and written with forward slashes, which every
+player accepts. `--relative` writes them relative to the playlist file instead,
+so the playlist can be moved along with the music.
 
 ### Undoing what `--apply` wrote
 

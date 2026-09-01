@@ -16,6 +16,7 @@ pub mod genres;
 pub mod library;
 pub mod matching;
 pub mod models;
+pub mod playlist;
 pub mod review;
 pub mod soulseek;
 pub mod text;
