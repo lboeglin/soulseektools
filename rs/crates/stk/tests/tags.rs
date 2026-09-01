@@ -2,6 +2,7 @@
 
 mod support;
 
+use lofty::prelude::{ItemKey, TaggedFileExt};
 use stk::library::tags::{self, TagField};
 use stk::models::{Artwork, TrackTags};
 use support::{encode, Encoded, Scratch};
@@ -431,4 +432,42 @@ fn a_field_name_round_trips_through_its_spelling() {
         assert_eq!(field.as_str().parse::<TagField>(), Ok(field));
     }
     assert!("nonsense".parse::<TagField>().is_err());
+}
+
+#[test]
+fn a_tag_this_project_does_not_manage_survives_a_write() {
+    // ReplayGain is the case that matters: a library scanned in foobar2000
+    // carries four of these per file, and `write_tags` replaces six item keys
+    // rather than the tag block, so everything else has to come through
+    // untouched. Losing them would mean rescanning the whole library.
+    needs_ffmpeg!();
+    let scratch = Scratch::new("tags-foreign");
+    let path = encode(
+        &scratch.join("t.flac"),
+        &Encoded {
+            metadata: &[
+                ("title", "Heian Alien"),
+                ("REPLAYGAIN_TRACK_GAIN", "-7.29 dB"),
+                ("REPLAYGAIN_TRACK_PEAK", "0.988556"),
+            ],
+            ..Encoded::default()
+        },
+    );
+
+    tags::write_tags(&path, &full_tags()).expect("written tags");
+
+    let file = lofty::read_from_path(&path).expect("a readable file");
+    let tag = file
+        .primary_tag()
+        .or_else(|| file.first_tag())
+        .expect("a tag");
+    assert_eq!(
+        tag.get_string(&ItemKey::ReplayGainTrackGain),
+        Some("-7.29 dB")
+    );
+    assert_eq!(
+        tag.get_string(&ItemKey::ReplayGainTrackPeak),
+        Some("0.988556")
+    );
+    assert_eq!(tags::read_tags(&path).expect("readable tags"), full_tags());
 }
