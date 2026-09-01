@@ -11,6 +11,16 @@ a set of ad-hoc scripts and a Nicotine+ plugin, and was then rewritten in Rust.
 
 ### Added
 
+- `stk review albums` and `stk review approve-album`, so a peer's folder can be
+  taken as one decision instead of one approval per track. Soulseek's real unit
+  is the folder: one peer holding four of the waiting tracks is one queue
+  position, one rip and one tagging convention. An offer is derived from the
+  candidates already found — `username` plus the folder of the `remote_path`, no
+  new column — and only ever covers tracks still waiting, so the folder's other
+  contents are never fetched and a track already decided by hand is never
+  overruled. Each covered track keeps its own candidate, so a file that does not
+  arrive still falls back to its own next one. `review.album_minimum_tracks`
+  sets how many tracks make a folder worth offering (#6).
 - `stk tags apply`, the inverse of `tags dump`: edit the dump in a spreadsheet
   and write it back. Artist, album artist, album, title and track number could
   not be written at all before, so the dump could only show what was wrong.

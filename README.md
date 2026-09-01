@@ -106,6 +106,7 @@ The settings worth knowing about:
 | `ranking.prefer_lossless` | Rank lossless above lossy. On by default. |
 | `ranking.require_lossless` | Discard lossy results entirely. Off by default. |
 | `ranking.min_bitrate` | Discard lossy results below this. Lossless is never discarded. |
+| `review.album_minimum_tracks` | How many waiting tracks a peer's folder must hold to be offered as an album. |
 | `slskd.stall_after_seconds` | How long a download may sit queued before the next candidate is tried. |
 | `uploader.prefer_one` | Take a batch from one peer where the per-track choice is close. On by default. |
 | `uploader.score_window` | How close "close" is. Wider than availability, narrower than any quality gap. |
@@ -208,6 +209,32 @@ Press `1`, `2` or `3` to take a candidate, `r` to reject the track, `u` to undo,
 
 Prefer not to use the app? `stk review list --candidates`, `stk review approve
 <id> <rank>` and `stk review reject <id>` do the same thing.
+
+Soulseek's real unit is the folder, though, and `stk review albums` says which
+of them one peer could supply several waiting tracks from:
+
+```
+$ stk review albums --tracks
+#  Peer   Album                    Tracks  Quality
+1  bulk   Ghost Rule EP            4       4 flac
+2  peerC  DECO*27 - Complete Best  3       2 flac, 1 mp3
+
+$ stk review approve-album 1
+Approved 4 track(s) from bulk's "Ghost Rule EP"
+```
+
+One peer holding four of them is one queue position, one rip and one tagging
+convention. An offer only ever covers tracks already waiting in the queue — the
+folder's other contents, a `.cue` or a scan among them, were never searched for
+and are never fetched — so approving one is four ordinary approvals made at
+once, and each track still falls back to its own next candidate if that file
+does not arrive. The offer is shown before it is taken, and `--tracks` names
+every track and candidate in it. `review.album_minimum_tracks` sets how many
+tracks a folder must hold to be worth offering.
+
+This is the same idea as the batch preference in step 2, made explicit: that one
+reorders candidates during the search, at the scale of the whole batch; this is
+a decision you make, at the scale of one album.
 
 **4. Download.**
 

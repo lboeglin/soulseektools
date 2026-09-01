@@ -101,7 +101,7 @@ rs/crates/stk/src/
   audio/            ffmpeg wrappers, spectral analysis, fingerprinting
   artwork/          providers and the artist-verification guard
   soulseek/         the client trait, the slskd backend, ranking
-  review/           the review queue
+  review/           the review queue, and the album view over it
   cli/              one module per command group
 ```
 
