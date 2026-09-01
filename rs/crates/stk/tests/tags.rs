@@ -370,15 +370,16 @@ fn writing_tags_leaves_the_embedded_cover_alone() {
 }
 
 #[test]
-fn a_track_number_is_written_without_a_total() {
-    // `read_tags` keeps only the leading digits of "3/12", so any write
-    // normalises the field. Pinned rather than discovered later.
+fn a_total_after_the_track_number_survives_a_write_that_keeps_the_number() {
+    // `read_tags` keeps only the leading digits of "3/12", so a write that
+    // rewrote the field regardless would drop the total across a whole album
+    // for anyone editing only a title.
     needs_ffmpeg!();
     let scratch = Scratch::new("tags-write-track");
     let path = encode(
         &scratch.join("t.flac"),
         &Encoded {
-            metadata: &[("track", "3/12")],
+            metadata: &[("track", "3/12"), ("title", "Roki")],
             ..Encoded::default()
         },
     );
@@ -387,13 +388,44 @@ fn a_track_number_is_written_without_a_total() {
         Some(3)
     );
 
-    let read = tags::read_tags(&path).expect("readable tags");
-    tags::write_tags(&path, &read).expect("written tags");
+    let mut edited = tags::read_tags(&path).expect("readable tags");
+    edited.title = "Ghost Rule".to_owned();
+    tags::write_tags(&path, &edited).expect("written tags");
 
     assert_eq!(
         tags::read_tags(&path).expect("readable tags").track_number,
         Some(3)
     );
+    let file = lofty::read_from_path(&path).expect("a readable file");
+    let tag = file
+        .primary_tag()
+        .or_else(|| file.first_tag())
+        .expect("a tag");
+    assert_eq!(tag.get_string(&ItemKey::TrackTotal), Some("12"));
+}
+
+#[test]
+fn a_changed_track_number_leaves_the_total_where_it_was() {
+    needs_ffmpeg!();
+    let scratch = Scratch::new("tags-write-track-changed");
+    let path = encode(
+        &scratch.join("t.flac"),
+        &Encoded {
+            metadata: &[("track", "3/12")],
+            ..Encoded::default()
+        },
+    );
+
+    let mut edited = tags::read_tags(&path).expect("readable tags");
+    edited.track_number = Some(4);
+    tags::write_tags(&path, &edited).expect("written tags");
+
+    let file = lofty::read_from_path(&path).expect("a readable file");
+    let tag = file
+        .primary_tag()
+        .or_else(|| file.first_tag())
+        .expect("a tag");
+    assert_eq!(tag.get_string(&ItemKey::TrackNumber), Some("4"));
 }
 
 #[test]

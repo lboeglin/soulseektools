@@ -50,14 +50,9 @@ pub fn read_tags(path: &Path) -> Result<TrackTags> {
         return Ok(TrackTags::default());
     };
 
-    // A track number is written as "3" or as "3/12"; the Python keeps the
-    // leading digits and ignores anything that is not a plain number.
     let track_number = tag
         .get_string(&ItemKey::TrackNumber)
-        .and_then(|value| value.split('/').next())
-        .map(str::trim)
-        .filter(|value| !value.is_empty() && value.chars().all(|c| c.is_ascii_digit()))
-        .and_then(|value| value.parse().ok());
+        .and_then(leading_number);
 
     Ok(TrackTags {
         artist: tag.artist().unwrap_or_default().into_owned(),
@@ -74,6 +69,19 @@ pub fn read_tags(path: &Path) -> Result<TrackTags> {
             .collect(),
         track_number,
     })
+}
+
+/// The number a track-number field states, ignoring any total after it.
+///
+/// Written as "3" or as "3/12"; the Python keeps the leading digits and ignores
+/// anything that is not a plain number.
+fn leading_number(value: &str) -> Option<i64> {
+    value
+        .split('/')
+        .next()
+        .map(str::trim)
+        .filter(|digits| !digits.is_empty() && digits.chars().all(|c| c.is_ascii_digit()))
+        .and_then(|digits| digits.parse().ok())
 }
 
 /// The track length in seconds, straight from the container header.
@@ -260,6 +268,9 @@ pub fn write_tags(path: &Path, tags: &TrackTags) -> Result<()> {
         }
     }
 
+    // Only the number. A "3/12" reaches this as a separate `TrackTotal` item,
+    // which is left alone and rejoined on save, so the total is not this
+    // function's to write.
     tag.remove_key(&ItemKey::TrackNumber);
     if let Some(number) = tags.track_number {
         tag.push(lofty::tag::TagItem::new(

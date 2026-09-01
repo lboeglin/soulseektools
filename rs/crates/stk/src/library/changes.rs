@@ -447,9 +447,15 @@ pub fn apply_undo(
             let back = PathBuf::from(change.old_value.clone().unwrap_or_default());
             crate::organise::move_file(&change.path, &back)?;
             log.moved(index, &change.path, &back)?;
-            // `relocate` reindexes the destination itself, and the path this
-            // function reindexes below no longer holds a file.
-            index.relocate(&change.path, &back, roots)?;
+            // Keyed on the spelling the filesystem used, not the one the log
+            // asked for: `create_dir_all("zun")` reuses an existing `ZUN` on
+            // Windows, so the index row may be filed under a different case and
+            // a delete on the requested path would miss it.
+            index.relocate(
+                &crate::organise::spelled_on_disk(&change.path),
+                &back,
+                roots,
+            )?;
             return Ok(());
         }
     }

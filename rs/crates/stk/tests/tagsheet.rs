@@ -20,7 +20,15 @@ macro_rules! needs_ffmpeg {
     };
 }
 
+/// The planner asks the filesystem whether the file is still there, so a row
+/// standing in for one has to exist.
 fn entry(path: &Path, tags: TrackTags) -> LibraryEntry {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).expect("a parent directory");
+    }
+    if !path.exists() {
+        std::fs::write(path, b"").expect("a placeholder file");
+    }
     LibraryEntry {
         path: path.to_path_buf(),
         size: 1,
@@ -311,4 +319,20 @@ fn a_field_edited_on_disk_since_the_plan_blocks_that_row() {
         tags::read_tags(&path).expect("readable tags").title,
         "Someone Fixed This By Hand"
     );
+}
+
+#[test]
+fn a_row_whose_file_has_gone_is_reported_in_the_plan() {
+    // Reported while planning rather than discovered at write time: a dry run
+    // that promises a change and then fails on it is not a plan.
+    let scratch = Scratch::new("sheet-file-gone");
+    let path = scratch.join("a.flac");
+    let body = rows(&path, "title", "Ghost Rule");
+    let edits = read_sheet(&sheet(&scratch, &body), Blanks::LeaveAlone).expect("a sheet");
+    let indexed = entry(&path, tagged());
+
+    std::fs::remove_file(&path).expect("a removed file");
+    let planned = plan_changes(&edits, &[indexed]);
+
+    assert_eq!(skips(&planned), vec![Skipped::FileGone]);
 }

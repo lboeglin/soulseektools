@@ -202,10 +202,15 @@ fn render_component(
             Segment::Field(placeholder) => {
                 let value = placeholder.value(entry, settings);
                 if value.is_empty() {
-                    if index + 1 < segments.len() {
+                    // Only a literal can be taken away, and only the one that
+                    // actually follows: `index + 1 < len` would leave the flag
+                    // set across a second placeholder and eat someone else's
+                    // separator two segments later.
+                    if matches!(segments.get(index + 1), Some(Segment::Literal(_))) {
                         skip_literal = true;
                     } else if last_was_literal {
                         pieces.pop();
+                        last_was_literal = false;
                     }
                 } else {
                     pieces.push(value);

@@ -469,3 +469,25 @@ fn an_artist_covered_only_by_an_override_is_still_reported_as_unmapped() {
         vec![("Shihori".to_owned(), 1)]
     );
 }
+
+#[test]
+fn a_flat_map_that_grows_an_override_section_is_refused_rather_than_emptied() {
+    // The trap the sections open: without [artists] the whole document is the
+    // artist table, so adding [albums] would otherwise drop every artist in it
+    // without a word and turn `genre apply` into a silent no-op.
+    let scratch = Scratch::new("genres-flat-plus-override");
+    let path = write_map(
+        &scratch,
+        "Shihori = \"Touhou\"
+ZUN = \"Touhou\"
+
+[albums.Shihori]
+Prismatic = \"J-Pop\"
+",
+    );
+
+    let error = load_genre_map(&path).expect_err("a rejected map");
+    assert!(error.to_string().contains("[artists]"), "{error}");
+    assert!(error.to_string().contains("Shihori"), "{error}");
+    assert!(error.to_string().contains("ZUN"), "{error}");
+}

@@ -191,6 +191,11 @@ pub fn plan_changes(edits: &[TagEdit], entries: &[LibraryEntry]) -> Vec<PlannedE
             let Some(entry) = indexed.get(edit.path.as_path()) else {
                 return skip(Skipped::NotIndexed);
             };
+            // Checked here rather than discovered at write time: a dry run that
+            // promises N changes and then fails all N is not a plan.
+            if !entry.path.is_file() {
+                return skip(Skipped::FileGone);
+            }
             if !taggable(&entry.path) {
                 return skip(Skipped::NotTaggable);
             }

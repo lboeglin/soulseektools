@@ -400,3 +400,30 @@ fn a_failed_move_leaves_the_source_where_it_was() {
     assert!(move_file(&source, &scratch.join("moved.flac")).is_err());
     assert!(!scratch.join("moved.flac").exists());
 }
+
+#[test]
+fn an_empty_placeholder_only_eats_the_literal_that_follows_it() {
+    // With two placeholders side by side, an empty first one must not carry its
+    // "skip the next literal" over the second and swallow a separator that
+    // belongs to someone else.
+    let destination = render(
+        &pattern("{track}{album} - {title}"),
+        &entry("/d/a.flac", tagged("ZUN", "Album", "Title", None)),
+        &settings(),
+    )
+    .expect("a destination");
+
+    assert_eq!(destination, PathBuf::from("Album - Title.flac"));
+}
+
+#[test]
+fn an_empty_placeholder_between_two_others_leaves_them_both() {
+    let destination = render(
+        &pattern("{track}{album}{title}"),
+        &entry("/d/a.flac", tagged("ZUN", "Album", "Title", None)),
+        &settings(),
+    )
+    .expect("a destination");
+
+    assert_eq!(destination, PathBuf::from("AlbumTitle.flac"));
+}

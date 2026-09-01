@@ -175,18 +175,39 @@ pub fn load_genre_map(path: &Path) -> Result<GenreMap> {
 /// A map with no `[artists]` section is read whole, which is the flat spelling.
 /// That cannot apply once an override section exists, since `[albums]` would
 /// then be read as an artist named "albums"; `alone` says which case this is.
+///
+/// A flat map that grows its first `[albums]` section is the trap: every artist
+/// in it would otherwise vanish without a word, and `genre apply` would quietly
+/// become a no-op. Anything left at the top level is named and refused instead.
 fn artist_table(path: &Path, data: &toml::Value, alone: bool) -> Result<toml::Table> {
-    match data.get("artists") {
-        Some(artists) => artists.as_table().cloned(),
-        None if alone => data.as_table().cloned(),
-        None => Some(toml::Table::new()),
-    }
-    .ok_or_else(|| {
+    let expected = || {
         Error::Config(format!(
             "{}: expected a table of artist names",
             path.display()
         ))
-    })
+    };
+
+    if let Some(artists) = data.get("artists") {
+        return artists.as_table().cloned().ok_or_else(expected);
+    }
+    let whole = data.as_table().cloned().ok_or_else(expected)?;
+    if alone {
+        return Ok(whole);
+    }
+
+    let stray: Vec<&str> = whole
+        .keys()
+        .map(String::as_str)
+        .filter(|key| !matches!(*key, "albums" | "tracks"))
+        .collect();
+    if stray.is_empty() {
+        return Ok(toml::Table::new());
+    }
+    Err(Error::Config(format!(
+        "{}: put {} under [artists]; a map using [albums] or [tracks] cannot also          list artists at the top level",
+        path.display(),
+        stray.join(", ")
+    )))
 }
 
 /// One entry's value: a genre, or a list of them.

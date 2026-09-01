@@ -1034,6 +1034,59 @@ fn organise_accepts_a_pattern_for_one_run() {
 }
 
 #[test]
+fn organise_refuses_a_destination_outside_every_root() {
+    // Otherwise the files leave the library and the next scan evicts all of
+    // them, the walk never having seen them again.
+    needs_ffmpeg!();
+    let _guard = exclusive();
+    let harness = Harness::new("cli-organise-outside");
+    let root = library(&harness);
+    let elsewhere = harness.join("Elsewhere");
+    std::fs::write(
+        harness.join("stk.toml"),
+        format!(
+            "[library]
+root = {}
+
+[index]
+path = {}
+
+[review]
+path = {}
+
+             [organise]
+destination = {}
+",
+            quoted(&root),
+            quoted(&harness.join("library.db")),
+            quoted(&harness.join("review.db")),
+            quoted(&elsewhere),
+        ),
+    )
+    .expect("a written config");
+    run(&["library", "scan"]);
+
+    assert_eq!(run(&["organise"]), 1);
+    assert!(root.join("DECO_27").join("01 - Roki.flac").is_file());
+    drop(harness);
+}
+
+#[test]
+fn a_relative_playlist_without_a_destination_is_refused_in_json_too() {
+    // A script is the caller most likely to pass both, and the one the flag
+    // would otherwise be silently ignored for.
+    let _guard = exclusive();
+    let harness = Harness::new("cli-playlist-relative-json");
+    harness.with_config(&harness.join("Music"));
+
+    assert_eq!(
+        run(&["--json", "playlist", "artist", "ZUN", "--relative"]),
+        1
+    );
+    drop(harness);
+}
+
+#[test]
 fn organise_rejects_a_pattern_it_cannot_use() {
     let _guard = exclusive();
     let harness = Harness::new("cli-organise-bad-pattern");

@@ -47,6 +47,18 @@ pub fn run(context: &AppContext, args: &OrganiseArgs) -> Result<i32> {
         None => (index.entries()?, configured),
     };
 
+    if let Some(destination) = &destination {
+        // Otherwise the files leave the library and the next `library scan`
+        // evicts every one of them, the walk never having seen them again.
+        if owning_root(destination, &roots).is_none() {
+            return Err(Error::Config(format!(
+                "organise.destination is outside every library root: {}
+hint: point it                  inside one, or add it to library.roots",
+                show(destination)
+            )));
+        }
+    }
+
     let planned =
         organise::plan_moves(&entries, &pattern, settings, &roots, destination.as_deref());
     let ready: Vec<&PlannedMove> = planned.iter().filter(|move_| move_.ready()).collect();

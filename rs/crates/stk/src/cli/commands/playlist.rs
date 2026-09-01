@@ -133,6 +133,14 @@ fn matching(
 }
 
 fn write(context: &AppContext, entries: &[PlaylistEntry], output: &OutputArgs) -> Result<i32> {
+    // Checked before the JSON branch, or a script -- the one caller most likely
+    // to pass both -- would be the only one the flag was silently ignored for.
+    if output.relative && output.output.is_none() {
+        return Err(Error::Config(
+            "--relative needs --output: the paths are relative to the playlist file".to_owned(),
+        ));
+    }
+
     if context.as_json {
         context.emit(&json!(entries
             .iter()
@@ -146,13 +154,6 @@ fn write(context: &AppContext, entries: &[PlaylistEntry], output: &OutputArgs) -
         return Ok(0);
     }
 
-    // Relative to what, otherwise? Silently writing absolute paths would look
-    // like the flag had worked.
-    if output.relative && output.output.is_none() {
-        return Err(Error::Config(
-            "--relative needs --output: the paths are relative to the playlist file".to_owned(),
-        ));
-    }
     // Absolute, and only then the parent: `-o list.m3u8` names the working
     // directory, whose relative spelling is "" and shares nothing with anything.
     let base = output
