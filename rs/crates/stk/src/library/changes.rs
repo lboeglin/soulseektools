@@ -24,14 +24,26 @@ use sha2::{Digest, Sha256};
 
 use crate::errors::{Error, Result};
 use crate::library::index::LibraryIndex;
-use crate::library::tags;
-use crate::models::Artwork;
+use crate::library::tags::{self, TagField};
+use crate::models::{Artwork, TrackTags};
 
 /// What a logged row changed about a file.
+///
+/// One variant per field rather than a single "tags" row carrying all of them.
+/// [`plan_undo`] decides whether a file moved since it was written by comparing
+/// that field's current value against what was logged, and a row covering every
+/// field would read a genre edited yesterday as a reason to refuse to put a
+/// title back -- then, under `--force`, revert the genre as well. An undo must
+/// never write wider than the row it is undoing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ChangeField {
     Genre,
     Artwork,
+    Artist,
+    AlbumArtist,
+    Album,
+    Title,
+    TrackNumber,
 }
 
 impl ChangeField {
@@ -40,6 +52,24 @@ impl ChangeField {
         match self {
             Self::Genre => "genre",
             Self::Artwork => "artwork",
+            Self::Artist => "artist",
+            Self::AlbumArtist => "album_artist",
+            Self::Album => "album",
+            Self::Title => "title",
+            Self::TrackNumber => "track_number",
+        }
+    }
+
+    /// How a logged tag field is written back.
+    #[must_use]
+    pub fn of(field: TagField) -> Self {
+        match field {
+            TagField::Genres => Self::Genre,
+            TagField::Artist => Self::Artist,
+            TagField::AlbumArtist => Self::AlbumArtist,
+            TagField::Album => Self::Album,
+            TagField::Title => Self::Title,
+            TagField::TrackNumber => Self::TrackNumber,
         }
     }
 }
@@ -54,11 +84,18 @@ impl FromStr for ChangeField {
     type Err = String;
 
     fn from_str(text: &str) -> std::result::Result<Self, Self::Err> {
-        match text {
-            "genre" => Ok(Self::Genre),
-            "artwork" => Ok(Self::Artwork),
-            other => Err(format!("unknown change field: {other}")),
-        }
+        [
+            Self::Genre,
+            Self::Artwork,
+            Self::Artist,
+            Self::AlbumArtist,
+            Self::Album,
+            Self::Title,
+            Self::TrackNumber,
+        ]
+        .into_iter()
+        .find(|field| field.as_str() == text)
+        .ok_or_else(|| format!("unknown change field: {text}"))
     }
 }
 
@@ -134,6 +171,34 @@ impl ChangeLog {
             field: ChangeField::Genre,
             old_value: Some(encode_genres(old)),
             new_value: Some(encode_genres(new)),
+        })
+    }
+
+    /// Log one tag field of one file, as `tags apply` writes them.
+    ///
+    /// Genres keep their own encoding whichever command wrote them, so a row
+    /// logged by `genre apply` and one logged here read back the same way.
+    pub fn tag(
+        &self,
+        index: &mut LibraryIndex,
+        path: &Path,
+        field: TagField,
+        old: &TrackTags,
+        new: &TrackTags,
+    ) -> Result<i64> {
+        if field == TagField::Genres {
+            return self.genre(index, path, &old.genres, &new.genres);
+        }
+        index.record_change(&NewChange {
+            run_id: self.run_id,
+            applied_at: self.applied_at,
+            command: self.command.clone(),
+            path: path.to_path_buf(),
+            field: ChangeField::of(field),
+            // Always present, empty meaning the file carried nothing there, so
+            // the comparison `plan_undo` makes stays total.
+            old_value: Some(field.value(old)),
+            new_value: Some(field.value(new)),
         })
     }
 
@@ -266,6 +331,11 @@ pub fn plan_undo(index: &LibraryIndex, change: Change) -> Result<UndoPlan> {
                 },
             )
         }
+        ChangeField::Artist => planned_tag(&change, TagField::Artist)?,
+        ChangeField::AlbumArtist => planned_tag(&change, TagField::AlbumArtist)?,
+        ChangeField::Album => planned_tag(&change, TagField::Album)?,
+        ChangeField::Title => planned_tag(&change, TagField::Title)?,
+        ChangeField::TrackNumber => planned_tag(&change, TagField::TrackNumber)?,
     };
 
     let blocked = if current == change.new_value {
@@ -320,9 +390,45 @@ pub fn apply_undo(
             }
             log.artwork(index, &change.path, current.as_ref(), restored.as_ref())?;
         }
+        ChangeField::Artist => restore_tag(index, change, log, TagField::Artist)?,
+        ChangeField::AlbumArtist => restore_tag(index, change, log, TagField::AlbumArtist)?,
+        ChangeField::Album => restore_tag(index, change, log, TagField::Album)?,
+        ChangeField::Title => restore_tag(index, change, log, TagField::Title)?,
+        ChangeField::TrackNumber => restore_tag(index, change, log, TagField::TrackNumber)?,
     }
 
     index.reindex(&change.path, roots)?;
+    Ok(())
+}
+
+/// What undoing one tag field would read and what it would say.
+fn planned_tag(change: &Change, field: TagField) -> Result<(Option<String>, String)> {
+    let current = field.value(&tags::read_tags(&change.path)?);
+    let restored = change.old_value.clone().unwrap_or_default();
+    let description = if restored.is_empty() {
+        format!("remove the {field} tag")
+    } else {
+        format!("set the {field} back to {restored}")
+    };
+    Ok((Some(current), description))
+}
+
+/// Put one tag field back, leaving the file's other fields where they are.
+fn restore_tag(
+    index: &mut LibraryIndex,
+    change: &Change,
+    log: &ChangeLog,
+    field: TagField,
+) -> Result<()> {
+    let before = tags::read_tags(&change.path)?;
+    let mut restored = before.clone();
+    field.set(
+        &mut restored,
+        change.old_value.as_deref().unwrap_or_default(),
+    );
+
+    tags::write_tags(&change.path, &restored)?;
+    log.tag(index, &change.path, field, &before, &restored)?;
     Ok(())
 }
 

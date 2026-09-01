@@ -693,6 +693,177 @@ fn verify_writes_a_report_with_a_bom() {
     drop(harness);
 }
 
+/// The round-trip dump, with one cell edited.
+///
+/// `from` and `to` carry their surrounding commas, so the substitution lands on
+/// the cell and not on the same words inside the file's own path.
+fn edited_dump(harness: &Harness, from: &str, to: &str) -> PathBuf {
+    let sheet = round_trip_dump(harness);
+    let text = String::from_utf8(std::fs::read(&sheet).expect("a written dump")).expect("UTF-8");
+    std::fs::write(&sheet, text.replace(from, to)).expect("an edited sheet");
+    sheet
+}
+
+fn round_trip_dump(harness: &Harness) -> PathBuf {
+    let sheet = harness.join("sheet.csv");
+    assert_eq!(
+        run(&[
+            "tags",
+            "dump",
+            "--round-trip",
+            "-o",
+            &sheet.display().to_string(),
+        ]),
+        0
+    );
+    sheet
+}
+
+fn title_of(track: &Path) -> String {
+    stk::library::tags::read_tags(track)
+        .expect("readable tags")
+        .title
+}
+
+#[test]
+fn tags_apply_without_the_flag_writes_nothing() {
+    needs_ffmpeg!();
+    let _guard = exclusive();
+    let harness = Harness::new("cli-tags-apply-dry");
+    let root = library(&harness);
+    harness.with_config(&root);
+    run(&["library", "scan"]);
+
+    let sheet = edited_dump(&harness, ",Heian Alien,", ",Native Faith,");
+    assert_eq!(run(&["tags", "apply", &sheet.display().to_string()]), 0);
+
+    assert_eq!(
+        title_of(&root.join("ZUN").join("Heian Alien.flac")),
+        "Heian Alien"
+    );
+    assert!(logged(&harness).is_empty());
+    drop(harness);
+}
+
+#[test]
+fn tags_apply_writes_the_edited_field_and_logs_it() {
+    needs_ffmpeg!();
+    let _guard = exclusive();
+    let harness = Harness::new("cli-tags-apply");
+    let root = library(&harness);
+    harness.with_config(&root);
+    run(&["library", "scan"]);
+
+    let sheet = edited_dump(&harness, ",Heian Alien,", ",Native Faith,");
+    assert_eq!(
+        run(&["tags", "apply", &sheet.display().to_string(), "--apply"]),
+        0
+    );
+
+    let track = root.join("ZUN").join("Heian Alien.flac");
+    let read = stk::library::tags::read_tags(&track).expect("readable tags");
+    assert_eq!(read.title, "Native Faith");
+    assert_eq!(read.artist, "ZUN", "no other field moved");
+
+    let changes = logged(&harness);
+    assert_eq!(changes.len(), 1);
+    assert_eq!(changes[0].command, "tags apply");
+    assert_eq!(changes[0].field, "title");
+
+    // The index followed the write, so the next command sees the new title.
+    let index =
+        stk::library::index::LibraryIndex::open(&harness.join("library.db")).expect("the index");
+    assert_eq!(
+        index
+            .entry(&track)
+            .expect("a lookup")
+            .expect("the row")
+            .tags
+            .title,
+        "Native Faith"
+    );
+    drop(harness);
+}
+
+#[test]
+fn a_dump_applied_unedited_changes_nothing() {
+    // The round-trip property: dump, apply, and the library is where it was.
+    needs_ffmpeg!();
+    let _guard = exclusive();
+    let harness = Harness::new("cli-tags-apply-round-trip");
+    let root = library(&harness);
+    harness.with_config(&root);
+    run(&["library", "scan"]);
+
+    let sheet = round_trip_dump(&harness);
+    assert_eq!(
+        run(&["tags", "apply", &sheet.display().to_string(), "--apply"]),
+        0
+    );
+
+    assert!(logged(&harness).is_empty());
+    assert_eq!(
+        title_of(&root.join("ZUN").join("Heian Alien.flac")),
+        "Heian Alien"
+    );
+    drop(harness);
+}
+
+#[test]
+fn undoing_a_tags_apply_run_puts_the_field_back() {
+    needs_ffmpeg!();
+    let _guard = exclusive();
+    let harness = Harness::new("cli-tags-apply-undo");
+    let root = library(&harness);
+    harness.with_config(&root);
+    run(&["library", "scan"]);
+
+    let sheet = edited_dump(&harness, ",Heian Alien,", ",Native Faith,");
+    run(&["tags", "apply", &sheet.display().to_string(), "--apply"]);
+    assert_eq!(run(&["changes", "undo", "--last", "--apply"]), 0);
+
+    assert_eq!(
+        title_of(&root.join("ZUN").join("Heian Alien.flac")),
+        "Heian Alien"
+    );
+    drop(harness);
+}
+
+#[test]
+fn tags_apply_reports_a_row_that_is_not_in_the_index() {
+    // Reported, not fatal: a stray row in an edited spreadsheet is routine.
+    needs_ffmpeg!();
+    let _guard = exclusive();
+    let harness = Harness::new("cli-tags-apply-unknown");
+    let root = library(&harness);
+    harness.with_config(&root);
+    run(&["library", "scan"]);
+
+    let sheet = harness.join("sheet.csv");
+    let row = "path,title\nE:/nowhere/a.flac,Something\n";
+    std::fs::write(&sheet, row).expect("a written sheet");
+
+    assert_eq!(
+        run(&["tags", "apply", &sheet.display().to_string(), "--apply"]),
+        0
+    );
+    assert!(logged(&harness).is_empty());
+    drop(harness);
+}
+
+#[test]
+fn tags_apply_rejects_a_sheet_with_no_path_column() {
+    let _guard = exclusive();
+    let harness = Harness::new("cli-tags-apply-bad");
+    harness.with_config(&harness.join("Music"));
+
+    let sheet = harness.join("sheet.csv");
+    std::fs::write(&sheet, "artist,title\nZUN,Song\n").expect("a written sheet");
+
+    assert_eq!(run(&["tags", "apply", &sheet.display().to_string()]), 1);
+    drop(harness);
+}
+
 #[test]
 fn a_scan_records_a_measurement_and_a_repeat_scan_does_not() {
     needs_ffmpeg!();

@@ -14,7 +14,7 @@ use stk::library::changes::{
 };
 use stk::library::index::{default_extensions, LibraryIndex};
 use stk::library::scan::Excludes;
-use stk::library::tags;
+use stk::library::tags::{self, TagField};
 use stk::models::Artwork;
 use support::{encode, Encoded, Scratch};
 
@@ -337,5 +337,216 @@ fn a_v3_change_table_gains_its_run_column_in_place() {
         .expect("the logged rows");
     assert_eq!(changes.len(), 1);
     assert_eq!(changes[0].run_id, 0);
-    assert_eq!(index.schema_version().expect("a version"), 4);
+    assert_eq!(index.schema_version().expect("a version"), 5);
+}
+
+/// Write one field and log it the way `tags apply` does.
+fn write_field(
+    index: &mut LibraryIndex,
+    log: &ChangeLog,
+    track: &Path,
+    field: TagField,
+    value: &str,
+) {
+    let before = tags::read_tags(track).expect("readable tags");
+    let mut after = before.clone();
+    field.set(&mut after, value);
+    tags::write_tags(track, &after).expect("a tag write");
+    log.tag(index, track, field, &before, &after)
+        .expect("a logged change");
+}
+
+#[test]
+fn a_tag_write_is_logged_once_per_field() {
+    // One row per field, not one per file: an undo must never write wider than
+    // the row it is undoing.
+    needs_ffmpeg!();
+    let scratch = Scratch::new("changes-tag-rows");
+    let root = library(&scratch);
+    let track = root.join("ZUN").join("Heian Alien.flac");
+    let mut index = indexed(&scratch, &root);
+
+    let log = ChangeLog::open(&index, "tags apply", 100.0).expect("a run");
+    write_field(&mut index, &log, &track, TagField::Title, "Native Faith");
+    write_field(
+        &mut index,
+        &log,
+        &track,
+        TagField::Album,
+        "Mountain of Faith",
+    );
+
+    let changes = index
+        .changes(&ChangeFilter::default())
+        .expect("the logged rows");
+    let fields: Vec<&str> = changes.iter().map(|row| row.field.as_str()).collect();
+    assert_eq!(fields, vec!["album", "title"]);
+    assert!(changes.iter().all(|row| row.command == "tags apply"));
+    assert!(changes.iter().all(|row| row.run_id == changes[0].run_id));
+}
+
+#[test]
+fn a_tag_write_records_the_value_it_replaced() {
+    needs_ffmpeg!();
+    let scratch = Scratch::new("changes-tag-values");
+    let root = library(&scratch);
+    let track = root.join("ZUN").join("Heian Alien.flac");
+    let mut index = indexed(&scratch, &root);
+
+    let log = ChangeLog::open(&index, "tags apply", 100.0).expect("a run");
+    write_field(&mut index, &log, &track, TagField::Title, "Native Faith");
+
+    let changes = index
+        .changes(&ChangeFilter::default())
+        .expect("the logged rows");
+    assert_eq!(changes[0].old_value.as_deref(), Some("Heian Alien"));
+    assert_eq!(changes[0].new_value.as_deref(), Some("Native Faith"));
+}
+
+#[test]
+fn undoing_a_title_write_puts_the_old_title_back() {
+    needs_ffmpeg!();
+    let scratch = Scratch::new("changes-tag-undo");
+    let root = library(&scratch);
+    let track = root.join("ZUN").join("Heian Alien.flac");
+    let mut index = indexed(&scratch, &root);
+
+    let log = ChangeLog::open(&index, "tags apply", 100.0).expect("a run");
+    write_field(&mut index, &log, &track, TagField::Title, "Native Faith");
+
+    let change = index
+        .changes(&ChangeFilter::default())
+        .expect("the logged rows")
+        .remove(0);
+    let plan = plan_undo(&index, change).expect("a plan");
+    assert!(plan.ready(), "{:?}", plan.blocked);
+    assert!(
+        plan.description.contains("Heian Alien"),
+        "{}",
+        plan.description
+    );
+
+    let undo = ChangeLog::open(&index, "changes undo", 200.0).expect("a run");
+    apply_undo(&mut index, &plan, &undo, std::slice::from_ref(&root)).expect("an undo");
+
+    assert_eq!(
+        tags::read_tags(&track).expect("readable tags").title,
+        "Heian Alien"
+    );
+}
+
+#[test]
+fn undoing_a_first_ever_album_tag_clears_it() {
+    needs_ffmpeg!();
+    let scratch = Scratch::new("changes-tag-undo-clear");
+    let root = library(&scratch);
+    let track = root.join("ZUN").join("Heian Alien.flac");
+    let mut index = indexed(&scratch, &root);
+
+    let log = ChangeLog::open(&index, "tags apply", 100.0).expect("a run");
+    write_field(
+        &mut index,
+        &log,
+        &track,
+        TagField::Album,
+        "Mountain of Faith",
+    );
+
+    let change = index
+        .changes(&ChangeFilter::default())
+        .expect("the logged rows")
+        .remove(0);
+    let plan = plan_undo(&index, change).expect("a plan");
+    let undo = ChangeLog::open(&index, "changes undo", 200.0).expect("a run");
+    apply_undo(&mut index, &plan, &undo, std::slice::from_ref(&root)).expect("an undo");
+
+    assert_eq!(tags::read_tags(&track).expect("readable tags").album, "");
+}
+
+#[test]
+fn undoing_one_field_leaves_another_edited_since_alone() {
+    // The reason the log keeps a row per field. A single row covering the whole
+    // tag block would read the album edit as a reason to refuse -- and, forced,
+    // would revert it.
+    needs_ffmpeg!();
+    let scratch = Scratch::new("changes-tag-undo-narrow");
+    let root = library(&scratch);
+    let track = root.join("ZUN").join("Heian Alien.flac");
+    let mut index = indexed(&scratch, &root);
+
+    let log = ChangeLog::open(&index, "tags apply", 100.0).expect("a run");
+    write_field(&mut index, &log, &track, TagField::Title, "Native Faith");
+
+    // Someone fixes the album by hand afterwards.
+    let mut edited = tags::read_tags(&track).expect("readable tags");
+    edited.album = "Mountain of Faith".to_owned();
+    tags::write_tags(&track, &edited).expect("a hand edit");
+
+    let change = index
+        .changes(&ChangeFilter::default())
+        .expect("the logged rows")
+        .remove(0);
+    let plan = plan_undo(&index, change).expect("a plan");
+    assert!(plan.ready(), "the title is untouched: {:?}", plan.blocked);
+
+    let undo = ChangeLog::open(&index, "changes undo", 200.0).expect("a run");
+    apply_undo(&mut index, &plan, &undo, std::slice::from_ref(&root)).expect("an undo");
+
+    let read = tags::read_tags(&track).expect("readable tags");
+    assert_eq!(read.title, "Heian Alien");
+    assert_eq!(read.album, "Mountain of Faith");
+}
+
+#[test]
+fn a_title_edited_since_it_was_logged_blocks_its_own_undo() {
+    needs_ffmpeg!();
+    let scratch = Scratch::new("changes-tag-undo-blocked");
+    let root = library(&scratch);
+    let track = root.join("ZUN").join("Heian Alien.flac");
+    let mut index = indexed(&scratch, &root);
+
+    let log = ChangeLog::open(&index, "tags apply", 100.0).expect("a run");
+    write_field(&mut index, &log, &track, TagField::Title, "Native Faith");
+
+    let mut edited = tags::read_tags(&track).expect("readable tags");
+    edited.title = "Someone Fixed This".to_owned();
+    tags::write_tags(&track, &edited).expect("a hand edit");
+
+    let change = index
+        .changes(&ChangeFilter::default())
+        .expect("the logged rows")
+        .remove(0);
+    let plan = plan_undo(&index, change).expect("a plan");
+
+    assert_eq!(plan.blocked, Some(Blocked::FileChanged));
+    assert!(
+        plan.allowed(true),
+        "a hand edit is the user's call to overrule"
+    );
+}
+
+#[test]
+fn an_undone_tag_write_is_logged_in_its_turn() {
+    needs_ffmpeg!();
+    let scratch = Scratch::new("changes-tag-undo-logged");
+    let root = library(&scratch);
+    let track = root.join("ZUN").join("Heian Alien.flac");
+    let mut index = indexed(&scratch, &root);
+
+    let log = ChangeLog::open(&index, "tags apply", 100.0).expect("a run");
+    write_field(&mut index, &log, &track, TagField::Title, "Native Faith");
+
+    let change = index
+        .changes(&ChangeFilter::default())
+        .expect("the logged rows")
+        .remove(0);
+    let plan = plan_undo(&index, change).expect("a plan");
+    let undo = ChangeLog::open(&index, "changes undo", 200.0).expect("a run");
+    apply_undo(&mut index, &plan, &undo, std::slice::from_ref(&root)).expect("an undo");
+
+    let changes = index
+        .changes(&ChangeFilter::default())
+        .expect("the logged rows");
+    assert_eq!(changes[0].command, "changes undo");
+    assert_eq!(changes[0].new_value.as_deref(), Some("Heian Alien"));
 }

@@ -93,6 +93,7 @@ rs/crates/stk/src/
   models.rs         the domain types shared across layers
   matching.rs       fuzzy name matching, used by everything
   playlist.rs       rendering M3U, so an order can leave the library again
+  tagsheet.rs       reading an edited `tags dump` back
   text/             normalisation and romaji transliteration
   library/          scanning, tags, the SQLite index, the --apply write log,
                     and the per-scan measurements behind `library trend`

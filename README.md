@@ -213,6 +213,7 @@ stk art fetch --apply      # look art up and embed the verified matches
 stk genre check            # genres in use, and artists your map does not cover
 stk genre apply --apply    # write the mapped genres
 stk tags dump              # every file's artist/album/title/genre as CSV
+stk tags apply sheet.csv   # write back an edited one
 stk playlist genre Touhou  # an m3u8 of everything carrying a genre
 stk changes list           # what those --apply runs actually wrote
 stk library trend          # whether any of it is winning
@@ -236,6 +237,35 @@ A scan that found exactly what the last one found records nothing, so scanning
 four times on a quiet afternoon leaves one point rather than four. `Flagged`
 counts what `stk verify` doubted -- `FAKE` and `SUSPECT` together -- and stays
 empty until you have run it.
+
+### Fixing tags in bulk
+
+`stk tags dump` shows what every file claims to be. `stk tags apply` writes an
+edited copy of it back, which is the point of dumping in the first place:
+
+```bash
+stk tags dump --round-trip -o tags.csv   # edit this in a spreadsheet
+stk tags apply tags.csv                  # see the plan
+stk tags apply tags.csv --apply          # write it
+```
+
+`--round-trip` adds the `album_artist` and `track_number` columns, so a row can
+be written back exactly; the plain dump keeps the columns it has always had.
+The sheet is keyed on its `path` column and read by header name, so a
+hand-written `path,genres` file with two columns is a perfectly good input.
+
+Two rules decide what a cell means:
+
+- **A column the sheet does not have is never written.** That is what makes the
+  two-column file safe.
+- **An empty cell leaves the tag alone.** The usual reason a cell is empty is a
+  half-filled sheet, not a decision to erase something. Pass `--clear-blanks`
+  when you do mean to erase, and the plan will show you every tag it would
+  remove before anything is written.
+
+Rows naming a file the index does not hold are reported and skipped, never
+guessed at. Everything written is logged, so `stk changes undo --last --apply`
+takes the whole run back.
 
 ### Playlists
 

@@ -19,6 +19,7 @@ pub mod models;
 pub mod playlist;
 pub mod review;
 pub mod soulseek;
+pub mod tagsheet;
 pub mod text;
 pub mod wantlist;
 

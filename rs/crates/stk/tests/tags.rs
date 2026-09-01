@@ -2,8 +2,8 @@
 
 mod support;
 
-use stk::library::tags;
-use stk::models::Artwork;
+use stk::library::tags::{self, TagField};
+use stk::models::{Artwork, TrackTags};
 use support::{encode, Encoded, Scratch};
 
 const TAGGABLE: &[&str] = &["flac", "mp3", "m4a", "ogg", "opus"];
@@ -276,4 +276,159 @@ fn every_taggable_extension_is_covered_by_these_tests() {
         .collect();
 
     assert_eq!(covered, declared);
+}
+
+fn full_tags() -> TrackTags {
+    TrackTags {
+        artist: "DECO*27".to_owned(),
+        album_artist: "DECO*27".to_owned(),
+        album: "Ghost".to_owned(),
+        title: "Roki".to_owned(),
+        genres: vec!["Vocaloid".to_owned()],
+        track_number: Some(3),
+    }
+}
+
+#[test]
+fn every_taggable_container_round_trips_written_tags() {
+    needs_ffmpeg!();
+    let scratch = Scratch::new("tags-write-round-trip");
+
+    for suffix in TAGGABLE {
+        let path = encode(&scratch.join(&format!("t.{suffix}")), &Encoded::default());
+        tags::write_tags(&path, &full_tags()).expect("written tags");
+
+        assert_eq!(
+            tags::read_tags(&path).expect("readable tags"),
+            full_tags(),
+            "{suffix}"
+        );
+    }
+}
+
+#[test]
+fn writing_one_field_leaves_the_others_where_they_were() {
+    needs_ffmpeg!();
+    let scratch = Scratch::new("tags-write-one");
+    let path = encode(&scratch.join("t.flac"), &Encoded::default());
+    tags::write_tags(&path, &full_tags()).expect("written tags");
+
+    let mut edited = full_tags();
+    edited.title = "Ghost Rule".to_owned();
+    tags::write_tags(&path, &edited).expect("an edited title");
+
+    let read = tags::read_tags(&path).expect("readable tags");
+    assert_eq!(read.title, "Ghost Rule");
+    assert_eq!(read.artist, "DECO*27");
+    assert_eq!(read.album, "Ghost");
+    assert_eq!(read.track_number, Some(3));
+    assert_eq!(read.genres, vec!["Vocaloid".to_owned()]);
+}
+
+#[test]
+fn an_empty_value_removes_the_key_rather_than_writing_a_blank() {
+    // A file whose title was cleared has to read back the way one that never
+    // had a title does, or "is this tagged" gets two different answers.
+    needs_ffmpeg!();
+    let scratch = Scratch::new("tags-write-clear");
+    let path = encode(&scratch.join("t.flac"), &Encoded::default());
+    tags::write_tags(&path, &full_tags()).expect("written tags");
+
+    tags::write_tags(&path, &TrackTags::default()).expect("cleared tags");
+
+    assert_eq!(
+        tags::read_tags(&path).expect("readable tags"),
+        TrackTags::default()
+    );
+}
+
+#[test]
+fn writing_tags_creates_a_tag_block_in_a_file_that_has_none() {
+    needs_ffmpeg!();
+    let scratch = Scratch::new("tags-write-untagged");
+    let path = encode(&scratch.join("t.flac"), &Encoded::default());
+
+    tags::write_tags(&path, &full_tags()).expect("written tags");
+
+    assert_eq!(tags::read_tags(&path).expect("readable tags"), full_tags());
+}
+
+#[test]
+fn writing_tags_leaves_the_embedded_cover_alone() {
+    needs_ffmpeg!();
+    let scratch = Scratch::new("tags-write-artwork");
+    let path = encode(&scratch.join("t.flac"), &Encoded::default());
+    tags::write_artwork(&path, &artwork(1)).expect("an embedded cover");
+
+    tags::write_tags(&path, &full_tags()).expect("written tags");
+
+    assert_eq!(
+        tags::read_artwork(&path).expect("readable artwork"),
+        Some(artwork(1))
+    );
+}
+
+#[test]
+fn a_track_number_is_written_without_a_total() {
+    // `read_tags` keeps only the leading digits of "3/12", so any write
+    // normalises the field. Pinned rather than discovered later.
+    needs_ffmpeg!();
+    let scratch = Scratch::new("tags-write-track");
+    let path = encode(
+        &scratch.join("t.flac"),
+        &Encoded {
+            metadata: &[("track", "3/12")],
+            ..Encoded::default()
+        },
+    );
+    assert_eq!(
+        tags::read_tags(&path).expect("readable tags").track_number,
+        Some(3)
+    );
+
+    let read = tags::read_tags(&path).expect("readable tags");
+    tags::write_tags(&path, &read).expect("written tags");
+
+    assert_eq!(
+        tags::read_tags(&path).expect("readable tags").track_number,
+        Some(3)
+    );
+}
+
+#[test]
+fn a_field_reads_back_the_value_a_dump_spelled() {
+    let tags = full_tags();
+
+    assert_eq!(TagField::Artist.value(&tags), "DECO*27");
+    assert_eq!(TagField::TrackNumber.value(&tags), "3");
+    assert_eq!(TagField::Genres.value(&tags), "Vocaloid");
+    assert_eq!(TagField::TrackNumber.value(&TrackTags::default()), "");
+}
+
+#[test]
+fn several_genres_share_one_cell_and_come_back_in_order() {
+    let mut tags = TrackTags::default();
+    TagField::Genres.set(&mut tags, "Touhou; Eurobeat");
+
+    assert_eq!(
+        tags.genres,
+        vec!["Touhou".to_owned(), "Eurobeat".to_owned()]
+    );
+    assert_eq!(TagField::Genres.value(&tags), "Touhou; Eurobeat");
+}
+
+#[test]
+fn a_track_number_that_is_not_a_number_leaves_the_field_empty() {
+    let mut tags = full_tags();
+    TagField::TrackNumber.set(&mut tags, "side B");
+
+    assert_eq!(tags.track_number, None);
+}
+
+#[test]
+fn a_field_name_round_trips_through_its_spelling() {
+    for field in TagField::ALL {
+        assert_eq!(field.as_str().parse::<TagField>(), Ok(field));
+    }
+    assert!("nonsense".parse::<TagField>().is_err());
 }
