@@ -64,6 +64,18 @@ impl AlbumOffer {
             .collect()
     }
 
+    /// How many covered tracks this folder already holds the first choice for.
+    ///
+    /// The listing's cost signal. Unlike `prefer_one_uploader`, which reorders
+    /// candidates unseen and so needs a score window to bound what it may
+    /// trade, an offer is shown before it is taken -- but "this folder is
+    /// nobody's first choice" is the part a table of names does not otherwise
+    /// say.
+    #[must_use]
+    pub fn top_picks(&self) -> usize {
+        self.tracks.iter().filter(|track| track.rank == 1).count()
+    }
+
     /// The containers on offer, commonest first: `2 flac, 1 mp3`.
     ///
     /// Enough to see that a folder is mixed without restating the judgement the
@@ -72,7 +84,14 @@ impl AlbumOffer {
     pub fn quality(&self) -> String {
         let mut counts: Vec<(String, usize)> = Vec::new();
         for track in &self.tracks {
-            let extension = track.scored.candidate.extension();
+            // `extension` hands back the whole filename when it holds no dot,
+            // which `ScoredCandidate::describe` shows as "?" rather than
+            // printing a track name in a column of containers.
+            let candidate = &track.scored.candidate;
+            let extension = match candidate.filename().rfind('.') {
+                Some(_) => candidate.extension(),
+                None => "?".to_owned(),
+            };
             match counts.iter_mut().find(|(name, _)| *name == extension) {
                 Some((_, count)) => *count += 1,
                 None => counts.push((extension, 1)),
@@ -98,12 +117,17 @@ pub fn offers(tracks: &[ReviewTrack], minimum: usize) -> Vec<AlbumOffer> {
 
     for entry in tracks {
         // The score the track would have had on its own, which is what taking
-        // it from this folder instead is measured against.
+        // it from this folder instead is measured against. Taken as a maximum
+        // rather than off the head of the list, because `prefer_one_uploader`
+        // promotes its peer's candidate to the front before the ranks are
+        // written, so rank 1 is not always the highest-scoring row.
         let best = entry
             .candidates
-            .first()
+            .iter()
             .filter(|scored| !scored.rejected())
-            .map_or(0, |scored| scored.score);
+            .map(|scored| scored.score)
+            .max()
+            .unwrap_or(0);
         let query = entry.track.query();
         let mut seen: HashSet<(&str, &str)> = HashSet::new();
 
@@ -116,8 +140,9 @@ pub fn offers(tracks: &[ReviewTrack], minimum: usize) -> Vec<AlbumOffer> {
             };
 
             let key = (scored.candidate.username.as_str(), folder);
-            // Candidates arrive in rank order, so a folder holding two files
-            // for one track contributes its better one and nothing else.
+            // Rows arrive in rank order, so a folder holding two files for one
+            // track contributes the one the review listing puts first, and
+            // nothing else.
             if !seen.insert(key) {
                 continue;
             }
@@ -157,10 +182,14 @@ pub fn offers(tracks: &[ReviewTrack], minimum: usize) -> Vec<AlbumOffer> {
 
 /// The folder a candidate sits in, or `None` when its path names none.
 ///
-/// `Candidate::split_path` returns the whole path as *both* halves when there is
-/// no separator, so a bare filename would otherwise group with itself and be
-/// offered as an album of one.
+/// The folder has to contain a separator of its own, which rules out all three
+/// ways a remote path can fail to name one. `Candidate::split_path` returns the
+/// whole path as *both* halves when there is no separator at all, so a bare
+/// filename would otherwise group with itself and be offered as an album of one.
+/// A file shared at the root of a peer's library yields `@@peer`, which is the
+/// share and not a directory within it. A leading separator yields an empty
+/// string, which would be offered under a blank name.
 fn folder_of(candidate: &Candidate) -> Option<&str> {
     let folder = candidate.folder();
-    (folder != candidate.remote_path).then_some(folder)
+    folder.contains(['\\', '/']).then_some(folder)
 }

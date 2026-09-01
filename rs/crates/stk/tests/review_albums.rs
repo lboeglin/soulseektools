@@ -113,6 +113,65 @@ fn a_mixed_folder_says_so_in_its_quality() {
     assert_eq!(waiting(&store, 2)[0].quality(), "1 flac, 1 mp3");
 }
 
+/// A file with no extension is a container the listing cannot name, and
+/// `Candidate::extension` hands back the whole filename for one.
+#[test]
+fn a_file_with_no_extension_does_not_become_a_container() {
+    let scratch = Scratch::new("albums-no-extension");
+    let mut store = store(&scratch);
+    reviewable(
+        &mut store,
+        "Roki",
+        &[scored("bulk", r"Music\Best Of\01 Roki.flac", 100)],
+    );
+    reviewable(
+        &mut store,
+        "Ghost Rule",
+        &[scored("bulk", r"Music\Best Of\02 Ghost Rule", 100)],
+    );
+
+    assert_eq!(waiting(&store, 2)[0].quality(), "1 ?, 1 flac");
+}
+
+/// `prefer_one_uploader` promotes its peer's candidate to the front before the
+/// ranks are written, so rank 1 is not always the highest-scoring row. Measuring
+/// the sacrifice against the head of the list made it negative for the candidate
+/// that actually scored best, and a negative total sorted a costlier folder to
+/// the top of the listing.
+#[test]
+fn what_a_folder_costs_is_measured_against_the_best_score_not_the_first_rank() {
+    let scratch = Scratch::new("albums-promoted-head");
+    let mut store = store(&scratch);
+    for title in ["Roki", "Ghost Rule"] {
+        reviewable(
+            &mut store,
+            title,
+            &[
+                // As the batch pass leaves it: promoted, and scoring lower than
+                // the candidate now sitting behind it.
+                scored("bulk", &format!(r"Music\Best Of\{title}.flac"), 90),
+                scored("solo", &format!(r"Music\Solo\{title}.flac"), 100),
+            ],
+        );
+    }
+
+    let offers = waiting(&store, 2);
+
+    assert!(
+        offers.iter().all(|offer| offer.sacrificed >= 0),
+        "{offers:?}"
+    );
+    let by_peer = |username: &str| {
+        offers
+            .iter()
+            .find(|offer| offer.username == username)
+            .expect("the offer")
+            .sacrificed
+    };
+    assert_eq!(by_peer("solo"), 0);
+    assert_eq!(by_peer("bulk"), 20);
+}
+
 #[test]
 fn two_peers_offering_the_same_folder_name_are_separate_offers() {
     let scratch = Scratch::new("albums-two-peers");
@@ -328,8 +387,106 @@ fn approving_an_album_leaves_every_rank_resolvable() {
                 .remote_path,
             track.scored.candidate.remote_path
         );
-        // Nothing left after the album's own pick, so the retry gives up rather
-        // than promoting a rank the renumbering invented.
-        assert_eq!(store.next_candidate(track.track_id).expect("a retry"), None);
     }
+}
+
+/// An album takes rank 2 whenever the folder is not the track's own best, and
+/// the retry used to promote `approved_rank + 1` only -- so rank 1, the copy the
+/// scorer preferred, was unreachable and the track failed with it untried.
+#[test]
+fn a_failed_album_pick_falls_back_to_the_track_it_was_preferred_over() {
+    let scratch = Scratch::new("albums-fallback");
+    let mut store = store(&scratch);
+    let track_id = reviewable(
+        &mut store,
+        "Roki",
+        &[
+            scored("solo", r"Music\Solo\Roki.flac", 100),
+            scored("bulk", r"Music\Best Of\Roki.flac", 90),
+        ],
+    );
+    reviewable(
+        &mut store,
+        "Ghost Rule",
+        &[
+            scored("solo", r"Music\Solo\Ghost Rule.flac", 100),
+            scored("bulk", r"Music\Best Of\Ghost Rule.flac", 90),
+        ],
+    );
+    let offer = waiting(&store, 2)
+        .into_iter()
+        .find(|offer| offer.username == "bulk")
+        .expect("the album offer");
+    store.approve_all(&offer.picks()).expect("an approval");
+    assert_eq!(
+        store
+            .track(track_id)
+            .expect("a lookup")
+            .expect("the track")
+            .approved_rank,
+        Some(2)
+    );
+
+    assert_eq!(
+        store.next_candidate(track_id).expect("a retry"),
+        Some(1),
+        "the candidate the album was preferred over is still worth trying"
+    );
+    // And once both have been tried there is genuinely nothing left.
+    assert_eq!(store.next_candidate(track_id).expect("a retry"), None);
+    assert_eq!(
+        store
+            .track(track_id)
+            .expect("a lookup")
+            .expect("the track")
+            .status,
+        TrackStatus::Failed
+    );
+}
+
+/// The share is not a folder: a file a peer offers from the root of their
+/// library yields `@@peer`, which names no album.
+#[test]
+fn a_file_shared_at_a_peers_root_is_not_an_album() {
+    let scratch = Scratch::new("albums-share-root");
+    let mut store = store(&scratch);
+    reviewable(
+        &mut store,
+        "Roki",
+        &[scored("bulk", r"@@bulk\Roki.flac", 100)],
+    );
+    reviewable(
+        &mut store,
+        "Ghost Rule",
+        &[scored("bulk", r"@@bulk\Ghost Rule.flac", 100)],
+    );
+
+    assert!(waiting(&store, 2).is_empty());
+}
+
+#[test]
+fn a_folder_is_ranked_by_how_often_it_is_already_the_first_choice() {
+    let scratch = Scratch::new("albums-top-picks");
+    let mut store = store(&scratch);
+    reviewable(
+        &mut store,
+        "Roki",
+        &[scored("bulk", r"Music\Best Of\Roki.flac", 100)],
+    );
+    reviewable(
+        &mut store,
+        "Ghost Rule",
+        &[
+            scored("solo", r"Music\Solo\Ghost Rule.flac", 100),
+            scored("bulk", r"Music\Best Of\Ghost Rule.flac", 90),
+        ],
+    );
+
+    let offer = waiting(&store, 2)
+        .into_iter()
+        .find(|offer| offer.username == "bulk")
+        .expect("the album offer");
+
+    assert_eq!(offer.covered(), 2);
+    assert_eq!(offer.top_picks(), 1);
 }

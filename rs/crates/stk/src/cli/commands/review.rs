@@ -247,11 +247,15 @@ fn list_albums(context: &AppContext, limit: usize, with_tracks: bool) -> Result<
                 offer.username.clone(),
                 offer.name().to_owned(),
                 offer.covered().to_string(),
+                format!("{} of {}", offer.top_picks(), offer.covered()),
                 offer.quality(),
             ]
         })
         .collect();
-    context.say(&table(&["#", "Peer", "Album", "Tracks", "Quality"], &rows));
+    context.say(&table(
+        &["#", "Peer", "Album", "Tracks", "Top pick", "Quality"],
+        &rows,
+    ));
 
     if with_tracks {
         for (index, offer) in shown() {
@@ -266,7 +270,17 @@ fn list_albums(context: &AppContext, limit: usize, with_tracks: bool) -> Result<
         }
     }
 
-    context.say("\nTake one with stk review approve-album <#>.");
+    let mut footer = vec!["Take one with stk review approve-album <#>.".to_owned()];
+    if offers.len() > limit {
+        footer.insert(
+            0,
+            format!(
+                "Showing {limit} of {} offer(s); pass --limit to see the rest.",
+                offers.len()
+            ),
+        );
+    }
+    context.say(&format!("\n{}", footer.join("\n")));
     Ok(0)
 }
 
@@ -288,6 +302,12 @@ fn approve_album(context: &AppContext, index: usize) -> Result<i32> {
         offer.username,
         offer.name()
     ));
+    // The tracks just decided leave the listing, and every offer sharing one of
+    // them shrinks or goes with them, so an index read before this run no longer
+    // names what it did.
+    if offers.len() > 1 {
+        context.say("The remaining offers are renumbered; list them again before taking another.");
+    }
     Ok(0)
 }
 
