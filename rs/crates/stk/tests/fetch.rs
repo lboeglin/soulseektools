@@ -13,7 +13,8 @@ use std::sync::Mutex;
 use stk::config::Settings;
 use stk::errors::{Error, Result};
 use stk::fetch::{self, downloaded_path};
-use stk::models::{Candidate, Track, TrackStatus, Verdict};
+use stk::models::{Candidate, ScoredCandidate, Track, TrackStatus, Verdict};
+use stk::review::albums;
 use stk::review::store::ReviewStore;
 use stk::soulseek::base::{SoulseekClient, Transfer, TransferState};
 use support::{encode, noise_source, transcode_to_flac, Encoded, Scratch};
@@ -1113,4 +1114,116 @@ fn turning_the_preference_off_leaves_the_scores_in_charge() {
     for entry in store.tracks(&[], None).expect("the queued tracks") {
         assert!(entry.candidates[0].candidate.username.starts_with("solo"));
     }
+}
+
+/// A candidate already scored, so an album can be assembled without a search
+/// deciding the ranks for it.
+fn from_folder(username: &str, remote_path: &str, score: i64) -> ScoredCandidate {
+    ScoredCandidate {
+        candidate: Candidate {
+            username: username.to_owned(),
+            remote_path: remote_path.to_owned(),
+            size: 30_000_000,
+            bit_depth: Some(16),
+            sample_rate: Some(44100),
+            free_upload_slots: true,
+            ..Candidate::default()
+        },
+        score,
+        title_ratio: 0.99,
+        flags: Vec::new(),
+    }
+}
+
+/// Two tracks one peer holds in a single folder, each with a fallback elsewhere.
+fn album_in_review(store: &mut ReviewStore) {
+    for title in ["Roki", "Ghost Rule"] {
+        store
+            .add(&[Track::new("DECO*27", title)])
+            .expect("an added track");
+        let track_id = store
+            .tracks(&[], None)
+            .expect("tracks")
+            .into_iter()
+            .find(|entry| entry.track.title == title)
+            .expect("the track just added")
+            .id;
+        store
+            .set_candidates(
+                track_id,
+                &[
+                    from_folder("bulk", &format!(r"@@bulk\Music\Best Of\{title}.flac"), 100),
+                    from_folder("solo", &format!(r"@@solo\Music\{title}.flac"), 90),
+                ],
+            )
+            .expect("recorded candidates");
+    }
+}
+
+/// The shape album-aware fetching turns on (#6): a folder approved as one
+/// decision is still one `remote_path` per track, so queueing, collecting and
+/// the retry stay per-track and none of them had to change to allow it.
+#[test]
+fn an_album_approval_queues_and_collects_each_track_on_its_own() {
+    let scratch = Scratch::new("fetch-album");
+    let settings = settings(&scratch);
+    let mut store = store(&scratch);
+    album_in_review(&mut store);
+
+    let waiting = store
+        .tracks(&[TrackStatus::AwaitingReview], None)
+        .expect("the waiting tracks");
+    let offer = albums::offers(&waiting, 2)
+        .into_iter()
+        .find(|offer| offer.username == "bulk")
+        .expect("the album offer");
+    store.approve_all(&offer.picks()).expect("an approval");
+
+    let enqueuer = FakeClient::default();
+    let queued = fetch::enqueue_approved(&mut store, &enqueuer, None, 1000.0).expect("an enqueue");
+
+    assert_eq!(queued.len(), 2);
+    assert!(queued.iter().all(|outcome| outcome.queued));
+    // One call per track, into the artist folder each was queued for, because
+    // `downloaded_path` rebuilds that path to find the finished file -- #5 is
+    // what happens when the two stop agreeing.
+    assert_eq!(
+        *enqueuer.enqueued.lock().expect("the fake"),
+        vec![("bulk".to_owned(), "DECO_27".to_owned()); 2]
+    );
+
+    let client = FakeClient::with_transfers(vec![
+        transfer(
+            r"@@bulk\Music\Best Of\Roki.flac",
+            TransferState::Completed,
+            "",
+        ),
+        transfer(
+            r"@@bulk\Music\Best Of\Ghost Rule.flac",
+            TransferState::Failed,
+            "peer gone",
+        ),
+    ]);
+    let outcomes = fetch::collect(&mut store, &client, &settings, false).expect("a collect");
+
+    assert_eq!(outcomes.len(), 2);
+    // Still `<download dir>/<artist>/<filename>`: the album changed which files
+    // were chosen, not where any of them lands.
+    assert_eq!(
+        outcomes[0].local_path,
+        Some(scratch.join("downloads").join("DECO_27").join("Roki.flac"))
+    );
+    let stored = store.tracks(&[], None).expect("tracks");
+    assert_eq!(stored[0].status, TrackStatus::Downloaded);
+    // Only the file that failed falls back, and to its own next candidate
+    // rather than to anything the album decided.
+    assert_eq!(stored[1].status, TrackStatus::Approved);
+    assert_eq!(
+        stored[1]
+            .approved()
+            .expect("the promoted candidate")
+            .candidate
+            .username,
+        "solo"
+    );
 }

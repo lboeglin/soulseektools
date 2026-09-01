@@ -295,6 +295,13 @@ impl Default for IndexSettings {
 pub struct ReviewSettings {
     pub path: PathBuf,
     pub candidates_per_track: usize,
+
+    /// How many of the queue's tracks one peer's folder must hold to be offered
+    /// as an album (#6).
+    ///
+    /// A folder holding a single wanted track is not an album -- approving it is
+    /// `review approve` with more typing.
+    pub album_minimum_tracks: usize,
 }
 
 impl Default for ReviewSettings {
@@ -302,6 +309,7 @@ impl Default for ReviewSettings {
         Self {
             path: default_data_path("review.db"),
             candidates_per_track: 3,
+            album_minimum_tracks: 2,
         }
     }
 }
@@ -784,6 +792,9 @@ impl Settings {
         }
         if !(1..=10).contains(&self.review.candidates_per_track) {
             return bad("review.candidates_per_track", "must be between 1 and 10");
+        }
+        if self.review.album_minimum_tracks < 2 {
+            return bad("review.album_minimum_tracks", "must be at least 2");
         }
         if self.slskd.search_timeout_seconds == 0 {
             return bad("slskd.search_timeout_seconds", "must be at least 1");

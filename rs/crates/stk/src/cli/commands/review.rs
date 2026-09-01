@@ -12,7 +12,9 @@ use serde_json::json;
 use crate::cli::context::{show, table, AppContext};
 use crate::errors::Result;
 use crate::models::TrackStatus;
+use crate::review::albums::{self, AlbumOffer};
 use crate::review::legacy_csv::import_csv;
+use crate::review::store::ReviewStore;
 
 #[derive(Subcommand, Debug)]
 pub enum ReviewCommand {
@@ -27,6 +29,20 @@ pub enum ReviewCommand {
         /// Show each track's candidates too.
         #[arg(long)]
         candidates: bool,
+    },
+    /// Show the folders one peer could supply several waiting tracks from.
+    Albums {
+        /// Show at most this many.
+        #[arg(long, default_value_t = 20)]
+        limit: usize,
+        /// List the tracks each folder covers.
+        #[arg(long)]
+        tracks: bool,
+    },
+    /// Take every track one peer's folder covers, as a single decision.
+    ApproveAlbum {
+        /// Which album, as `stk review albums` numbers them.
+        index: usize,
     },
     /// Choose one candidate for a track, so the downloader can queue it.
     Approve {
@@ -64,6 +80,8 @@ pub fn run(context: &AppContext, command: ReviewCommand) -> Result<i32> {
             limit,
             candidates,
         } => list(context, status.as_deref(), limit, candidates),
+        ReviewCommand::Albums { limit, tracks } => list_albums(context, limit, tracks),
+        ReviewCommand::ApproveAlbum { index } => approve_album(context, index),
         ReviewCommand::Approve { track_id, rank } => approve(context, track_id, rank),
         ReviewCommand::Reject { track_id, reason } => reject(context, track_id, &reason),
         ReviewCommand::Reset { track_id } => reset(context, track_id),
@@ -171,6 +189,105 @@ fn list(
         .map(|(status, count)| format!("{count} {status}"))
         .collect();
     context.say(&format!("\n{}", summary.join(", ")));
+    Ok(0)
+}
+
+/// The album offers the queue currently supports.
+///
+/// Only tracks awaiting review are grouped, so approving an album can never
+/// overrule a choice already made track by track. Both commands derive the list
+/// the same way, which is what makes an index from one usable in the other.
+fn album_offers(context: &AppContext, store: &ReviewStore) -> Result<Vec<AlbumOffer>> {
+    let tracks = store.tracks(&[TrackStatus::AwaitingReview], None)?;
+    Ok(albums::offers(
+        &tracks,
+        context.settings().review.album_minimum_tracks,
+    ))
+}
+
+fn list_albums(context: &AppContext, limit: usize, with_tracks: bool) -> Result<i32> {
+    let store = context.open_review()?;
+    let offers = album_offers(context, &store)?;
+    let shown = || offers.iter().take(limit).enumerate();
+
+    if context.as_json {
+        context.emit(&json!(shown()
+            .map(|(index, offer)| json!({
+                "index": index + 1,
+                "username": offer.username,
+                "folder": offer.folder,
+                "album": offer.name(),
+                "covered": offer.covered(),
+                "sacrificed": offer.sacrificed,
+                "tracks": offer
+                    .tracks
+                    .iter()
+                    .map(|track| json!({
+                        "track_id": track.track_id,
+                        "query": track.query,
+                        "rank": track.rank,
+                        "score": track.scored.score,
+                        "remote_path": track.scored.candidate.remote_path,
+                    }))
+                    .collect::<Vec<_>>(),
+            }))
+            .collect::<Vec<_>>()));
+        return Ok(0);
+    }
+
+    if offers.is_empty() {
+        context.say("No folder in the queue covers enough tracks to be an album.");
+        return Ok(0);
+    }
+
+    let rows: Vec<Vec<String>> = shown()
+        .map(|(index, offer)| {
+            vec![
+                (index + 1).to_string(),
+                offer.username.clone(),
+                offer.name().to_owned(),
+                offer.covered().to_string(),
+                offer.quality(),
+            ]
+        })
+        .collect();
+    context.say(&table(&["#", "Peer", "Album", "Tracks", "Quality"], &rows));
+
+    if with_tracks {
+        for (index, offer) in shown() {
+            context.say(&format!("\n{}. {}", index + 1, offer.folder));
+            for track in &offer.tracks {
+                context.say(&format!(
+                    "  {} -- candidate {} of track {}",
+                    track.query, track.rank, track.track_id
+                ));
+                context.say(&format!("    {}", track.scored.describe()));
+            }
+        }
+    }
+
+    context.say("\nTake one with stk review approve-album <#>.");
+    Ok(0)
+}
+
+fn approve_album(context: &AppContext, index: usize) -> Result<i32> {
+    let mut store = context.open_review()?;
+    let offers = album_offers(context, &store)?;
+    let Some(offer) = index
+        .checked_sub(1)
+        .and_then(|position| offers.get(position))
+    else {
+        eprintln!("error: no album {index} in the review queue");
+        return Ok(1);
+    };
+
+    store.approve_all(&offer.picks())?;
+    context.say(&format!(
+        "Approved {} track(s) from {}'s \"{}\"",
+        offer.covered(),
+        offer.username,
+        offer.name()
+    ));
     Ok(0)
 }
 

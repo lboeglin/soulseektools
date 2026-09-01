@@ -1598,6 +1598,87 @@ fn review_list_accepts_a_status_filter_and_rejects_a_bad_one() {
     drop(harness);
 }
 
+/// Two tracks one peer holds in a single folder, waiting to be reviewed (#6).
+fn album_in_review(harness: &Harness) {
+    let mut store = stk::review::store::ReviewStore::open(&harness.join("review.db"))
+        .expect("the review queue");
+    for title in ["Roki", "Ghost Rule"] {
+        store
+            .add(&[stk::models::Track::new("DECO*27", title)])
+            .expect("an added track");
+        let track_id = store
+            .tracks(&[], None)
+            .expect("tracks")
+            .into_iter()
+            .find(|entry| entry.track.title == title)
+            .expect("the track just added")
+            .id;
+        store
+            .set_candidates(
+                track_id,
+                &[stk::models::ScoredCandidate {
+                    candidate: stk::models::Candidate {
+                        username: "bulk".to_owned(),
+                        remote_path: format!(r"@@bulk\Music\Best Of\{title}.flac"),
+                        size: 30_000_000,
+                        bit_depth: Some(16),
+                        sample_rate: Some(44100),
+                        free_upload_slots: true,
+                        ..stk::models::Candidate::default()
+                    },
+                    score: 100,
+                    title_ratio: 0.99,
+                    flags: Vec::new(),
+                }],
+            )
+            .expect("recorded candidates");
+    }
+}
+
+#[test]
+fn review_albums_is_empty_until_one_peer_covers_several_tracks() {
+    let _guard = exclusive();
+    let harness = Harness::new("cli-review-albums-empty");
+    harness.with_config(&harness.join("Music"));
+
+    assert_eq!(run(&["review", "albums"]), 0);
+    assert_eq!(run(&["--json", "review", "albums"]), 0);
+    drop(harness);
+}
+
+#[test]
+fn approving_an_album_takes_every_track_its_folder_covers() {
+    let _guard = exclusive();
+    let harness = Harness::new("cli-review-albums-approve");
+    harness.with_config(&harness.join("Music"));
+    album_in_review(&harness);
+
+    assert_eq!(run(&["review", "albums", "--tracks"]), 0);
+    assert_eq!(run(&["review", "approve-album", "1"]), 0);
+
+    let store = stk::review::store::ReviewStore::open(&harness.join("review.db"))
+        .expect("the review queue");
+    let tracks = store.tracks(&[], None).expect("tracks");
+    assert_eq!(tracks.len(), 2);
+    assert!(tracks
+        .iter()
+        .all(|entry| entry.status == stk::models::TrackStatus::Approved));
+    // Decided tracks leave the album view, so nothing can be approved twice.
+    assert_eq!(run(&["review", "approve-album", "1"]), 1);
+    drop(harness);
+}
+
+#[test]
+fn approving_an_album_that_is_not_offered_is_an_error() {
+    let _guard = exclusive();
+    let harness = Harness::new("cli-review-albums-unknown");
+    harness.with_config(&harness.join("Music"));
+
+    assert_eq!(run(&["review", "approve-album", "1"]), 1);
+    assert_eq!(run(&["review", "approve-album", "0"]), 1);
+    drop(harness);
+}
+
 #[test]
 fn get_with_nothing_to_search_for_is_rejected() {
     let _guard = exclusive();

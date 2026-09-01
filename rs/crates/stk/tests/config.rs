@@ -217,6 +217,24 @@ fn an_out_of_range_value_is_rejected() {
     assert!(load_settings(Some(&path), &Overrides::default()).is_err());
 }
 
+/// A folder holding one wanted track is not an album (#6).
+#[test]
+fn an_album_of_one_track_is_rejected() {
+    let _guard = exclusive();
+    let scratch = Scratch::new("config-album-minimum");
+    let _environment = CleanEnvironment::enter(scratch.path());
+    let path = write_toml(
+        &scratch.join(CONFIG_FILENAME),
+        "[review]\nalbum_minimum_tracks = 1\n",
+    );
+
+    let error = load_settings(Some(&path), &Overrides::default()).expect_err("a bad minimum");
+    assert!(
+        error.to_string().contains("album_minimum_tracks"),
+        "{error}"
+    );
+}
+
 #[test]
 fn malformed_toml_is_reported_as_a_config_error() {
     let scratch = Scratch::new("config-malformed");
