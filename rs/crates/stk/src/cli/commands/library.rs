@@ -213,7 +213,7 @@ fn trend(context: &AppContext, limit: usize) -> Result<i32> {
         if latest.verified_clean + latest.flagged == 0 {
             context.say(
                 "
-No verdicts recorded yet -- run stk verify to fill the last column.",
+No verdicts recorded yet -- run stk verify to fill the last two columns.",
             );
         }
     }
