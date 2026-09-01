@@ -21,6 +21,14 @@ a set of ad-hoc scripts and a Nicotine+ plugin, and was then rewritten in Rust.
   overruled. Each covered track keeps its own candidate, so a file that does not
   arrive still falls back to its own next one. `review.album_minimum_tracks`
   sets how many tracks make a folder worth offering (#6).
+- `review.db` v3: `candidates` gains `attempted`, added in place like every
+  version before it. The retry promoted `approved_rank + 1`, which assumes the
+  choice being retried was the first one — so anything ranked *above* it was
+  unreachable and a track could fail with its own best copy never tried. That
+  was reachable by hand before (`stk review approve <id> 3`) and is routine once
+  an album can be approved, since preferring a peer's folder is exactly the case
+  where the pick is not rank 1. The fallback now promotes the best candidate
+  nobody has tried yet (#6).
 - `stk tags apply`, the inverse of `tags dump`: edit the dump in a spreadsheet
   and write it back. Artist, album artist, album, title and track number could
   not be written at all before, so the dump could only show what was wrong.

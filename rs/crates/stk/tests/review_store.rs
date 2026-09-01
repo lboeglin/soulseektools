@@ -406,8 +406,19 @@ fn a_track_only_fails_once_its_candidates_are_exhausted() {
     let scratch = Scratch::new("review-exhausted");
     let mut store = store(&scratch);
     let track_id = reviewable(&mut store);
+    // Started on the last candidate, the way an album approval does when the
+    // folder is not the track's own best. The two the scorer preferred are
+    // untried, so exhaustion means all of them rather than all of them above.
     store.approve(track_id, 3).expect("an approval");
 
+    assert_eq!(
+        store.next_candidate(track_id).expect("a promotion"),
+        Some(1)
+    );
+    assert_eq!(
+        store.next_candidate(track_id).expect("a promotion"),
+        Some(2)
+    );
     assert_eq!(store.next_candidate(track_id).expect("no more"), None);
 
     let stored = store.track(track_id).expect("a lookup").expect("the track");
@@ -447,6 +458,40 @@ fn a_transfer_sitting_too_long_is_reported_as_stalled() {
 
     assert!(store.stalled(1500.0, 3600.0).expect("stalled").is_empty());
     assert_eq!(store.stalled(9000.0, 3600.0).expect("stalled").len(), 1);
+}
+
+/// v3 adds `attempted` to a table an existing database already holds rows in,
+/// so the column has to arrive without disturbing them (#6).
+#[test]
+fn a_v2_database_keeps_its_candidates_when_the_retry_column_arrives() {
+    let scratch = Scratch::new("review-v2");
+    let database = scratch.join("v2.db");
+
+    {
+        let mut store = ReviewStore::open(&database).expect("a store");
+        reviewable(&mut store);
+    }
+    let connection = rusqlite::Connection::open(&database).expect("a database");
+    connection
+        .execute_batch("ALTER TABLE candidates DROP COLUMN attempted")
+        .expect("a v2 candidates table");
+    drop(connection);
+
+    let mut store = ReviewStore::open(&database).expect("an upgraded store");
+    let track_id = first_id(&store);
+
+    assert_eq!(
+        store
+            .track(track_id)
+            .expect("a lookup")
+            .expect("the track")
+            .candidates
+            .len(),
+        3
+    );
+    // Nothing was tried before the column existed, so every candidate is still
+    // reachable rather than all of them or none.
+    assert_eq!(store.next_candidate(track_id).expect("a retry"), Some(1));
 }
 
 /// Both builds have to open the same file while `py/` still exists (#1).

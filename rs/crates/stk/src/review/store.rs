@@ -14,8 +14,9 @@ use rusqlite::{params, params_from_iter, Connection, OptionalExtension, Transact
 use crate::errors::{Error, Result};
 use crate::models::{Candidate, ScoredCandidate, Track, TrackStatus};
 
-/// Bumped from 1 to 2 by the retry tracking in #2.
-pub const SCHEMA_VERSION: i64 = 2;
+/// Bumped from 1 to 2 by the retry tracking in #2, and to 3 by the album
+/// fallback in #6.
+pub const SCHEMA_VERSION: i64 = 3;
 
 const SCHEMA: &str = "
 CREATE TABLE IF NOT EXISTS meta (
@@ -53,7 +54,8 @@ CREATE TABLE IF NOT EXISTS candidates (
     free_slots       INTEGER NOT NULL DEFAULT 0,
     queue_length     INTEGER NOT NULL DEFAULT 0,
     duration_seconds REAL,
-    approved         INTEGER NOT NULL DEFAULT 0
+    approved         INTEGER NOT NULL DEFAULT 0,
+    attempted        INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE INDEX IF NOT EXISTS candidates_track ON candidates (track_id, rank);
@@ -69,6 +71,16 @@ const V2_COLUMNS: &[(&str, &str)] = &[
     ("queued_at", "REAL"),
     ("attempts", "INTEGER NOT NULL DEFAULT 0"),
 ];
+
+/// The column schema v3 adds to `candidates`, from #6.
+///
+/// The retry used to promote `approved_rank + 1`, which assumes the choice being
+/// retried was the first one. An album approval routinely takes a rank other
+/// than 1 -- the whole point is preferring one peer's folder over each track's
+/// own best -- so everything ranked *above* the album's pick was unreachable,
+/// and a track failed with its own best copy never tried. Recording which
+/// candidates have been tried is what lets the fallback reach them.
+const V3_COLUMNS: &[(&str, &str)] = &[("attempted", "INTEGER NOT NULL DEFAULT 0")];
 
 /// A wanted track and everything found for it.
 #[derive(Debug, Clone, PartialEq)]
@@ -119,21 +131,8 @@ impl ReviewStore {
             .execute_batch(SCHEMA)
             .map_err(|error| sqlite_error(&error))?;
 
-        let existing: HashSet<String> = connection
-            .prepare("SELECT name FROM pragma_table_info('tracks')")
-            .and_then(|mut statement| {
-                statement
-                    .query_map([], |row| row.get::<_, String>(0))?
-                    .collect()
-            })
-            .map_err(|error| sqlite_error(&error))?;
-        for (name, kind) in V2_COLUMNS {
-            if !existing.contains(*name) {
-                connection
-                    .execute_batch(&format!("ALTER TABLE tracks ADD COLUMN {name} {kind}"))
-                    .map_err(|error| sqlite_error(&error))?;
-            }
-        }
+        add_missing_columns(&connection, "tracks", V2_COLUMNS)?;
+        add_missing_columns(&connection, "candidates", V3_COLUMNS)?;
 
         connection
             .execute(
@@ -364,21 +363,28 @@ impl ReviewStore {
         self.set_status(track_id, TrackStatus::Pending, "")
     }
 
-    /// Promote the next unused candidate after the current one failed (#2).
+    /// Promote the best candidate nobody has tried yet (#2).
     ///
-    /// Returns the rank now approved, or `None` when the candidates are
-    /// exhausted -- which is the only point at which a track becomes `FAILED`.
+    /// Returns the rank now approved, or `None` when every candidate has been
+    /// tried -- which is the only point at which a track becomes `FAILED`.
     /// Unlike [`Self::reset`] this keeps the search results, so a stalled
     /// transfer costs a re-queue rather than a re-search.
     pub fn next_candidate(&mut self, track_id: i64) -> Result<Option<i64>> {
-        let Some(entry) = self.track(track_id)? else {
+        if self.track(track_id)?.is_none() {
             return Ok(None);
-        };
-        let tried = entry.approved_rank.unwrap_or(0);
-        let next = i64::try_from(entry.candidates.len())
-            .ok()
-            .filter(|count| tried < *count)
-            .map(|_| tried + 1);
+        }
+        // The best candidate nobody has tried yet, rather than the one after the
+        // current choice: an album approval takes a rank of its own choosing, so
+        // walking upward from it would strand everything above (#6).
+        let next: Option<i64> = self
+            .connection
+            .query_row(
+                "SELECT rank FROM candidates WHERE track_id = ?1 AND attempted = 0                  ORDER BY rank LIMIT 1",
+                params![track_id],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(|error| sqlite_error(&error))?;
 
         let Some(next) = next else {
             self.set_status(track_id, TrackStatus::Failed, "no candidates left to try")?;
@@ -467,7 +473,39 @@ impl ReviewStore {
     }
 }
 
+/// Add any of `columns` the table does not already carry.
+///
+/// Nullable or defaulted throughout, and applied with `ALTER TABLE` at open
+/// time, so a database an earlier build wrote is upgraded where it stands
+/// rather than rewritten.
+fn add_missing_columns(
+    connection: &Connection,
+    table: &str,
+    columns: &[(&str, &str)],
+) -> Result<()> {
+    let existing: HashSet<String> = connection
+        .prepare(&format!("SELECT name FROM pragma_table_info('{table}')"))
+        .and_then(|mut statement| {
+            statement
+                .query_map([], |row| row.get::<_, String>(0))?
+                .collect()
+        })
+        .map_err(|error| sqlite_error(&error))?;
+
+    for (name, kind) in columns {
+        if !existing.contains(*name) {
+            connection
+                .execute_batch(&format!("ALTER TABLE {table} ADD COLUMN {name} {kind}"))
+                .map_err(|error| sqlite_error(&error))?;
+        }
+    }
+    Ok(())
+}
+
 /// Select one candidate for one track, inside a transaction the caller owns.
+///
+/// Choosing a candidate also records it as tried, so the retry in
+/// [`ReviewStore::next_candidate`] never offers it back a second time.
 fn approve_within(transaction: &Transaction<'_>, track_id: i64, rank: i64) -> Result<()> {
     transaction
         .execute(
@@ -477,7 +515,7 @@ fn approve_within(transaction: &Transaction<'_>, track_id: i64, rank: i64) -> Re
         .map_err(|error| sqlite_error(&error))?;
     let updated = transaction
         .execute(
-            "UPDATE candidates SET approved = 1 WHERE track_id = ?1 AND rank = ?2",
+            "UPDATE candidates SET approved = 1, attempted = 1 WHERE track_id = ?1 AND rank = ?2",
             params![track_id, rank],
         )
         .map_err(|error| sqlite_error(&error))?;
