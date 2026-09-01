@@ -94,7 +94,8 @@ rs/crates/stk/src/
   matching.rs       fuzzy name matching, used by everything
   playlist.rs       rendering M3U, so an order can leave the library again
   text/             normalisation and romaji transliteration
-  library/          scanning, tags, the SQLite index, the --apply write log
+  library/          scanning, tags, the SQLite index, the --apply write log,
+                    and the per-scan measurements behind `library trend`
   audio/            ffmpeg wrappers, spectral analysis, fingerprinting
   artwork/          providers and the artist-verification guard
   soulseek/         the client trait, the slskd backend, ranking

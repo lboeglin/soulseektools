@@ -497,7 +497,10 @@ fn a_v2_database_is_upgraded_in_place_rather_than_rewritten() {
     assert_eq!(entry.tags.artist, "ZUN");
     assert_eq!(entry.codec, "");
     assert_eq!(entry.bitrate, None);
-    assert_eq!(index.schema_version().expect("a version"), 4);
+    assert_eq!(index.schema_version().expect("a version"), 5);
+    // The v5 snapshots table is created alongside, so a trend can start being
+    // recorded against a database that predates it (#3).
+    assert!(index.snapshots(None).expect("a series").is_empty());
 }
 
 /// `verify` stops being a one-shot report once its verdict is persisted (#2).

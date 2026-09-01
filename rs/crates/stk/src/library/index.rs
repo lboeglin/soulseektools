@@ -17,13 +17,14 @@ use crate::library::changes::{Change, ChangeFilter, NewChange};
 use crate::library::scan::{
     folder_artist, iter_audio_files, owning_root, Excludes, AUDIO_EXTENSIONS,
 };
+use crate::library::stats::LibrarySnapshot;
 use crate::library::tags;
 use crate::matching::NameForms;
 use crate::models::{LibraryEntry, TrackTags, Verdict};
 use crate::text::normalize::strip_artist_prefix;
 
-/// Bumped from 3 to 4 by the write log's run grouping (#2).
-pub const SCHEMA_VERSION: i64 = 4;
+/// Bumped from 4 to 5 by the per-scan snapshots behind `library trend` (#3).
+pub const SCHEMA_VERSION: i64 = 5;
 
 /// The oldest version this opens rather than refusing.
 ///
@@ -67,6 +68,18 @@ CREATE TABLE IF NOT EXISTS fingerprints (
     kind   TEXT NOT NULL,
     values_json TEXT NOT NULL,
     duration_seconds REAL
+);
+
+CREATE TABLE IF NOT EXISTS snapshots (
+    id             INTEGER PRIMARY KEY,
+    taken_at       REAL    NOT NULL,
+    total          INTEGER NOT NULL,
+    tagged         INTEGER NOT NULL,
+    with_artwork   INTEGER NOT NULL,
+    with_genre     INTEGER NOT NULL,
+    lossless       INTEGER NOT NULL,
+    verified_clean INTEGER NOT NULL,
+    flagged        INTEGER NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS changes (
@@ -147,6 +160,31 @@ fn row_to_change(row: &rusqlite::Row<'_>) -> rusqlite::Result<Change> {
         old_value: row.get(6)?,
         new_value: row.get(7)?,
     })
+}
+
+const SNAPSHOT_COLUMNS: &str =
+    "taken_at, total, tagged, with_artwork, with_genre, lossless, verified_clean, flagged";
+
+/// SQLite counts in `i64` and the domain counts in `usize`; the conversion
+/// belongs at the boundary rather than in the type.
+fn row_to_snapshot(row: &rusqlite::Row<'_>) -> rusqlite::Result<LibrarySnapshot> {
+    let count = |index: usize| -> rusqlite::Result<usize> {
+        Ok(usize::try_from(row.get::<_, i64>(index)?).unwrap_or(0))
+    };
+    Ok(LibrarySnapshot {
+        taken_at: row.get(0)?,
+        total: count(1)?,
+        tagged: count(2)?,
+        with_artwork: count(3)?,
+        with_genre: count(4)?,
+        lossless: count(5)?,
+        verified_clean: count(6)?,
+        flagged: count(7)?,
+    })
+}
+
+fn stored(count: usize) -> i64 {
+    i64::try_from(count).unwrap_or(i64::MAX)
 }
 
 /// What a refresh changed, for reporting and for asserting incrementality.
@@ -568,6 +606,80 @@ impl LibraryIndex {
             )
             .map_err(|error| sqlite_error(&error))?;
         Ok(())
+    }
+
+    /// How many files carry each verdict `stk verify` has recorded.
+    pub fn verdict_counts(&self) -> Result<std::collections::BTreeMap<Verdict, usize>> {
+        let rows: Vec<(String, i64)> = self
+            .connection
+            .prepare(
+                "SELECT verdict, COUNT(*) FROM files WHERE verdict IS NOT NULL GROUP BY verdict",
+            )
+            .and_then(|mut statement| {
+                statement
+                    .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
+                    .collect()
+            })
+            .map_err(|error| sqlite_error(&error))?;
+
+        Ok(rows
+            .into_iter()
+            .filter_map(|(verdict, total)| {
+                verdict
+                    .parse()
+                    .ok()
+                    .map(|verdict| (verdict, usize::try_from(total).unwrap_or(0)))
+            })
+            .collect())
+    }
+
+    /// Record a measurement, unless it says exactly what the last one said.
+    ///
+    /// Returns the row written, or `None` when nothing changed. Scanning four
+    /// times on a quiet afternoon should leave one point on the trend, not four:
+    /// a series of identical rows is not evidence of anything.
+    pub fn record_snapshot(&mut self, snapshot: &LibrarySnapshot) -> Result<Option<i64>> {
+        if self
+            .snapshots(Some(1))?
+            .first()
+            .is_some_and(|last| last.counts() == snapshot.counts())
+        {
+            return Ok(None);
+        }
+
+        let placeholders = (1..=8).map(|index| format!("?{index}")).collect::<Vec<_>>();
+        self.connection
+            .execute(
+                &format!(
+                    "INSERT INTO snapshots ({SNAPSHOT_COLUMNS}) VALUES ({})",
+                    placeholders.join(", ")
+                ),
+                params![
+                    snapshot.taken_at,
+                    stored(snapshot.total),
+                    stored(snapshot.tagged),
+                    stored(snapshot.with_artwork),
+                    stored(snapshot.with_genre),
+                    stored(snapshot.lossless),
+                    stored(snapshot.verified_clean),
+                    stored(snapshot.flagged),
+                ],
+            )
+            .map_err(|error| sqlite_error(&error))?;
+        Ok(Some(self.connection.last_insert_rowid()))
+    }
+
+    /// Recorded measurements, newest first.
+    pub fn snapshots(&self, limit: Option<usize>) -> Result<Vec<LibrarySnapshot>> {
+        let mut query = format!("SELECT {SNAPSHOT_COLUMNS} FROM snapshots ORDER BY id DESC");
+        if let Some(limit) = limit {
+            use std::fmt::Write as _;
+            let _ = write!(query, " LIMIT {limit}");
+        }
+        self.connection
+            .prepare(&query)
+            .and_then(|mut statement| statement.query_map([], row_to_snapshot)?.collect())
+            .map_err(|error| sqlite_error(&error))
     }
 
     /// The run a fresh `--apply` invocation should stamp its rows with.

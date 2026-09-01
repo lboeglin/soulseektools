@@ -215,10 +215,27 @@ stk genre apply --apply    # write the mapped genres
 stk tags dump              # every file's artist/album/title/genre as CSV
 stk playlist genre Touhou  # an m3u8 of everything carrying a genre
 stk changes list           # what those --apply runs actually wrote
+stk library trend          # whether any of it is winning
 ```
 
 **Nothing is written without `--apply`.** Run the command, read the plan, then
 run it again with the flag.
+
+### Is the maintenance winning?
+
+`stk library stats` is a snapshot. Every `stk library scan` also records one, so
+`stk library trend` can show the same numbers as a series:
+
+```
+Measured    Files      Tagged     Artwork     Genre      Lossless  Flagged
+2026-08-14  2140       1902       1655        2103       890       12
+2026-09-01  2211 (+71) 1988 (+86) 1790 (+135) 2154 (+51) 921 (+31) 8 (-4)
+```
+
+A scan that found exactly what the last one found records nothing, so scanning
+four times on a quiet afternoon leaves one point rather than four. `Flagged`
+counts what `stk verify` doubted -- `FAKE` and `SUSPECT` together -- and stays
+empty until you have run it.
 
 ### Playlists
 

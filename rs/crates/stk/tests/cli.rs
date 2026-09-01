@@ -694,6 +694,94 @@ fn verify_writes_a_report_with_a_bom() {
 }
 
 #[test]
+fn a_scan_records_a_measurement_and_a_repeat_scan_does_not() {
+    needs_ffmpeg!();
+    let _guard = exclusive();
+    let harness = Harness::new("cli-trend-record");
+    let root = library(&harness);
+    harness.with_config(&root);
+
+    assert_eq!(run(&["library", "scan"]), 0);
+    assert_eq!(run(&["library", "scan"]), 0);
+
+    let index =
+        stk::library::index::LibraryIndex::open(&harness.join("library.db")).expect("the index");
+    let series = index.snapshots(None).expect("the series");
+    assert_eq!(series.len(), 1);
+    assert_eq!(series[0].total, 2);
+    drop(harness);
+}
+
+#[test]
+fn a_scan_after_files_were_added_records_a_new_measurement() {
+    needs_ffmpeg!();
+    let _guard = exclusive();
+    let harness = Harness::new("cli-trend-grown");
+    let root = library(&harness);
+    harness.with_config(&root);
+    run(&["library", "scan"]);
+
+    encode(
+        &root.join("ZUN").join("Native Faith.flac"),
+        &Encoded {
+            metadata: &[("artist", "ZUN"), ("title", "Native Faith")],
+            ..Encoded::default()
+        },
+    );
+    assert_eq!(run(&["library", "scan"]), 0);
+
+    let index =
+        stk::library::index::LibraryIndex::open(&harness.join("library.db")).expect("the index");
+    let series = index.snapshots(None).expect("the series");
+    assert_eq!(series.len(), 2);
+    assert_eq!(series[0].total, 3);
+    drop(harness);
+}
+
+#[test]
+fn trend_reports_the_measurements_it_recorded() {
+    needs_ffmpeg!();
+    let _guard = exclusive();
+    let harness = Harness::new("cli-trend-report");
+    let root = library(&harness);
+    harness.with_config(&root);
+    run(&["library", "scan"]);
+
+    encode(
+        &root.join("ZUN").join("Native Faith.flac"),
+        &Encoded {
+            metadata: &[("artist", "ZUN"), ("title", "Native Faith")],
+            ..Encoded::default()
+        },
+    );
+    run(&["library", "scan"]);
+
+    assert_eq!(run(&["library", "trend"]), 0);
+    assert_eq!(run(&["--json", "library", "trend"]), 0);
+
+    let index =
+        stk::library::index::LibraryIndex::open(&harness.join("library.db")).expect("the index");
+    let totals: Vec<usize> = index
+        .snapshots(None)
+        .expect("the series")
+        .iter()
+        .map(|row| row.total)
+        .collect();
+    assert_eq!(totals, vec![3, 2]);
+    drop(harness);
+}
+
+#[test]
+fn trend_on_an_index_that_was_never_scanned_says_so() {
+    let _guard = exclusive();
+    let harness = Harness::new("cli-trend-empty");
+    harness.with_config(&harness.join("Music"));
+
+    assert_eq!(run(&["library", "trend"]), 0);
+    drop(harness);
+}
+
+#[test]
 fn a_genre_playlist_holds_only_the_files_carrying_that_genre() {
     needs_ffmpeg!();
     let _guard = exclusive();

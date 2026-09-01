@@ -3,8 +3,10 @@
 use clap::Subcommand;
 use serde_json::json;
 
-use crate::cli::context::{show, table, AppContext};
+use crate::cli::context::{show, table, unix_now, AppContext};
 use crate::errors::Result;
+use crate::library::index::LibraryIndex;
+use crate::library::stats::{self, LibrarySnapshot};
 
 #[derive(Subcommand, Debug)]
 pub enum LibraryCommand {
@@ -20,6 +22,12 @@ pub enum LibraryCommand {
         #[arg(long, default_value_t = 20)]
         top: usize,
     },
+    /// Show how the library has changed over the scans recorded so far.
+    Trend {
+        /// How many measurements to show.
+        #[arg(long, default_value_t = 20)]
+        limit: usize,
+    },
 }
 
 #[allow(clippy::needless_pass_by_value)]
@@ -27,7 +35,21 @@ pub fn run(context: &AppContext, command: LibraryCommand) -> Result<i32> {
     match command {
         LibraryCommand::Scan { full } => scan(context, full),
         LibraryCommand::Stats { top } => stats(context, top),
+        LibraryCommand::Trend { limit } => trend(context, limit),
     }
+}
+
+/// Measure the library and keep the result, so `trend` has a series to show.
+///
+/// Taken at the end of a scan because that is the one moment the index is known
+/// to agree with the disk, and taken without being asked because a trend nobody
+/// remembers to collect is not a trend.
+fn record(index: &mut LibraryIndex) -> Result<()> {
+    let entries = index.entries()?;
+    let verdicts = index.verdict_counts()?;
+    let snapshot = stats::measure(&entries, &verdicts, unix_now());
+    index.record_snapshot(&snapshot)?;
+    Ok(())
 }
 
 fn scan(context: &AppContext, full: bool) -> Result<i32> {
@@ -44,6 +66,7 @@ fn scan(context: &AppContext, full: bool) -> Result<i32> {
     let mut index = context.open_index()?;
     let result = index.refresh(&roots, &extensions, &exclude, full, None)?;
     let total = index.count()?;
+    record(&mut index)?;
 
     if context.as_json {
         context.emit(&json!({
@@ -140,4 +163,79 @@ fn stats(context: &AppContext, top: usize) -> Result<i32> {
     ));
     context.say(&table(&["Artist", "Files"], &rows));
     Ok(0)
+}
+
+fn trend(context: &AppContext, limit: usize) -> Result<i32> {
+    let index = context.open_index()?;
+    // Oldest first, which is the direction a trend is read in.
+    let mut series = index.snapshots(Some(limit))?;
+    series.reverse();
+
+    if context.as_json {
+        context.emit(&json!(series.iter().map(as_row).collect::<Vec<_>>()));
+        return Ok(0);
+    }
+
+    if series.is_empty() {
+        context.say("Nothing measured yet. Run stk library scan first.");
+        return Ok(0);
+    }
+
+    let mut rows: Vec<Vec<String>> = Vec::new();
+    let mut previous: Option<&LibrarySnapshot> = None;
+    for snapshot in &series {
+        rows.push(vec![
+            stats::date_of(snapshot.taken_at),
+            against(snapshot.total, previous.map(|last| last.total)),
+            against(snapshot.tagged, previous.map(|last| last.tagged)),
+            against(
+                snapshot.with_artwork,
+                previous.map(|last| last.with_artwork),
+            ),
+            against(snapshot.with_genre, previous.map(|last| last.with_genre)),
+            against(snapshot.lossless, previous.map(|last| last.lossless)),
+            against(snapshot.flagged, previous.map(|last| last.flagged)),
+        ]);
+        previous = Some(snapshot);
+    }
+
+    context.say(&table(
+        &[
+            "Measured", "Files", "Tagged", "Artwork", "Genre", "Lossless", "Flagged",
+        ],
+        &rows,
+    ));
+    if let Some(latest) = series.last() {
+        if latest.verified_clean + latest.flagged == 0 {
+            context.say(
+                "
+No verdicts recorded yet -- run stk verify to fill the last column.",
+            );
+        }
+    }
+    Ok(0)
+}
+
+fn as_row(snapshot: &LibrarySnapshot) -> serde_json::Value {
+    json!({
+        "taken_at": snapshot.taken_at,
+        "total": snapshot.total,
+        "tagged": snapshot.tagged,
+        "with_artwork": snapshot.with_artwork,
+        "with_genre": snapshot.with_genre,
+        "lossless": snapshot.lossless,
+        "verified_clean": snapshot.verified_clean,
+        "flagged": snapshot.flagged,
+    })
+}
+
+/// A count, and how it moved since the measurement before it.
+fn against(now: usize, before: Option<usize>) -> String {
+    match before {
+        Some(before) if before != now => {
+            let sign = if now > before { "+" } else { "-" };
+            format!("{now} ({sign}{})", now.abs_diff(before))
+        }
+        _ => now.to_string(),
+    }
 }

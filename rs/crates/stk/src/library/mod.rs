@@ -3,4 +3,5 @@
 pub mod changes;
 pub mod index;
 pub mod scan;
+pub mod stats;
 pub mod tags;
