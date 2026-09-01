@@ -246,15 +246,15 @@ run it again with the flag.
 `stk library trend` can show the same numbers as a series:
 
 ```
-Measured    Files      Tagged     Artwork     Genre      Lossless  Flagged
-2026-08-14  2140       1902       1655        2103       890       12
-2026-09-01  2211 (+71) 1988 (+86) 1790 (+135) 2154 (+51) 921 (+31) 8 (-4)
+Measured    Files      Tagged     Artwork     Genre      Lossless  Verified    Flagged
+2026-08-14  2140       1902       1655        2103       890       1204        12
+2026-09-01  2211 (+71) 1988 (+86) 1790 (+135) 2154 (+51) 921 (+31) 2199 (+995) 8 (-4)
 ```
 
 A scan that found exactly what the last one found records nothing, so scanning
-four times on a quiet afternoon leaves one point rather than four. `Flagged`
-counts what `stk verify` doubted -- `FAKE` and `SUSPECT` together -- and stays
-empty until you have run it.
+four times on a quiet afternoon leaves one point rather than four. `Verified`
+and `Flagged` both come from `stk verify` -- what it cleared, and what it
+doubted, `FAKE` and `SUSPECT` together -- and stay empty until you have run it.
 
 ### Organising files
 

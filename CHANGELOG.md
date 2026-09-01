@@ -11,6 +11,46 @@ a set of ad-hoc scripts and a Nicotine+ plugin, and was then rewritten in Rust.
 
 ### Added
 
+- `stk tags apply`, the inverse of `tags dump`: edit the dump in a spreadsheet
+  and write it back. Artist, album artist, album, title and track number could
+  not be written at all before, so the dump could only show what was wrong.
+  `tags dump --round-trip` adds the two columns a row needs to be written back
+  exactly; the plain dump keeps the columns it always had. A column the sheet
+  does not carry is never written, and an empty cell leaves the tag alone unless
+  `--clear-blanks` says otherwise -- a half-filled sheet is a commoner cause of
+  an empty cell than an intent to erase. Each field is logged separately, so an
+  undo never writes wider than the row it is undoing (#3).
+- `stk organise`, which moves files into the layout their tags describe --
+  `{artist}/{album}/{track} - {title}` by default, and configurable. A
+  placeholder with nothing to fill it takes the punctuation next to it away, so
+  a file with no track number is `Title.flac` and one with no album loses the
+  directory rather than gaining an `Unknown Album`. Nothing is overwritten and
+  nothing is auto-suffixed: an occupied destination and two files landing on one
+  name are both found while planning. The index follows each file, carrying its
+  fingerprint across, and emptied folders are removed behind the move unless
+  they still hold something. `--from` tidies the flat layout a fetch leaves in
+  the download directory (#3).
+- `stk playlist export|genre|artist`, writing M3U8. A library is built from an
+  ordered export and the order then survived nowhere; `export` writes back the
+  tracks the library holds in the export's own row order (#3).
+- `stk library trend`. Every `library scan` now records a measurement -- files,
+  tagged, artwork, genre, lossless, flagged -- and `trend` shows the series with
+  what moved, so maintenance can be seen to be winning or losing. A scan that
+  found what the last one found records nothing. `library.db` v5 adds the
+  `snapshots` table, created in place like every version before it (#3).
+- Per-album and per-track genre overrides. `[albums."Artist"]` and
+  `[tracks."Artist"]` sit above the artist table and the most specific entry
+  wins, so an artist who crosses genres can finally be expressed (#3).
+- `stk wantlist diff --new` reports only what the review queue has never seen.
+  A plain diff re-reports every track it has already searched for and failed on,
+  which is what made it unusable as a recurring sync (#3).
+- Searches are scored as a batch: where several tracks can come from one peer at
+  essentially the same quality, that peer is preferred for all of them -- one
+  queue position instead of eight, one rip, one tagging convention. The window
+  is narrower than any difference of codec, bitrate tier, sample rate or
+  content, so it can never buy a lossy file or a live recording, and a promoted
+  result is flagged in the review list. `uploader.prefer_one = false` turns it
+  off (#3).
 - Rust implementation of the whole CLI, under `rs/`. Ported step by step against
   `oracle/` -- output captured from the Python build against a real 266-file
   library -- and every capture reproduces: the 434 name forms on both their

@@ -194,6 +194,10 @@ fn trend(context: &AppContext, limit: usize) -> Result<i32> {
             ),
             against(snapshot.with_genre, previous.map(|last| last.with_genre)),
             against(snapshot.lossless, previous.map(|last| last.lossless)),
+            against(
+                snapshot.verified_clean,
+                previous.map(|last| last.verified_clean),
+            ),
             against(snapshot.flagged, previous.map(|last| last.flagged)),
         ]);
         previous = Some(snapshot);
@@ -201,7 +205,7 @@ fn trend(context: &AppContext, limit: usize) -> Result<i32> {
 
     context.say(&table(
         &[
-            "Measured", "Files", "Tagged", "Artwork", "Genre", "Lossless", "Flagged",
+            "Measured", "Files", "Tagged", "Artwork", "Genre", "Lossless", "Verified", "Flagged",
         ],
         &rows,
     ));
