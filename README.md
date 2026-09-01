@@ -298,6 +298,25 @@ Artists match on their normalised name, so a `DECO*27` entry also covers the
 `DECO_27` folder it is filed under. `data/genres.example.toml` is a starting
 point; it describes one specific library's roster and is meant to be edited.
 
+An artist who crosses genres can be pinned down further:
+
+```toml
+[artists]
+Shihori = "Touhou"
+
+[albums.Shihori]
+"Prismatic" = "J-Pop"
+
+[tracks.Shihori]
+"Sakura Sunrise" = "Anime"
+```
+
+The most specific entry wins -- track, then album, then artist -- and all three
+match on the normalised name. Both override sections are keyed by artist first
+rather than by a combined `"Artist/Album"` string, because an artist name may
+itself contain a slash. `stk genre check` still reports on artists alone: one
+album's worth of exception is not something to say about a roster.
+
 ## Migrating from the old scripts
 
 This replaces a set of ad-hoc scripts and a Nicotine+ plugin. If you have a

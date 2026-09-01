@@ -6,6 +6,10 @@
 #
 # Artists are matched on their normalised name, so "DECO*27" here also covers a
 # "DECO_27" folder on disk. A value may be one genre or a list of them.
+#
+# An artist who crosses genres can be pinned down further with the [albums] and
+# [tracks] sections at the bottom of this file. The most specific entry wins:
+# track, then album, then artist.
 
 [artists]
 "25時、ナイトコードで。" = "Vocaloid"
@@ -160,3 +164,16 @@ ZUN = "Touhou"
 "白上フブキ" = "VTuber"
 "稲葉曇" = "Vocaloid"
 "香椎モイミ" = "Vocaloid"
+
+# Per-album and per-track overrides, for an artist whose files are not all one
+# genre. Both are keyed by artist first, then by album title or track title, and
+# both match on the normalised name exactly as the artist keys above do.
+#
+# Nested tables rather than an "Artist/Album" key, because an artist name may
+# itself contain a slash and a combined key could not say which one separated.
+#
+# [albums.Shihori]
+# "Prismatic" = "J-Pop"
+#
+# [tracks.Shihori]
+# "Sakura Sunrise" = "Anime"

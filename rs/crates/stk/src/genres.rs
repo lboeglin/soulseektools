@@ -6,6 +6,11 @@
 //!
 //! Artists are matched on their normalised name, so a `DECO*27` entry also
 //! covers a `DECO_27` folder, and an entry may name either one genre or several.
+//!
+//! An artist is not always one genre, though, so a per-album and a per-track
+//! table sit above the artist one (#3). The most specific entry wins, which is
+//! the only ordering that lets a map say "this artist is Vocaloid, except for
+//! that one Eurobeat record".
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -15,40 +20,108 @@ use crate::library::tags;
 use crate::models::LibraryEntry;
 use crate::text::normalize::normalize;
 
-/// Artist-to-genre assignments, looked up by normalised artist name.
+/// Overrides below the artist level, keyed by normalised artist and name.
+pub type Overrides = HashMap<(String, String), Vec<String>>;
+
+/// What a file is filed under, as a genre lookup needs it.
+///
+/// A domain type rather than three positional strings: `album` and `title` are
+/// both plain text, and a caller that swaps them gets no complaint from the
+/// compiler and no genres from the map.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TrackKey<'a> {
+    pub artist: &'a str,
+    pub album: &'a str,
+    pub title: &'a str,
+}
+
+impl<'a> TrackKey<'a> {
+    /// How an indexed file is addressed by a map.
+    ///
+    /// The artist is the folder it is filed under, falling back to the resolved
+    /// name; the title is the resolved one, so a file with no tags at all is
+    /// still addressable by the name it shows up under.
+    #[must_use]
+    pub fn of(entry: &'a LibraryEntry) -> Self {
+        Self {
+            artist: if entry.folder_artist.is_empty() {
+                &entry.artist.raw
+            } else {
+                &entry.folder_artist
+            },
+            album: &entry.tags.album,
+            title: &entry.title.raw,
+        }
+    }
+}
+
+/// Genre assignments, looked up by normalised artist, album and title.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct GenreMap {
-    by_artist: HashMap<String, Vec<String>>,
+    artists: HashMap<String, Vec<String>>,
+    albums: Overrides,
+    tracks: Overrides,
 }
 
 impl GenreMap {
+    /// A map of artists alone, which is what most libraries need.
     #[must_use]
-    pub fn new(by_artist: HashMap<String, Vec<String>>) -> Self {
-        Self { by_artist }
+    pub fn new(artists: HashMap<String, Vec<String>>) -> Self {
+        Self {
+            artists,
+            ..Self::default()
+        }
     }
 
+    /// Add per-album overrides, keyed by normalised artist and album.
+    #[must_use]
+    pub fn with_albums(mut self, albums: Overrides) -> Self {
+        self.albums = albums;
+        self
+    }
+
+    /// Add per-track overrides, keyed by normalised artist and title.
+    #[must_use]
+    pub fn with_tracks(mut self, tracks: Overrides) -> Self {
+        self.tracks = tracks;
+        self
+    }
+
+    /// How many artists the map names, whatever else it overrides.
     #[must_use]
     pub fn len(&self) -> usize {
-        self.by_artist.len()
+        self.artists.len()
     }
 
     #[must_use]
     pub fn is_empty(&self) -> bool {
-        self.by_artist.is_empty()
+        self.artists.is_empty() && self.albums.is_empty() && self.tracks.is_empty()
     }
 
-    /// The genres assigned to `artist`, or nothing when unmapped.
+    /// The genres assigned to a file: track override, else album, else artist.
     #[must_use]
-    pub fn genres_for(&self, artist: &str) -> Vec<String> {
-        self.by_artist
-            .get(&normalize(artist))
+    pub fn genres_for(&self, key: TrackKey<'_>) -> Vec<String> {
+        let artist = normalize(key.artist);
+        self.tracks
+            .get(&(artist.clone(), normalize(key.title)))
+            .or_else(|| self.albums.get(&(artist.clone(), normalize(key.album))))
+            .or_else(|| self.artists.get(&artist))
             .cloned()
             .unwrap_or_default()
     }
 
     #[must_use]
-    pub fn covers(&self, artist: &str) -> bool {
-        self.by_artist.contains_key(&normalize(artist))
+    pub fn covers(&self, key: TrackKey<'_>) -> bool {
+        !self.genres_for(key).is_empty()
+    }
+
+    /// Whether the map names this artist at all, overrides aside.
+    ///
+    /// What `genre check` reports on: an artist covered only by a one-album
+    /// override is still an artist the map has nothing general to say about.
+    #[must_use]
+    pub fn covers_artist(&self, artist: &str) -> bool {
+        self.artists.contains_key(&normalize(artist))
     }
 }
 
@@ -71,51 +144,92 @@ impl GenreChange {
 ///
 /// The file is a flat table of `"Artist" = "Genre"` or
 /// `"Artist" = ["Genre", "Other"]`, optionally nested under `[artists]`.
+/// `[albums."Artist"]` and `[tracks."Artist"]` name overrides below it, keyed by
+/// album title and by track title.
+///
+/// Nested tables rather than an `"Artist/Album"` composite key: an artist name
+/// may itself contain a slash, and a composite key would have no way to say
+/// which one separates.
 pub fn load_genre_map(path: &Path) -> Result<GenreMap> {
     let text = std::fs::read_to_string(path)
         .map_err(|error| Error::Config(format!("cannot read {}: {error}", path.display())))?;
     let data: toml::Value = toml::from_str(&text)
         .map_err(|error| Error::Config(format!("cannot read {}: {error}", path.display())))?;
 
-    let artists = data
-        .get("artists")
-        .unwrap_or(&data)
-        .as_table()
-        .ok_or_else(|| {
-            Error::Config(format!(
-                "{}: expected a table of artist names",
-                path.display()
-            ))
-        })?
-        .clone();
+    let albums = read_overrides(path, "albums", data.get("albums"))?;
+    let tracks = read_overrides(path, "tracks", data.get("tracks"))?;
 
+    let artists = artist_table(path, &data, albums.is_empty() && tracks.is_empty())?;
     let mut mapping = HashMap::new();
     for (artist, value) in artists {
-        let genres = match &value {
-            toml::Value::String(genre) => vec![genre.clone()],
-            toml::Value::Array(items) if items.iter().all(toml::Value::is_str) => items
-                .iter()
-                .filter_map(|item| item.as_str().map(str::to_owned))
-                .collect(),
-            _ => {
-                return Err(Error::Config(format!(
-                    "{}: '{artist}' must be a genre or a list of genres",
-                    path.display()
-                )));
-            }
-        };
-        mapping.insert(normalize(&artist), genres);
+        mapping.insert(normalize(&artist), read_genres(path, &artist, &value)?);
     }
-    Ok(GenreMap::new(mapping))
+
+    Ok(GenreMap::new(mapping)
+        .with_albums(albums)
+        .with_tracks(tracks))
 }
 
-/// The artist a file is filed under: its folder, else the resolved name.
-fn artist_of(entry: &LibraryEntry) -> &str {
-    if entry.folder_artist.is_empty() {
-        &entry.artist.raw
-    } else {
-        &entry.folder_artist
+/// The artist table, wherever the file put it.
+///
+/// A map with no `[artists]` section is read whole, which is the flat spelling.
+/// That cannot apply once an override section exists, since `[albums]` would
+/// then be read as an artist named "albums"; `alone` says which case this is.
+fn artist_table(path: &Path, data: &toml::Value, alone: bool) -> Result<toml::Table> {
+    match data.get("artists") {
+        Some(artists) => artists.as_table().cloned(),
+        None if alone => data.as_table().cloned(),
+        None => Some(toml::Table::new()),
     }
+    .ok_or_else(|| {
+        Error::Config(format!(
+            "{}: expected a table of artist names",
+            path.display()
+        ))
+    })
+}
+
+/// One entry's value: a genre, or a list of them.
+fn read_genres(path: &Path, name: &str, value: &toml::Value) -> Result<Vec<String>> {
+    match value {
+        toml::Value::String(genre) => Ok(vec![genre.clone()]),
+        toml::Value::Array(items) if items.iter().all(toml::Value::is_str) => Ok(items
+            .iter()
+            .filter_map(|item| item.as_str().map(str::to_owned))
+            .collect()),
+        _ => Err(Error::Config(format!(
+            "{}: '{name}' must be a genre or a list of genres",
+            path.display()
+        ))),
+    }
+}
+
+/// An `[albums]` or `[tracks]` section: artist, then what is being overridden.
+fn read_overrides(path: &Path, section: &str, value: Option<&toml::Value>) -> Result<Overrides> {
+    let Some(value) = value else {
+        return Ok(Overrides::new());
+    };
+    let artists = value.as_table().ok_or_else(|| {
+        Error::Config(format!(
+            "{}: [{section}] must be a table of artist names",
+            path.display()
+        ))
+    })?;
+
+    let mut mapping = Overrides::new();
+    for (artist, entries) in artists {
+        let entries = entries.as_table().ok_or_else(|| {
+            Error::Config(format!(
+                "{}: [{section}.\"{artist}\"] must be a table",
+                path.display()
+            ))
+        })?;
+        for (name, value) in entries {
+            let genres = read_genres(path, &format!("{artist} / {name}"), value)?;
+            mapping.insert((normalize(artist), normalize(name)), genres);
+        }
+    }
+    Ok(mapping)
 }
 
 /// What applying `genre_map` would do, without touching anything.
@@ -123,10 +237,10 @@ fn artist_of(entry: &LibraryEntry) -> &str {
 pub fn plan_changes(entries: &[LibraryEntry], genre_map: &GenreMap) -> Vec<GenreChange> {
     entries
         .iter()
-        .filter(|entry| genre_map.covers(artist_of(entry)))
+        .filter(|entry| genre_map.covers(TrackKey::of(entry)))
         .map(|entry| GenreChange {
             current: entry.tags.genres.clone(),
-            proposed: genre_map.genres_for(artist_of(entry)),
+            proposed: genre_map.genres_for(TrackKey::of(entry)),
             entry: entry.clone(),
         })
         .collect()
@@ -139,8 +253,8 @@ pub fn plan_changes(entries: &[LibraryEntry], genre_map: &GenreMap) -> Vec<Genre
 pub fn unmapped_artists(entries: &[LibraryEntry], genre_map: &GenreMap) -> Vec<(String, usize)> {
     let mut counts: HashMap<&str, usize> = HashMap::new();
     for entry in entries {
-        let artist = artist_of(entry);
-        if !artist.is_empty() && !genre_map.covers(artist) {
+        let artist = TrackKey::of(entry).artist;
+        if !artist.is_empty() && !genre_map.covers_artist(artist) {
             *counts.entry(artist).or_default() += 1;
         }
     }

@@ -5,7 +5,9 @@ mod support;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use stk::genres::{apply_change, load_genre_map, plan_changes, unmapped_artists, GenreMap};
+use stk::genres::{
+    apply_change, load_genre_map, plan_changes, unmapped_artists, GenreMap, TrackKey,
+};
 use stk::library::index::describe;
 use stk::library::tags;
 use stk::matching::NameForms;
@@ -69,7 +71,15 @@ fn map_of(pairs: &[(&str, &[&str])]) -> GenreMap {
 }
 
 fn genres(map: &GenreMap, artist: &str) -> Vec<String> {
-    map.genres_for(artist)
+    map.genres_for(key(artist, "", ""))
+}
+
+fn key<'a>(artist: &'a str, album: &'a str, title: &'a str) -> TrackKey<'a> {
+    TrackKey {
+        artist,
+        album,
+        title,
+    }
 }
 
 #[test]
@@ -123,7 +133,7 @@ fn an_unmapped_artist_yields_nothing() {
     let genre_map = load_genre_map(&path).expect("a genre map");
 
     assert!(genres(&genre_map, "Nobody").is_empty());
-    assert!(!genre_map.covers("Nobody"));
+    assert!(!genre_map.covers(key("Nobody", "", "")));
 }
 
 #[test]
@@ -262,5 +272,200 @@ fn apply_change_writes_several_genres() {
     assert_eq!(
         tags::read_tags(&track).expect("readable tags").genres,
         vec!["Touhou".to_owned(), "Eurobeat".to_owned()]
+    );
+}
+
+#[test]
+fn an_album_override_beats_the_artist_entry() {
+    let scratch = Scratch::new("genres-album-override");
+    let path = write_map(
+        &scratch,
+        "[artists]
+Shihori = \"Touhou\"
+
+[albums.Shihori]
+Prismatic = \"J-Pop\"
+",
+    );
+    let genre_map = load_genre_map(&path).expect("a genre map");
+
+    assert_eq!(
+        genre_map.genres_for(key("Shihori", "Prismatic", "Anything")),
+        vec!["J-Pop".to_owned()]
+    );
+    assert_eq!(
+        genre_map.genres_for(key("Shihori", "Another Record", "Anything")),
+        vec!["Touhou".to_owned()]
+    );
+}
+
+#[test]
+fn a_track_override_beats_an_album_override() {
+    let scratch = Scratch::new("genres-track-override");
+    let path = write_map(
+        &scratch,
+        "[artists]
+Shihori = \"Touhou\"
+
+[albums.Shihori]
+Prismatic = \"J-Pop\"
+
+         [tracks.Shihori]
+\"Sakura Sunrise\" = \"Anime\"
+",
+    );
+    let genre_map = load_genre_map(&path).expect("a genre map");
+
+    assert_eq!(
+        genre_map.genres_for(key("Shihori", "Prismatic", "Sakura Sunrise")),
+        vec!["Anime".to_owned()]
+    );
+}
+
+#[test]
+fn an_override_may_name_several_genres() {
+    let scratch = Scratch::new("genres-override-several");
+    let path = write_map(
+        &scratch,
+        "[albums.Shihori]
+Prismatic = [\"Touhou\", \"Eurobeat\"]
+",
+    );
+    let genre_map = load_genre_map(&path).expect("a genre map");
+
+    assert_eq!(
+        genre_map.genres_for(key("Shihori", "Prismatic", "")),
+        vec!["Touhou".to_owned(), "Eurobeat".to_owned()]
+    );
+}
+
+#[test]
+fn an_override_matches_on_its_normalised_form() {
+    // The same rule artist keys already follow: what is on disk is rarely
+    // spelled the way the map is.
+    let scratch = Scratch::new("genres-override-normalised");
+    let path = write_map(
+        &scratch,
+        "[albums.\"DECO*27\"]
+\"Ghost Rule\" = \"Vocaloid\"
+",
+    );
+    let genre_map = load_genre_map(&path).expect("a genre map");
+
+    assert_eq!(
+        genre_map.genres_for(key("DECO_27", "ghost rule", "")),
+        vec!["Vocaloid".to_owned()]
+    );
+}
+
+#[test]
+fn an_artist_with_a_slash_in_their_name_is_still_one_override_key() {
+    // A composite "Artist/Album" key could not tell which slash separated.
+    let scratch = Scratch::new("genres-override-slash");
+    let path = write_map(
+        &scratch,
+        "[albums.\"AC/DC\"]
+\"Back in Black\" = \"Rock\"
+",
+    );
+    let genre_map = load_genre_map(&path).expect("a genre map");
+
+    assert_eq!(
+        genre_map.genres_for(key("AC/DC", "Back in Black", "")),
+        vec!["Rock".to_owned()]
+    );
+}
+
+#[test]
+fn an_artist_only_map_reads_exactly_as_it_did_before() {
+    let scratch = Scratch::new("genres-override-compat");
+    let path = write_map(
+        &scratch,
+        "ZUN = \"Touhou\"
+Ado = \"J-Pop\"
+",
+    );
+    let genre_map = load_genre_map(&path).expect("a genre map");
+
+    assert_eq!(genres(&genre_map, "ZUN"), vec!["Touhou".to_owned()]);
+    assert_eq!(genre_map.len(), 2);
+}
+
+#[test]
+fn a_map_of_overrides_alone_does_not_read_its_sections_as_artists() {
+    // Without an [artists] section the whole document is the artist table, so
+    // an [albums] section would otherwise become an artist named "albums".
+    let scratch = Scratch::new("genres-override-only");
+    let path = write_map(
+        &scratch,
+        "[albums.Shihori]
+Prismatic = \"J-Pop\"
+",
+    );
+    let genre_map = load_genre_map(&path).expect("a genre map");
+
+    assert_eq!(genre_map.len(), 0);
+    assert!(genres(&genre_map, "albums").is_empty());
+    assert_eq!(
+        genre_map.genres_for(key("Shihori", "Prismatic", "")),
+        vec!["J-Pop".to_owned()]
+    );
+}
+
+#[test]
+fn an_override_section_that_is_not_a_table_of_artists_is_rejected() {
+    let scratch = Scratch::new("genres-override-bad");
+    let path = write_map(
+        &scratch,
+        "albums = 42
+",
+    );
+
+    let error = load_genre_map(&path).expect_err("a rejected map");
+    assert!(error.to_string().contains("must be a table"), "{error}");
+}
+
+#[test]
+fn an_album_override_is_planned_for_the_files_it_names() {
+    let genre_map = GenreMap::new(
+        [("shihori".to_owned(), vec!["Touhou".to_owned()])]
+            .into_iter()
+            .collect(),
+    )
+    .with_albums(
+        [(
+            ("shihori".to_owned(), "prismatic".to_owned()),
+            vec!["J-Pop".to_owned()],
+        )]
+        .into_iter()
+        .collect(),
+    );
+
+    let mut on_the_album = entry("Shihori", "Sakura Sunrise", &[]);
+    on_the_album.tags.album = "Prismatic".to_owned();
+    let elsewhere = entry("Shihori", "Something Else", &[]);
+
+    let planned = plan_changes(&[on_the_album, elsewhere], &genre_map);
+
+    assert_eq!(planned[0].proposed, vec!["J-Pop".to_owned()]);
+    assert_eq!(planned[1].proposed, vec!["Touhou".to_owned()]);
+}
+
+#[test]
+fn an_artist_covered_only_by_an_override_is_still_reported_as_unmapped() {
+    // `genre check` asks what the map has nothing general to say about, and one
+    // album's worth of exception is not an answer to that.
+    let genre_map = GenreMap::default().with_albums(
+        [(
+            ("shihori".to_owned(), "prismatic".to_owned()),
+            vec!["J-Pop".to_owned()],
+        )]
+        .into_iter()
+        .collect(),
+    );
+
+    assert_eq!(
+        unmapped_artists(&[entry("Shihori", "Sakura Sunrise", &[])], &genre_map),
+        vec![("Shihori".to_owned(), 1)]
     );
 }
