@@ -1,5 +1,6 @@
 //! `stk wantlist` -- what a streaming export contains that the library does not.
 
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use clap::Subcommand;
@@ -24,6 +25,9 @@ pub enum WantlistCommand {
         /// Write the matched tracks and their scores here.
         #[arg(long)]
         owned: Option<PathBuf>,
+        /// Report only tracks the review queue has never seen.
+        #[arg(long = "new")]
+        only_new: bool,
     },
 }
 
@@ -35,12 +39,14 @@ pub fn run(context: &AppContext, command: WantlistCommand) -> Result<i32> {
             queue,
             missing,
             owned,
+            only_new,
         } => diff(
             context,
             &export,
             queue,
             missing.as_deref(),
             owned.as_deref(),
+            only_new,
         ),
     }
 }
@@ -53,6 +59,7 @@ fn diff(
     queue: bool,
     missing_csv: Option<&Path>,
     owned_csv: Option<&Path>,
+    only_new: bool,
 ) -> Result<i32> {
     let tracks = match wantlist::read_export(export) {
         Ok(tracks) => tracks,
@@ -63,11 +70,29 @@ fn diff(
     };
 
     let entries = context.open_index()?.entries()?;
-    let result = wantlist::diff(&tracks, &entries, &context.settings().matching.thresholds());
+    let mut result = wantlist::diff(&tracks, &entries, &context.settings().matching.thresholds());
+
+    // Counted before the queue is touched, since adding them is what stops them
+    // being new.
+    let known = if only_new {
+        context.open_review()?.known_queries()?
+    } else {
+        HashSet::new()
+    };
 
     let mut queued = 0;
     if queue && !result.missing.is_empty() {
         queued = context.open_review()?.add(&result.missing)?;
+    }
+
+    // Held across the filter below: `total` and the missing count both describe
+    // the export, and reporting only the new ones must not restate its size.
+    let total = result.total();
+    let found = result.missing.len();
+    if only_new {
+        result
+            .missing
+            .retain(|track| !known.contains(&track.query()));
     }
 
     if let Some(destination) = missing_csv {
@@ -79,7 +104,7 @@ fn diff(
 
     if context.as_json {
         context.emit(&json!({
-            "total": result.total(),
+            "total": total,
             "missing": result
                 .missing
                 .iter()
@@ -96,6 +121,7 @@ fn diff(
                 }))
                 .collect::<Vec<_>>(),
             "queued": queued,
+            "seen_before": found - result.missing.len(),
         }));
         return Ok(0);
     }
@@ -128,10 +154,16 @@ fn diff(
 
     context.say(&format!(
         "{} of {} track(s) missing, {} owned",
-        result.missing.len(),
-        result.total(),
+        found,
+        total,
         result.owned.len()
     ));
+    if only_new {
+        context.say(&format!(
+            "{} of those are new since the last diff",
+            result.missing.len()
+        ));
+    }
     if queued > 0 {
         context.say(&format!("Queued {queued} new track(s) for searching"));
     }

@@ -222,6 +222,18 @@ impl ReviewStore {
         row.map(|row| self.hydrate(row)).transpose()
     }
 
+    /// Every track query the queue has ever held, whatever became of it.
+    ///
+    /// What makes `wantlist diff --new` possible: a track the queue rejected or
+    /// failed on is still missing from the library, so a plain diff reports it
+    /// again on every run. This says which of those have been seen before.
+    pub fn known_queries(&self) -> Result<HashSet<String>> {
+        self.connection
+            .prepare("SELECT query FROM tracks")
+            .and_then(|mut statement| statement.query_map([], |row| row.get(0))?.collect())
+            .map_err(|error| sqlite_error(&error))
+    }
+
     pub fn counts(&self) -> Result<BTreeMap<TrackStatus, usize>> {
         let rows: Vec<(String, i64)> = self
             .connection

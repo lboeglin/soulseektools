@@ -790,6 +790,176 @@ fn wantlist_diff_writes_the_missing_and_owned_reports() {
 }
 
 #[test]
+fn a_second_diff_of_the_same_export_reports_nothing_new() {
+    needs_ffmpeg!();
+    let _guard = exclusive();
+    let harness = Harness::new("cli-wantlist-new-again");
+    let root = library(&harness);
+    harness.with_config(&root);
+    run(&["library", "scan"]);
+
+    let export = harness.join("export.csv");
+    std::fs::write(
+        &export,
+        "Track name,Artist name
+Senbonzakura,Hatsune Miku
+",
+    )
+    .expect("a written export");
+
+    let report = harness.join("missing.csv");
+    let diff_new = |destination: &Path| {
+        run(&[
+            "wantlist",
+            "diff",
+            &export.display().to_string(),
+            "--new",
+            "--missing",
+            &destination.display().to_string(),
+        ])
+    };
+
+    assert_eq!(diff_new(&report), 0);
+    let first = std::fs::read_to_string(&report).expect("a missing report");
+    assert!(first.contains("Senbonzakura"), "{first}");
+
+    assert_eq!(diff_new(&report), 0);
+    let second = std::fs::read_to_string(&report).expect("a missing report");
+    assert!(!second.contains("Senbonzakura"), "{second}");
+    drop(harness);
+}
+
+#[test]
+fn a_track_added_to_the_export_since_the_last_diff_is_reported_as_new() {
+    needs_ffmpeg!();
+    let _guard = exclusive();
+    let harness = Harness::new("cli-wantlist-new-grown");
+    let root = library(&harness);
+    harness.with_config(&root);
+    run(&["library", "scan"]);
+
+    let export = harness.join("export.csv");
+    std::fs::write(
+        &export,
+        "Track name,Artist name
+Senbonzakura,Hatsune Miku
+",
+    )
+    .expect("a written export");
+    run(&["wantlist", "diff", &export.display().to_string()]);
+
+    std::fs::write(
+        &export,
+        "Track name,Artist name
+Senbonzakura,Hatsune Miku
+Ghost Rule,DECO*27
+",
+    )
+    .expect("a grown export");
+
+    let report = harness.join("missing.csv");
+    assert_eq!(
+        run(&[
+            "wantlist",
+            "diff",
+            &export.display().to_string(),
+            "--new",
+            "--missing",
+            &report.display().to_string(),
+        ]),
+        0
+    );
+
+    let text = std::fs::read_to_string(&report).expect("a missing report");
+    assert!(text.contains("Ghost Rule"), "{text}");
+    assert!(!text.contains("Senbonzakura"), "{text}");
+    drop(harness);
+}
+
+#[test]
+fn a_track_the_queue_gave_up_on_is_not_reported_as_new_again() {
+    // The point of --new: a FAILED track is still missing from the library, so
+    // a plain diff re-reports it every single run.
+    needs_ffmpeg!();
+    let _guard = exclusive();
+    let harness = Harness::new("cli-wantlist-new-failed");
+    let root = library(&harness);
+    harness.with_config(&root);
+    run(&["library", "scan"]);
+
+    let export = harness.join("export.csv");
+    std::fs::write(
+        &export,
+        "Track name,Artist name
+Senbonzakura,Hatsune Miku
+",
+    )
+    .expect("a written export");
+    run(&["wantlist", "diff", &export.display().to_string()]);
+
+    {
+        let mut store = stk::review::store::ReviewStore::open(&harness.join("review.db"))
+            .expect("the review queue");
+        let tracks = store.tracks(&[], None).expect("tracks");
+        store
+            .mark(
+                tracks[0].id,
+                stk::models::TrackStatus::Failed,
+                "nothing found",
+            )
+            .expect("a marked track");
+    }
+
+    let report = harness.join("missing.csv");
+    assert_eq!(
+        run(&[
+            "wantlist",
+            "diff",
+            &export.display().to_string(),
+            "--new",
+            "--missing",
+            &report.display().to_string(),
+        ]),
+        0
+    );
+
+    let text = std::fs::read_to_string(&report).expect("a missing report");
+    assert!(!text.contains("Senbonzakura"), "{text}");
+    drop(harness);
+}
+
+#[test]
+fn the_new_flag_does_not_change_what_is_queued() {
+    needs_ffmpeg!();
+    let _guard = exclusive();
+    let harness = Harness::new("cli-wantlist-new-queues");
+    let root = library(&harness);
+    harness.with_config(&root);
+    run(&["library", "scan"]);
+
+    let export = harness.join("export.csv");
+    std::fs::write(
+        &export,
+        "Track name,Artist name
+Senbonzakura,Hatsune Miku
+",
+    )
+    .expect("a written export");
+
+    assert_eq!(
+        run(&["wantlist", "diff", &export.display().to_string(), "--new"]),
+        0
+    );
+
+    let store = stk::review::store::ReviewStore::open(&harness.join("review.db"))
+        .expect("the review queue");
+    let tracks = store.tracks(&[], None).expect("tracks");
+    assert_eq!(tracks.len(), 1);
+    assert_eq!(tracks[0].track.title, "Senbonzakura");
+    drop(harness);
+}
+
+#[test]
 fn wantlist_diff_rejects_a_file_without_the_needed_columns() {
     let _guard = exclusive();
     let harness = Harness::new("cli-wantlist-bad");

@@ -149,6 +149,7 @@ few and run `stk fetch download` once.
 ```bash
 stk library scan
 stk wantlist diff "My Spotify Library.csv" --owned owned.csv
+stk wantlist diff "My Spotify Library.csv" --new   # only what is newly missing
 ```
 
 Matching is romaji-aware: a Spotify entry for `千本桜` matches a file named
@@ -159,6 +160,12 @@ dropped by mistake is simply gone. `--owned` writes what it did match, with
 scores, so you can check the decisions rather than trust them.
 
 Missing tracks are added to the review queue.
+
+Re-run the same diff against a grown export and it reports everything missing
+all over again, including the tracks a previous run searched for and gave up on
+— they are, after all, still missing. `--new` reports only the tracks the review
+queue has never seen, which is what makes the diff usable as a recurring sync
+rather than a one-shot. It changes what you are told, not what is queued.
 
 **2. Search.**
 
