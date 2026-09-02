@@ -61,6 +61,10 @@ pub enum Command {
     #[command(subcommand)]
     Library(commands::library::LibraryCommand),
 
+    /// Measure loudness and write the ReplayGain tags a player levels with.
+    #[command(alias = "replaygain")]
+    Loudness(commands::loudness::LoudnessArgs),
+
     /// Find duplicate tracks by title or by audio.
     #[command(subcommand)]
     Dupes(commands::dupes::DupesCommand),
@@ -138,6 +142,7 @@ pub fn run(arguments: Vec<std::ffi::OsString>) -> i32 {
         Command::Verify(args) => commands::verify::run(&context, &args),
         Command::Get(args) => commands::get::run(&context, &args),
         Command::Library(command) => commands::library::run(&context, command),
+        Command::Loudness(args) => commands::loudness::run(&context, &args),
         Command::Dupes(command) => commands::dupes::run(&context, command),
         Command::Art(command) => commands::art::run(&context, command),
         Command::Genre(command) => commands::genre::run(&context, command),

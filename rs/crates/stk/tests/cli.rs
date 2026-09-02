@@ -1954,3 +1954,199 @@ fn get_with_an_empty_list_is_rejected() {
     assert_eq!(run(&["get", "--from", &list.display().to_string()]), 1);
     drop(harness);
 }
+
+fn gain_of(path: &Path) -> Option<String> {
+    stk::library::tags::read_replay_gain(path)
+        .expect("readable loudness tags")
+        .track_gain
+}
+
+/// A library where one album holds two tracks and one file stands alone, so
+/// both halves of the album rule are exercised.
+fn levelled_library(harness: &Harness) -> PathBuf {
+    let root = harness.join("Music");
+    for (name, title) in [
+        ("01 - Roki.flac", "Roki"),
+        ("02 - Ghost Rule.flac", "Ghost Rule"),
+    ] {
+        encode(
+            &root.join("DECO_27").join(name),
+            &Encoded {
+                seconds: 2.0,
+                modulation_hz: 0.5,
+                metadata: &[("artist", "DECO*27"), ("title", title), ("album", "Ghost")],
+                ..Encoded::default()
+            },
+        );
+    }
+    encode(
+        &root.join("ZUN").join("Heian Alien.flac"),
+        &Encoded {
+            seconds: 2.0,
+            modulation_hz: 0.5,
+            metadata: &[("artist", "ZUN"), ("title", "Heian Alien")],
+            ..Encoded::default()
+        },
+    );
+    root
+}
+
+#[test]
+fn loudness_writes_nothing_without_apply() {
+    needs_ffmpeg!();
+    let _guard = exclusive();
+    let harness = Harness::new("cli-loudness-dry-run");
+    let root = levelled_library(&harness);
+    harness.with_config(&root);
+    run(&["library", "scan"]);
+
+    assert_eq!(run(&["loudness"]), 0);
+
+    // The invariant: nothing is written without --apply.
+    assert_eq!(gain_of(&root.join("ZUN").join("Heian Alien.flac")), None);
+    assert!(logged(&harness).is_empty());
+    drop(harness);
+}
+
+#[test]
+fn loudness_with_the_flag_writes_a_gain_and_logs_it() {
+    needs_ffmpeg!();
+    let _guard = exclusive();
+    let harness = Harness::new("cli-loudness-apply");
+    let root = levelled_library(&harness);
+    harness.with_config(&root);
+    run(&["library", "scan"]);
+
+    assert_eq!(run(&["loudness", "--apply"]), 0);
+
+    assert!(gain_of(&root.join("ZUN").join("Heian Alien.flac")).is_some());
+    let changes = logged(&harness);
+    assert_eq!(changes.len(), 3);
+    assert!(changes.iter().all(|change| change.command == "loudness"));
+    assert!(changes.iter().all(|change| change.field == "replay_gain"));
+    drop(harness);
+}
+
+/// An album gain belongs to a record; a file with no album tag has none.
+#[test]
+fn loudness_gives_an_album_gain_only_to_files_that_name_an_album() {
+    needs_ffmpeg!();
+    let _guard = exclusive();
+    let harness = Harness::new("cli-loudness-albums");
+    let root = levelled_library(&harness);
+    harness.with_config(&root);
+    run(&["library", "scan"]);
+    run(&["loudness", "--apply"]);
+
+    let read = |path: PathBuf| {
+        stk::library::tags::read_replay_gain(&path).expect("readable loudness tags")
+    };
+    let first = read(root.join("DECO_27").join("01 - Roki.flac"));
+    let second = read(root.join("DECO_27").join("02 - Ghost Rule.flac"));
+    let single = read(root.join("ZUN").join("Heian Alien.flac"));
+
+    assert!(first.album_gain.is_some());
+    assert_eq!(first.album_gain, second.album_gain);
+    assert_eq!(single.album_gain, None);
+    drop(harness);
+}
+
+/// A library scanned elsewhere is not re-measured out from under whoever owns
+/// it -- that is what `--force` is for.
+#[test]
+fn loudness_leaves_a_file_that_already_carries_a_gain_alone() {
+    needs_ffmpeg!();
+    let _guard = exclusive();
+    let harness = Harness::new("cli-loudness-skip");
+    let root = levelled_library(&harness);
+    harness.with_config(&root);
+    run(&["library", "scan"]);
+    let track = root.join("ZUN").join("Heian Alien.flac");
+    stk::library::tags::write_replay_gain(
+        &track,
+        &stk::models::ReplayGainTags {
+            track_gain: Some("-99.00 dB".to_owned()),
+            ..stk::models::ReplayGainTags::default()
+        },
+    )
+    .expect("an earlier scan");
+
+    assert_eq!(
+        run(&["loudness", "--apply", &track.display().to_string()]),
+        0
+    );
+
+    assert_eq!(gain_of(&track), Some("-99.00 dB".to_owned()));
+    assert!(logged(&harness).is_empty());
+    drop(harness);
+}
+
+#[test]
+fn loudness_force_replaces_an_existing_scan() {
+    needs_ffmpeg!();
+    let _guard = exclusive();
+    let harness = Harness::new("cli-loudness-force");
+    let root = levelled_library(&harness);
+    harness.with_config(&root);
+    run(&["library", "scan"]);
+    let track = root.join("ZUN").join("Heian Alien.flac");
+    stk::library::tags::write_replay_gain(
+        &track,
+        &stk::models::ReplayGainTags {
+            track_gain: Some("-99.00 dB".to_owned()),
+            ..stk::models::ReplayGainTags::default()
+        },
+    )
+    .expect("an earlier scan");
+
+    assert_eq!(
+        run(&[
+            "loudness",
+            "--force",
+            "--apply",
+            &track.display().to_string()
+        ]),
+        0
+    );
+
+    assert_ne!(gain_of(&track), Some("-99.00 dB".to_owned()));
+    drop(harness);
+}
+
+#[test]
+fn loudness_reports_the_plan_as_json() {
+    needs_ffmpeg!();
+    let _guard = exclusive();
+    let harness = Harness::new("cli-loudness-json");
+    let root = levelled_library(&harness);
+    harness.with_config(&root);
+    run(&["library", "scan"]);
+
+    assert_eq!(run(&["--json", "loudness"]), 0);
+    drop(harness);
+}
+
+/// The whole run undone leaves the library exactly as it was found.
+#[test]
+fn changes_undo_takes_a_whole_loudness_run_back() {
+    needs_ffmpeg!();
+    let _guard = exclusive();
+    let harness = Harness::new("cli-loudness-undo");
+    let root = levelled_library(&harness);
+    harness.with_config(&root);
+    run(&["library", "scan"]);
+    run(&["loudness", "--apply"]);
+
+    assert_eq!(run(&["changes", "undo", "--last", "--apply"]), 0);
+
+    for track in [
+        root.join("DECO_27").join("01 - Roki.flac"),
+        root.join("DECO_27").join("02 - Ghost Rule.flac"),
+        root.join("ZUN").join("Heian Alien.flac"),
+    ] {
+        assert!(stk::library::tags::read_replay_gain(&track)
+            .expect("readable loudness tags")
+            .is_empty());
+    }
+    drop(harness);
+}
