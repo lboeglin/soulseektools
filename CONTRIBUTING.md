@@ -94,11 +94,13 @@ rs/crates/stk/src/
   matching.rs       fuzzy name matching, used by everything
   organise.rs       the layout pattern, and moving files into it
   playlist.rs       rendering M3U, so an order can leave the library again
+  replaygain.rs     loudness figures, album grouping, and the tags they become
   tagsheet.rs       reading an edited `tags dump` back
   text/             normalisation and romaji transliteration
   library/          scanning, tags, the SQLite index, the --apply write log,
                     and the per-scan measurements behind `library trend`
-  audio/            ffmpeg wrappers, spectral analysis, fingerprinting
+  audio/            ffmpeg wrappers, spectral analysis, fingerprinting, and
+                    the EBU R 128 loudness scan behind `stk loudness`
   artwork/          providers and the artist-verification guard
   soulseek/         the client trait, the slskd backend, ranking
   review/           the review queue, and the album view over it

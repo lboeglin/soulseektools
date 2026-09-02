@@ -112,6 +112,8 @@ The settings worth knowing about:
 | `uploader.score_window` | How close "close" is. Wider than availability, narrower than any quality gap. |
 | `uploader.minimum_coverage` | How many of the batch's tracks a peer must hold to be preferred. |
 | `verify.steep_db_per_khz` | How sharp a frequency cutoff must be to look artificial. |
+| `loudness.reference_lufs` | What a scanned file is levelled to. -18 LUFS is ReplayGain 2.0. |
+| `loudness.true_peak` | Catch inter-sample peaks as well as the loudest sample. On by default. |
 | `artwork.require_artist_match` | Refuse cover art belonging to a different artist. |
 | `artwork.contact` | A URL or email identifying you to MusicBrainz. Optional. |
 | `genres.map_path` | Your artist-to-genre map. Start from `data/genres.example.toml`. |
@@ -259,6 +261,7 @@ stk genre apply --apply    # write the mapped genres
 stk tags dump              # every file's artist/album/title/genre as CSV
 stk tags apply sheet.csv   # write back an edited one
 stk organise --apply       # move files into the layout their tags describe
+stk loudness --apply       # measure loudness and write the ReplayGain tags
 stk playlist genre Touhou  # an m3u8 of everything carrying a genre
 stk changes list           # what those --apply runs actually wrote
 stk library trend          # whether any of it is winning
@@ -273,15 +276,17 @@ run it again with the flag.
 `stk library trend` can show the same numbers as a series:
 
 ```
-Measured    Files      Tagged     Artwork     Genre      Lossless  Verified    Flagged
-2026-08-14  2140       1902       1655        2103       890       1204        12
-2026-09-01  2211 (+71) 1988 (+86) 1790 (+135) 2154 (+51) 921 (+31) 2199 (+995) 8 (-4)
+Measured    Files      Tagged     Artwork     Genre      Lossless  Verified    Flagged  Loudness
+2026-08-14  2140       1902       1655        2103       890       1204        12       -
+2026-09-01  2211 (+71) 1988 (+86) 1790 (+135) 2154 (+51) 921 (+31) 2199 (+995) 8 (-4)   2211
 ```
 
 A scan that found exactly what the last one found records nothing, so scanning
 four times on a quiet afternoon leaves one point rather than four. `Verified`
 and `Flagged` both come from `stk verify` -- what it cleared, and what it
-doubted, `FAKE` and `SUSPECT` together -- and stay empty until you have run it.
+doubted, `FAKE` and `SUSPECT` together -- and stay empty until you have run it. A
+column a measurement predates reads `-` rather than zero: that scan did not
+count it, which is not the same as having counted none.
 
 ### Organising files
 
@@ -381,6 +386,59 @@ rather than its last file. Undo refuses a file that has changed since it was
 logged rather than overwriting a tag you have since fixed by hand — `--force`
 overrules that. Replaced covers are kept beside the index under `changes/`, and
 files that carried the same cover share one copy of it.
+
+### Level-matching playback
+
+Albums are mastered at wildly different levels, so a shuffled library jumps in
+volume between tracks and you spend the evening on the volume knob. ReplayGain
+fixes that without touching the audio: `stk loudness` measures how loud each
+file actually is and writes a gain figure into its tags, which the player
+applies at playback. It is metadata, so it is reversible and costs nothing in
+quality.
+
+```bash
+stk loudness                       # see the plan
+stk loudness --apply               # write the tags
+stk loudness ~/Music/ZUN --apply   # or just one folder, or one file
+stk loudness --force --apply       # measure files that already carry a gain
+stk loudness --track-only --apply  # skip the album figures
+```
+
+Two figures are written, and they are not interchangeable:
+
+- **track gain** flattens every file to the same loudness, which is what you
+  want on shuffle;
+- **album gain** applies one figure across a record, so a quiet interlude stays
+  quiet relative to the track after it.
+
+Players choose between them per context, so writing only one would be half a
+job. An album is whatever the tags say it is — `(album artist or artist,
+album)`, which is exactly how a player groups when it applies album gain. **A
+file with no album tag gets a track gain only** and is left without the other:
+falling back to the folder would give a folder of unrelated singles one shared
+figure, which is the wrong answer for that folder.
+
+**An existing scan is never overwritten.** A file already carrying a gain — from
+foobar2000, `rsgain`, `loudgain` or an earlier run — is left alone, and
+`--force` is how you say otherwise. The decision is made per record rather than
+per file, so an album half of which is already scanned is measured entire: an
+album gain derived from half a record is not an album gain.
+
+The measurement is EBU R 128 / ITU-R BS.1770 against a −18 LUFS reference —
+ReplayGain 2.0, which is what every current scanner writes. A true peak is
+measured alongside it, so a player applying positive gain has something to
+check itself against. Opus keeps its gain in the container header rather than in
+a tag, so those files get `R128_TRACK_GAIN` as well as the usual four keys;
+both say the same thing.
+
+Nothing in `stk` plays audio, so these tags are written purely for other
+players — `stk` never reads them back to make a decision. What it does read is
+whether a file carries one at all: `stk library stats` and `stk library trend`
+count the files nothing has level-matched, which is how you notice that last
+week's fetch dropped forty un-scanned files into the library.
+
+Every write is logged, so `stk changes undo --last --apply` takes a whole run
+back, and a file that had no gain before has none again.
 
 ### Finding fake lossless files
 

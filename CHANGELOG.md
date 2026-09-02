@@ -11,6 +11,41 @@ a set of ad-hoc scripts and a Nicotine+ plugin, and was then rewritten in Rust.
 
 ### Added
 
+- `stk loudness`, which measures how loud every file actually is and writes the
+  ReplayGain tags a player levels playback with. Albums are mastered at wildly
+  different levels, so a shuffled library jumps in volume between tracks; the
+  fix is metadata rather than a re-encode, so it is reversible and costs nothing
+  in quality. Both figures are written -- track gain for shuffle, album gain so
+  a quiet interlude stays quiet relative to the track after it -- because
+  players choose between them per context. The measurement is EBU R 128 against
+  a -18 LUFS reference, which is ReplayGain 2.0 and what `loudgain`, `rsgain`
+  and foobar2000 write today, with a true peak alongside it so a player applying
+  positive gain has a clipping guard. An album is defined by its tags and
+  nothing else, since that is how a player groups when it applies album gain; a
+  file with no album tag gets a track gain only, rather than sharing a figure
+  with whatever else sits in its folder. An existing scan is never overwritten
+  without `--force`, and the decision is made per record rather than per file,
+  so an album half of which is already scanned is measured entire -- an album
+  gain derived from half a record is not one. Opus keeps its gain in the
+  container header, so those files also get `R128_TRACK_GAIN`, the one place
+  `library/tags.rs` dispatches on a container. Album loudness is combined from
+  the tracks' own figures rather than measured in a second pass: it is an
+  approximation of a few tenths of an LU, because a true album measurement
+  re-gates against the album's threshold, and the exact version doubles the
+  decode cost of the slowest thing this tool does and fails on an album whose
+  tracks do not share a sample rate. All four figures share one write-log row
+  rather than one apiece, against the rule the other fields follow: they are a
+  single measurement, and a row apiece would let an undo restore a gain without
+  the peak that bounds it (#7).
+- `library.db` v6: `files` gains the six loudness columns and `snapshots` gains
+  `with_replay_gain`, added in place like every version before them. They come
+  off the header parse `describe` already performs -- which now happens once
+  rather than three times per file -- so `stk library stats` and `stk library
+  trend` can count the files nothing has level-matched for free. That figure is
+  useful even to someone who scans elsewhere: a fetch that drops forty
+  un-scanned files into the library is otherwise invisible, and `stk` is the
+  thing that put them there. The snapshot column is nullable, so a measurement
+  taken before it existed reads `-` rather than zero (#7).
 - `stk review albums` and `stk review approve-album`, so a peer's folder can be
   taken as one decision instead of one approval per track. Soulseek's real unit
   is the folder: one peer holding four of the waiting tracks is one queue
