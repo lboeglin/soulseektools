@@ -345,6 +345,24 @@ impl ReviewStore {
         self.set_status(track_id, TrackStatus::Rejected, reason)
     }
 
+    /// Take back a decision nothing has acted on yet (#8).
+    ///
+    /// What the picker's undo is: a choice made a keystroke ago and regretted.
+    /// The `attempted` mark goes with the approval, because [`Self::approve`]
+    /// sets it so the retry in [`Self::next_candidate`] never offers a tried
+    /// candidate twice -- and a candidate nothing has queued was never tried.
+    /// Only sound for a track no download has started for, which is the only
+    /// kind the picker walks.
+    pub fn undecide(&mut self, track_id: i64) -> Result<()> {
+        self.connection
+            .execute(
+                "UPDATE candidates SET approved = 0, attempted = 0 WHERE track_id = ?1",
+                params![track_id],
+            )
+            .map_err(|error| sqlite_error(&error))?;
+        self.set_status(track_id, TrackStatus::AwaitingReview, "")
+    }
+
     pub fn mark(&mut self, track_id: i64, status: TrackStatus, detail: &str) -> Result<()> {
         self.set_status(track_id, status, detail)
     }

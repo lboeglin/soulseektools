@@ -89,7 +89,7 @@ fn search(context: &AppContext, limit: Option<usize>) -> Result<i32> {
     let with_candidates = outcomes.iter().filter(|outcome| outcome.found > 0).count();
     context.say(&format!(
         "Searched {} track(s); {with_candidates} have candidates to review. \
-         Run stk review list to choose.",
+         Run stk review pick to choose.",
         outcomes.len()
     ));
     Ok(0)

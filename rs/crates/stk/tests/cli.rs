@@ -1598,6 +1598,30 @@ fn review_list_accepts_a_status_filter_and_rejects_a_bad_one() {
     drop(harness);
 }
 
+#[test]
+fn review_pick_refuses_to_run_as_json() {
+    let _guard = exclusive();
+    let harness = Harness::new("cli-review-pick-json");
+    harness.with_config(&harness.join("Music"));
+
+    // `say` writes nothing in JSON mode, so a prompt there would be an invisible
+    // hang in the middle of a pipeline.
+    assert_eq!(run(&["--json", "review", "pick"]), 1);
+    drop(harness);
+}
+
+#[test]
+fn review_pick_on_an_empty_queue_says_so() {
+    let _guard = exclusive();
+    let harness = Harness::new("cli-review-pick-empty");
+    harness.with_config(&harness.join("Music"));
+
+    // Nothing answers the prompts here, which the picker reads as a quit rather
+    // than as agreement -- so this returns instead of blocking.
+    assert_eq!(run(&["review", "pick"]), 0);
+    drop(harness);
+}
+
 /// Two tracks one peer holds in a single folder, waiting to be reviewed (#6).
 fn album_in_review(harness: &Harness) {
     let mut store = stk::review::store::ReviewStore::open(&harness.join("review.db"))

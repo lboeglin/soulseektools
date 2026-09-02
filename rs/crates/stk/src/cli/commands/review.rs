@@ -1,8 +1,9 @@
 //! `stk review` -- inspect and decide on the candidates found for each track.
 //!
-//! The Python opens a Textual app when run bare. The TUI is deferred out of the
-//! Rust v1 (#1), so the bare form points at the subcommands that cover the same
-//! ground rather than pretending to have one.
+//! `list`, `approve` and `reject` are the scriptable form, and everything else
+//! is built on them: `albums` groups a folder one peer could supply several
+//! waiting tracks from, and `pick` walks the queue asking one question per
+//! track, so a decision costs a keystroke rather than a track id typed back in.
 
 use std::path::PathBuf;
 
@@ -14,6 +15,7 @@ use crate::errors::Result;
 use crate::models::TrackStatus;
 use crate::review::albums::{self, AlbumOffer};
 use crate::review::legacy_csv::import_csv;
+use crate::review::picker;
 use crate::review::store::ReviewStore;
 
 #[derive(Subcommand, Debug)]
@@ -30,6 +32,8 @@ pub enum ReviewCommand {
         #[arg(long)]
         candidates: bool,
     },
+    /// Walk the tracks awaiting review, choosing a candidate for each.
+    Pick,
     /// Show the folders one peer could supply several waiting tracks from.
     Albums {
         /// Show at most this many.
@@ -80,6 +84,7 @@ pub fn run(context: &AppContext, command: ReviewCommand) -> Result<i32> {
             limit,
             candidates,
         } => list(context, status.as_deref(), limit, candidates),
+        ReviewCommand::Pick => pick(context),
         ReviewCommand::Albums { limit, tracks } => list_albums(context, limit, tracks),
         ReviewCommand::ApproveAlbum { index } => approve_album(context, index),
         ReviewCommand::Approve { track_id, rank } => approve(context, track_id, rank),
@@ -189,6 +194,47 @@ fn list(
         .map(|(status, count)| format!("{count} {status}"))
         .collect();
     context.say(&format!("\n{}", summary.join(", ")));
+    Ok(0)
+}
+
+/// Walk the queue, asking one question per track.
+///
+/// Refused under `--json`: `say` writes nothing there, so the prompt would be
+/// invisible and a pipeline would sit waiting for a keystroke nobody knew to
+/// give. Nothing here is gated behind `--apply` and nothing is written to the
+/// change log either -- a decision changes `review.db` and never a user's files.
+fn pick(context: &AppContext) -> Result<i32> {
+    if context.as_json {
+        eprintln!("error: stk review pick asks a question per track and cannot run with --json");
+        eprintln!("hint: stk --json review list --candidates, then stk review approve <id> <rank>");
+        return Ok(1);
+    }
+
+    let mut store = context.open_review()?;
+    let tally = picker::walk(
+        &mut store,
+        &mut std::io::stdin().lock(),
+        &mut std::io::stdout().lock(),
+    )?;
+
+    if tally.waiting == 0 {
+        context.say("Nothing in the review queue.");
+        return Ok(0);
+    }
+
+    let left = tally.waiting - tally.approved - tally.rejected;
+    let passed = if tally.skipped > 0 {
+        format!(" ({} passed over)", tally.skipped)
+    } else {
+        String::new()
+    };
+    context.say(&format!(
+        "\n{} approved, {} rejected, {left} left to review{passed}.",
+        tally.approved, tally.rejected
+    ));
+    if tally.approved > 0 {
+        context.say("Run stk fetch download to queue them.");
+    }
     Ok(0)
 }
 

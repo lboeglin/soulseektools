@@ -276,7 +276,7 @@ fn payload(track: &Track, scored: &[ScoredCandidate]) -> serde_json::Value {
 /// remainder". A plain list usually wants none of that: these are tracks someone
 /// has already decided they want, so they go straight into the review queue and
 /// are searched there. `--yes` takes the top pick for each and downloads it;
-/// without it they wait for `stk review`, which is where a human chooses.
+/// without it they wait for `stk review pick`, which is where a human chooses.
 fn batch(context: &AppContext, args: &GetArgs, tracks: &[Track]) -> Result<i32> {
     let mut settings = context.settings().clone();
     settings.ranking.require_lossless = args.lossless || settings.ranking.require_lossless;
@@ -327,7 +327,7 @@ fn batch(context: &AppContext, args: &GetArgs, tracks: &[Track]) -> Result<i32> 
     if !args.yes {
         context.say(&format!(
             "{with_candidates} of {} track(s) have candidates. \
-             Run stk review list --candidates to choose, then stk fetch download.",
+             Run stk review pick to choose, then stk fetch download.",
             outcomes.len()
         ));
         return Ok(0);
