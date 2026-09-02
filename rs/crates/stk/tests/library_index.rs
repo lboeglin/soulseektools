@@ -587,6 +587,87 @@ fn a_file_nothing_has_scanned_is_indexed_as_not_level_matched() {
     assert!(!entry.is_level_matched());
 }
 
+/// Adding a column moves neither the size nor the mtime a row is invalidated
+/// by, so a library scanned before v6 would report every file
+/// un-level-matched until something happened to touch it (#7).
+#[test]
+fn an_upgraded_database_fills_its_loudness_columns_at_the_next_scan() {
+    needs_ffmpeg!();
+    let scratch = Scratch::new("index-backfill");
+    let root = library_root(&scratch);
+    let track = root.join("DECO_27").join("01 - Roki.flac");
+
+    // Scanned by a build that had no loudness columns.
+    let mut index = open(&scratch, "index.db");
+    refresh(&mut index, &root);
+    drop(index);
+    let connection = rusqlite::Connection::open(scratch.join("index.db")).expect("the database");
+    for column in [
+        "replay_gain_track_gain",
+        "replay_gain_track_peak",
+        "replay_gain_album_gain",
+        "replay_gain_album_peak",
+        "r128_track_gain",
+        "r128_album_gain",
+    ] {
+        connection
+            .execute_batch(&format!("ALTER TABLE files DROP COLUMN {column}"))
+            .expect("a pre-v6 files table");
+    }
+    drop(connection);
+
+    // The file carries a gain all along -- from foobar2000, or an earlier run.
+    stk::library::tags::write_replay_gain(
+        &track,
+        &stk::models::ReplayGainTags {
+            track_gain: Some("-7.29 dB".to_owned()),
+            ..stk::models::ReplayGainTags::default()
+        },
+    )
+    .expect("an earlier scan");
+
+    let mut index = open(&scratch, "index.db");
+    refresh(&mut index, &root);
+
+    let entry = index
+        .entry(&track)
+        .expect("a lookup")
+        .expect("the migrated row");
+    assert_eq!(entry.replay_gain.track_gain, Some("-7.29 dB".to_owned()));
+    assert!(entry.is_level_matched());
+}
+
+/// The backfill updates those six columns and nothing else, because `upsert`
+/// replaces a row whole and would throw away the verdict `stk verify` recorded.
+#[test]
+fn the_backfill_leaves_a_recorded_verdict_where_it_was() {
+    needs_ffmpeg!();
+    let scratch = Scratch::new("index-backfill-verdict");
+    let root = library_root(&scratch);
+    let track = root.join("DECO_27").join("01 - Roki.flac");
+
+    let mut index = open(&scratch, "index.db");
+    refresh(&mut index, &root);
+    index
+        .set_verdict(&track, stk::models::Verdict::Ok, 100.0)
+        .expect("a recorded verdict");
+    drop(index);
+
+    let connection = rusqlite::Connection::open(scratch.join("index.db")).expect("the database");
+    connection
+        .execute_batch("ALTER TABLE files DROP COLUMN replay_gain_track_gain")
+        .expect("a pre-v6 files table");
+    drop(connection);
+
+    let mut index = open(&scratch, "index.db");
+    refresh(&mut index, &root);
+
+    assert_eq!(
+        index.verdict(&track).expect("a lookup"),
+        Some(stk::models::Verdict::Ok)
+    );
+}
+
 /// `verify` stops being a one-shot report once its verdict is persisted (#2).
 #[test]
 fn a_verdict_is_recorded_against_the_file() {

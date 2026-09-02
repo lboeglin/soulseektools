@@ -271,3 +271,62 @@ fn an_album_of_unreadable_files_reports_no_album_loudness() {
     assert_eq!(scan.album, None);
     assert_eq!(scan.tracks.len(), 1);
 }
+
+/// A gate is relative to the programme it is applied to, so a figure taken from
+/// nine tracks of a twelve-track record describes nine tracks. Writing it to
+/// those nine as their album gain would say otherwise.
+#[test]
+fn a_record_with_a_track_it_could_not_read_has_no_album_figure() {
+    needs_ffmpeg!();
+    let scratch = Scratch::new("loudness-album-partial");
+    let readable = encode(
+        &scratch.join("a.flac"),
+        &Encoded {
+            seconds: 1.0,
+            modulation_hz: 0.5,
+            ..Encoded::default()
+        },
+    );
+    let broken = scratch.join("b.flac");
+    std::fs::write(&broken, b"not audio").expect("a written file");
+
+    let scan = measure_album(&[readable, broken], &LoudnessSettings::default());
+
+    assert_eq!(scan.album, None);
+    assert!(scan.tracks[0].loudness.is_some());
+    assert!(scan.tracks[1].loudness.is_none());
+}
+
+/// The decode is handed to the analyser a block at a time, and a 64 KiB read
+/// lands mid-sample far more often than not. A boundary mishandled would shift
+/// every frame after it, so a steady tone long enough to cross dozens of them
+/// has to measure exactly what a short one of the same tone does.
+#[test]
+fn a_long_track_measures_what_a_short_one_of_the_same_tone_does() {
+    needs_ffmpeg!();
+    let scratch = Scratch::new("loudness-blocks");
+    let settings = LoudnessSettings::default();
+    let measure = |name: &str, seconds: f64| {
+        let path = encode(
+            &scratch.join(name),
+            &Encoded {
+                seconds,
+                sample_rate: RATE,
+                ..Encoded::default()
+            },
+        );
+        measure_file(&path, &settings)
+            .loudness
+            .expect("a measurement")
+    };
+
+    // 12 s of 48 kHz stereo `f32` is 4.6 MB, so about seventy blocks.
+    let long = measure("long.flac", 12.0);
+    let short = measure("short.flac", 2.0);
+
+    assert!(
+        (long.integrated_lufs - short.integrated_lufs).abs() < 0.05,
+        "{long:?} against {short:?}"
+    );
+    assert!((long.peak - short.peak).abs() < 1e-6, "{long:?}");
+}

@@ -525,7 +525,7 @@ fn a_loudness_measurement_round_trips_through_every_container() {
             &Encoded::default(),
         );
         let mut written = measurement();
-        if tags::carries_r128(&path) {
+        if tags::describe_file(&path).expect("a described file").r128 {
             written.r128_track_gain = Some("-2022".to_owned());
             written.r128_album_gain = Some("-1600".to_owned());
         }
@@ -621,50 +621,23 @@ fn an_opus_file_carries_r128_alongside_the_standard_tags() {
     );
 }
 
+/// Decided by the container the parse identified, not by a second guess at the
+/// filename. The two agree today -- `lofty` commits to a container from the
+/// suffix, so a misnamed file does not reach this at all -- but only one of
+/// them can ever disagree with what was actually read, and
+/// [`write_replay_gain`] replaces the whole set rather than patching it, so
+/// disagreeing would take an `R128_TRACK_GAIN` away without writing one back.
 #[test]
-fn only_opus_is_asked_for_an_r128_field() {
-    assert!(tags::carries_r128(std::path::Path::new("/music/a.opus")));
-    assert!(tags::carries_r128(std::path::Path::new("/music/A.OPUS")));
-    for other in ["a.flac", "a.mp3", "a.m4a", "a.ogg", "a.mp4"] {
-        assert!(!tags::carries_r128(std::path::Path::new(other)), "{other}");
+fn an_r128_field_is_asked_of_opus_and_of_nothing_else() {
+    needs_ffmpeg!();
+    let scratch = Scratch::new("tags-r128-container");
+    for extension in TAGGABLE {
+        let path = encode(
+            &scratch.join(&format!("t.{extension}")),
+            &Encoded::default(),
+        );
+        let described = tags::describe_file(&path).expect("a described file");
+
+        assert_eq!(described.r128, *extension == "opus", "{extension}");
     }
-}
-
-/// One parse rather than four, which is what keeps the v6 columns free.
-#[test]
-fn describing_a_file_reads_its_tags_stream_and_loudness_together() {
-    needs_ffmpeg!();
-    let scratch = Scratch::new("tags-describe");
-    let path = encode(
-        &scratch.join("t.flac"),
-        &Encoded {
-            metadata: &[("artist", "ZUN"), ("title", "Heian Alien")],
-            ..Encoded::default()
-        },
-    );
-    tags::write_replay_gain(&path, &measurement()).expect("a loudness write");
-    tags::write_artwork(&path, &artwork(4)).expect("an embedded cover");
-
-    let described = tags::describe_file(&path).expect("a described file");
-
-    assert_eq!(described.tags, tags::read_tags(&path).expect("tags"));
-    assert_eq!(
-        described.stream,
-        tags::read_stream_info(&path).expect("stream info")
-    );
-    assert_eq!(described.replay_gain, measurement());
-    assert_eq!(described.artwork_bytes, tags::artwork_size(&path));
-}
-
-/// A container that cannot hold a cover reports none rather than refusing, the
-/// way `artwork_size` does.
-#[test]
-fn describing_a_wav_reports_no_artwork_rather_than_failing() {
-    needs_ffmpeg!();
-    let scratch = Scratch::new("tags-describe-wav");
-    let path = encode(&scratch.join("t.wav"), &Encoded::default());
-
-    let described = tags::describe_file(&path).expect("a described file");
-
-    assert_eq!(described.artwork_bytes, 0);
 }

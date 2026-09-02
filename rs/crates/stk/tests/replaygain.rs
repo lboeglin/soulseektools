@@ -3,13 +3,15 @@
 //! All of it is pure, so what a gain figure means is established here rather
 //! than through a decode. The measurement itself is in `loudness.rs`.
 
+use std::collections::HashMap;
 use std::path::PathBuf;
 
 use stk::audio::loudness::Loudness;
 use stk::config::LoudnessSettings;
 use stk::models::{ReplayGainTags, TrackTags};
 use stk::replaygain::{
-    album_key, format_gain, format_peak, format_r128, gain_db, group, plan, select, Scanned, Target,
+    album_counts, album_key, format_gain, format_peak, format_r128, gain_db, group,
+    partial_records, plan, select, Scanned, Target,
 };
 
 fn settings() -> LoudnessSettings {
@@ -305,4 +307,59 @@ fn an_opus_file_carrying_only_r128_counts_as_scanned() {
     scanned.current.r128_track_gain = Some("-2022".to_owned());
 
     assert!(select(group(vec![scanned], true), false).wanted.is_empty());
+}
+
+/// An album gain describes a whole record, so naming one track of one has no
+/// album figure to write: a figure measured from that track alone would tell a
+/// player the record is as loud as its loudest song.
+#[test]
+fn a_run_covering_part_of_a_record_holds_no_album_figure_for_it() {
+    let groups = group(
+        vec![target("/music/a.flac", tags("ZUN", "Heian Alien"))],
+        true,
+    );
+    let known: HashMap<(String, String), usize> =
+        [(album_key(&tags("ZUN", "Heian Alien")).expect("a key"), 12)]
+            .into_iter()
+            .collect();
+
+    let partial = partial_records(&groups, &known);
+
+    assert_eq!(partial.len(), 1);
+}
+
+#[test]
+fn a_run_covering_a_whole_record_holds_its_album_figure() {
+    let groups = group(
+        vec![
+            target("/music/a.flac", tags("ZUN", "Heian Alien")),
+            target("/music/b.flac", tags("ZUN", "Heian Alien")),
+        ],
+        true,
+    );
+    let known: HashMap<(String, String), usize> =
+        [(album_key(&tags("ZUN", "Heian Alien")).expect("a key"), 2)]
+            .into_iter()
+            .collect();
+
+    assert!(partial_records(&groups, &known).is_empty());
+}
+
+/// The whole-library run, and the folder nothing has scanned yet: an index that
+/// has never heard of the record is a reason to scan, not to refuse a figure.
+#[test]
+fn a_record_the_index_does_not_know_is_taken_at_face_value() {
+    let groups = group(
+        vec![target("/music/a.flac", tags("ZUN", "Heian Alien"))],
+        true,
+    );
+
+    assert!(partial_records(&groups, &album_counts(&[])).is_empty());
+}
+
+#[test]
+fn a_file_with_no_album_tag_is_never_a_partial_record() {
+    let groups = group(vec![target("/music/a.flac", tags("ZUN", ""))], true);
+
+    assert!(partial_records(&groups, &album_counts(&[])).is_empty());
 }

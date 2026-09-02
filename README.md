@@ -424,6 +424,10 @@ foobar2000, `rsgain`, `loudgain` or an earlier run — is left alone, and
 per file, so an album half of which is already scanned is measured entire: an
 album gain derived from half a record is not an album gain.
 
+For the same reason, a run covering only part of a record writes that part a
+track gain and no album gain, and says so: `stk loudness "Album/03 - Track.flac"`
+cannot know how loud the record is. Point it at the album, or at the library.
+
 The measurement is EBU R 128 / ITU-R BS.1770 against a −18 LUFS reference —
 ReplayGain 2.0, which is what every current scanner writes. A true peak is
 measured alongside it, so a player applying positive gain has something to

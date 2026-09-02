@@ -1,5 +1,6 @@
 //! `stk loudness` -- measure how loud files are and write the ReplayGain tags.
 
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use clap::Args;
@@ -45,27 +46,50 @@ pub fn run(context: &AppContext, args: &LoudnessArgs) -> Result<i32> {
     }
 
     let (targets, unreadable) = inspect(&paths);
-    let selection = replaygain::select(replaygain::group(targets, !args.track_only), args.force);
+    let groups = replaygain::group(targets, !args.track_only);
+    let partial = replaygain::partial_records(
+        &groups,
+        &replaygain::album_counts(&context.open_index()?.entries()?),
+    );
+    let selection = replaygain::select(groups, args.force);
 
     let mut failures: Vec<(String, String)> = unreadable;
-    let scanned = scan(context, &selection, &mut failures);
+    let scanned = scan(context, &selection, &partial, &mut failures);
 
     let changes: Vec<GainChange> = replaygain::plan(&scanned, &context.settings().loudness)
         .into_iter()
         .filter(GainChange::is_change)
         .collect();
 
+    let mut written = 0;
     if args.apply {
-        apply(context, &changes, &mut failures)?;
+        written = apply(context, &changes, &mut failures)?;
     }
 
+    let outcome = Outcome {
+        changes,
+        partial,
+        written,
+        applied: args.apply,
+    };
     if context.as_json {
-        emit(context, &changes, &selection, &failures, args.apply);
+        emit(context, &outcome, &selection, &failures);
         return Ok(0);
     }
 
-    report(context, &changes, &selection, &failures, args.apply);
+    report(context, &outcome, &selection, &failures);
     Ok(0)
+}
+
+/// What a run did, as both reports read it.
+struct Outcome {
+    changes: Vec<GainChange>,
+    /// Records this run held only part of, which therefore get no album gain.
+    partial: HashSet<(String, String)>,
+    /// Files actually written, which is not `changes` less `failures`: a file
+    /// that could not be measured never became a change in the first place.
+    written: usize,
+    applied: bool,
 }
 
 /// Read what each file says it is and what it already carries.
@@ -82,7 +106,7 @@ fn inspect(paths: &[PathBuf]) -> (Vec<Target>, Vec<(String, String)>) {
                 path: path.clone(),
                 tags: described.tags,
                 current: described.replay_gain,
-                r128: tags::carries_r128(path),
+                r128: described.r128,
             }),
             Err(error) => failed.push((show(path), error.to_string())),
         }
@@ -99,6 +123,7 @@ fn inspect(paths: &[PathBuf]) -> (Vec<Target>, Vec<(String, String)>) {
 fn scan(
     context: &AppContext,
     selection: &Selection,
+    partial: &HashSet<(String, String)>,
     failures: &mut Vec<(String, String)>,
 ) -> Vec<Scanned> {
     let settings = &context.settings().loudness;
@@ -120,8 +145,12 @@ fn scan(
         );
         scanned.push(Scanned {
             // A group of files that name no album is not a record, however
-            // many of them share a folder.
-            album: group.album.as_ref().and(measured.album),
+            // many of them share a folder -- and neither is part of one.
+            album: group
+                .album
+                .as_ref()
+                .filter(|key| !partial.contains(*key))
+                .and(measured.album),
             tracks: group
                 .targets
                 .iter()
@@ -133,25 +162,28 @@ fn scan(
     scanned
 }
 
+/// Write the planned tags, returning how many files were actually written.
 fn apply(
     context: &AppContext,
     changes: &[GainChange],
     failures: &mut Vec<(String, String)>,
-) -> Result<()> {
+) -> Result<usize> {
     let roots = context.library_roots();
     let mut index = context.open_index()?;
     let log = ChangeLog::open(&index, "loudness", unix_now())?;
 
+    let mut written = 0;
     for change in changes {
         match tags::write_replay_gain(&change.path, &change.proposed) {
             Ok(()) => {
                 log.replay_gain(&mut index, &change.path, &change.current, &change.proposed)?;
                 index.reindex(&change.path, &roots)?;
+                written += 1;
             }
             Err(error) => failures.push((show(&change.path), error.to_string())),
         }
     }
-    Ok(())
+    Ok(written)
 }
 
 /// Only the six taggable containers, since nothing else can hold the result.
@@ -188,13 +220,13 @@ fn reason(result: &LoudnessResult) -> String {
 
 fn emit(
     context: &AppContext,
-    changes: &[GainChange],
+    outcome: &Outcome,
     selection: &Selection,
     failures: &[(String, String)],
-    applied: bool,
 ) {
     context.emit(&json!({
-        "planned": changes
+        "planned": outcome
+            .changes
             .iter()
             .map(|change| json!({
                 "path": show(&change.path),
@@ -207,7 +239,13 @@ fn emit(
             }))
             .collect::<Vec<_>>(),
         "skipped": selection.skipped.iter().map(|target| show(&target.path)).collect::<Vec<_>>(),
-        "applied": applied,
+        "partial_albums": outcome
+            .partial
+            .iter()
+            .map(|(artist, album)| json!([artist, album]))
+            .collect::<Vec<_>>(),
+        "applied": outcome.applied,
+        "written": outcome.written,
         "failed": failures
             .iter()
             .map(|(path, error)| json!({"path": path, "error": error}))
@@ -217,11 +255,11 @@ fn emit(
 
 fn report(
     context: &AppContext,
-    changes: &[GainChange],
+    outcome: &Outcome,
     selection: &Selection,
     failures: &[(String, String)],
-    applied: bool,
 ) {
+    let changes = &outcome.changes;
     if !changes.is_empty() {
         let rows: Vec<Vec<String>> = changes
             .iter()
@@ -253,6 +291,14 @@ fn report(
         ));
     }
 
+    if !outcome.partial.is_empty() {
+        context.say(&format!(
+            "Track gain only for {} record(s): this run covers part of each, and a figure \
+             measured from part of a record is not an album gain.",
+            outcome.partial.len()
+        ));
+    }
+
     if changes.is_empty() {
         // Two different nothings: a run with no work to do, and a `--force`
         // re-measurement that agreed with what the files already carried.
@@ -261,10 +307,10 @@ fn report(
         } else {
             "Every file measured already carries the figures this scan found."
         });
-    } else if applied {
+    } else if outcome.applied {
         context.say(&format!(
             "Wrote loudness tags to {} file(s)",
-            changes.len() - failures.len()
+            outcome.written
         ));
     } else {
         context.say(&format!(

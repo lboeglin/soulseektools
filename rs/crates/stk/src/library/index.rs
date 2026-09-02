@@ -136,6 +136,9 @@ const V6_COLUMNS: &[(&str, &str)] = &[
     ("r128_album_gain", "TEXT"),
 ];
 
+/// Set while the v6 columns still hold nothing for rows an older build wrote.
+const BACKFILL_PENDING: &str = "replay_gain_backfill_pending";
+
 /// The column schema v6 adds to `snapshots`.
 ///
 /// Nullable rather than `NOT NULL DEFAULT 0`: a measurement taken before v6 did
@@ -296,12 +299,12 @@ pub fn describe(path: &Path, root: &Path) -> Result<LibraryEntry> {
 }
 
 /// Bring one table up to date in place, so a database an older build wrote
-/// opens without being rewritten.
+/// opens without being rewritten. Reports whether anything was added.
 fn add_missing_columns(
     connection: &Connection,
     table: &str,
     columns: &[(&str, &str)],
-) -> Result<()> {
+) -> Result<bool> {
     let existing: HashSet<String> = connection
         .prepare(&format!("SELECT name FROM pragma_table_info('{table}')"))
         .and_then(|mut statement| {
@@ -311,14 +314,16 @@ fn add_missing_columns(
         })
         .map_err(|error| sqlite_error(&error))?;
 
+    let mut added = false;
     for (name, kind) in columns {
         if !existing.contains(*name) {
             connection
                 .execute_batch(&format!("ALTER TABLE {table} ADD COLUMN {name} {kind}"))
                 .map_err(|error| sqlite_error(&error))?;
+            added = true;
         }
     }
-    Ok(())
+    Ok(added)
 }
 
 fn modified_seconds(metadata: &std::fs::Metadata) -> f64 {
@@ -352,8 +357,16 @@ impl LibraryIndex {
 
         add_missing_columns(&connection, "files", V3_COLUMNS)?;
         add_missing_columns(&connection, "changes", V4_CHANGE_COLUMNS)?;
-        add_missing_columns(&connection, "files", V6_COLUMNS)?;
+        let loudness_columns_added = add_missing_columns(&connection, "files", V6_COLUMNS)?;
         add_missing_columns(&connection, "snapshots", V6_SNAPSHOT_COLUMNS)?;
+        if loudness_columns_added {
+            connection
+                .execute(
+                    "INSERT OR REPLACE INTO meta (key, value) VALUES (?1, '1')",
+                    params![BACKFILL_PENDING],
+                )
+                .map_err(|error| sqlite_error(&error))?;
+        }
         connection
             .execute_batch(MIGRATED_INDEXES)
             .map_err(|error| sqlite_error(&error))?;
@@ -403,6 +416,8 @@ impl LibraryIndex {
         full: bool,
         mut on_file: Option<&mut dyn FnMut(&Path)>,
     ) -> Result<RefreshResult> {
+        self.backfill_replay_gain()?;
+
         let known: HashMap<String, (i64, f64)> = self
             .connection
             .prepare("SELECT path, size, mtime FROM files")
@@ -466,6 +481,67 @@ impl LibraryIndex {
         }
 
         Ok(result)
+    }
+
+    /// Fill the v6 loudness columns for rows an older build wrote.
+    ///
+    /// A row is invalidated by its `(size, mtime)`, and adding a column moves
+    /// neither, so a library scanned before v6 would report every one of its
+    /// files un-level-matched until something happened to touch it -- and would
+    /// record a snapshot saying so. Re-describing the rows would fix it and
+    /// throw away every verdict `stk verify` had recorded, because `upsert`
+    /// replaces a row whole; these six columns are updated on their own instead.
+    ///
+    /// Runs once, at the first refresh after the upgrade. A file that has since
+    /// gone is left to the walk, which removes it.
+    fn backfill_replay_gain(&mut self) -> Result<()> {
+        let pending: Option<String> = self
+            .connection
+            .query_row(
+                "SELECT value FROM meta WHERE key = ?1",
+                params![BACKFILL_PENDING],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(|error| sqlite_error(&error))?;
+        if pending.is_none() {
+            return Ok(());
+        }
+
+        let paths: Vec<String> = self
+            .connection
+            .prepare("SELECT path FROM files")
+            .and_then(|mut statement| statement.query_map([], |row| row.get(0))?.collect())
+            .map_err(|error| sqlite_error(&error))?;
+
+        let transaction = self
+            .connection
+            .transaction()
+            .map_err(|error| sqlite_error(&error))?;
+        for path in paths {
+            let Ok(gain) = tags::read_replay_gain(Path::new(&path)) else {
+                continue;
+            };
+            transaction
+                .execute(
+                    "UPDATE files SET replay_gain_track_gain = ?2, replay_gain_track_peak = ?3,                      replay_gain_album_gain = ?4, replay_gain_album_peak = ?5,                      r128_track_gain = ?6, r128_album_gain = ?7 WHERE path = ?1",
+                    params![
+                        path,
+                        gain.track_gain,
+                        gain.track_peak,
+                        gain.album_gain,
+                        gain.album_peak,
+                        gain.r128_track_gain,
+                        gain.r128_album_gain,
+                    ],
+                )
+                .map_err(|error| sqlite_error(&error))?;
+        }
+        transaction
+            .execute("DELETE FROM meta WHERE key = ?1", params![BACKFILL_PENDING])
+            .map_err(|error| sqlite_error(&error))?;
+        transaction.commit().map_err(|error| sqlite_error(&error))?;
+        Ok(())
     }
 
     /// Every indexed file, ordered by path.

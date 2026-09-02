@@ -169,6 +169,8 @@ pub struct Described {
     pub stream: StreamInfo,
     pub replay_gain: ReplayGainTags,
     pub artwork_bytes: u64,
+    /// Whether this container keeps an `R128_*` field alongside the rest.
+    pub r128: bool,
 }
 
 pub fn describe_file(path: &Path) -> Result<Described> {
@@ -183,6 +185,7 @@ pub fn describe_file(path: &Path) -> Result<Described> {
         stream: stream_info_of(&file),
         replay_gain: replay_gain_of(&file),
         artwork_bytes,
+        r128: carries_r128(&file),
     })
 }
 
@@ -382,11 +385,13 @@ fn unknown_key(key: &str) -> ItemKey {
 /// defines the figure against a fixed -23 LUFS, where `REPLAYGAIN_*` is against
 /// whatever reference the scanner chose. Both are written, so a player reading
 /// either finds the same loudness.
-#[must_use]
-pub fn carries_r128(path: &Path) -> bool {
-    path.extension()
-        .and_then(|extension| extension.to_str())
-        .is_some_and(|extension| extension.eq_ignore_ascii_case("opus"))
+///
+/// Decided on the container rather than the suffix. Opus is routinely filed as
+/// `.ogg`, and since [`write_replay_gain`] replaces the whole set rather than
+/// patching it, guessing from the name would take the `R128_TRACK_GAIN` such a
+/// file already carried away without writing one back.
+fn carries_r128(file: &TaggedFile) -> bool {
+    file.file_type() == lofty::file::FileType::Opus
 }
 
 /// The loudness tags a file already carries, if any.

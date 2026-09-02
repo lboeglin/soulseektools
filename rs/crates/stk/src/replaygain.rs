@@ -17,12 +17,13 @@
 //! measures a record as one programme, so the figures here are arithmetic over
 //! what it already worked out rather than an average of the tracks.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use std::hash::BuildHasher;
 use std::path::PathBuf;
 
 use crate::audio::loudness::Loudness;
 use crate::config::LoudnessSettings;
-use crate::models::{ReplayGainTags, TrackTags};
+use crate::models::{LibraryEntry, ReplayGainTags, TrackTags};
 use crate::text::normalize::flatten;
 
 /// What the Opus header measures against, fixed by the format.
@@ -123,6 +124,45 @@ pub fn group(targets: Vec<Target>, album_gain: bool) -> Vec<Group> {
         });
     }
     groups
+}
+
+/// How many files the library holds for each record it knows about.
+#[must_use]
+pub fn album_counts(entries: &[LibraryEntry]) -> HashMap<(String, String), usize> {
+    let mut counts = HashMap::new();
+    for entry in entries {
+        if let Some(key) = album_key(&entry.tags) {
+            *counts.entry(key).or_insert(0) += 1;
+        }
+    }
+    counts
+}
+
+/// The records this run holds only part of.
+///
+/// An album gain describes a whole record, so a run naming one track of a
+/// twelve-track album has no album figure to write: one measured from that
+/// track alone would tell a player the record is as loud as that one song. The
+/// tracks these groups were built from decide it, against what the library
+/// knows the record to hold.
+///
+/// A record the index has never heard of is taken at face value. That covers
+/// both the run over the whole library, where a group is the record by
+/// construction, and the folder nothing has scanned yet -- and an index that
+/// disagrees with the disk is a reason to scan, not to refuse a figure.
+#[must_use]
+pub fn partial_records<S: BuildHasher>(
+    groups: &[Group],
+    known: &HashMap<(String, String), usize, S>,
+) -> HashSet<(String, String)> {
+    groups
+        .iter()
+        .filter_map(|group| {
+            let key = group.album.as_ref()?;
+            let held = known.get(key).copied().unwrap_or(0);
+            (group.targets.len() < held).then(|| key.clone())
+        })
+        .collect()
 }
 
 /// Decide what to measure, never overwriting a scan somebody else already ran.

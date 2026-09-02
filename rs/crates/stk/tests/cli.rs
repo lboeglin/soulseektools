@@ -2150,3 +2150,74 @@ fn changes_undo_takes_a_whole_loudness_run_back() {
     }
     drop(harness);
 }
+
+/// The count printed after `--apply` is what was written, not the plan less
+/// every failure: a file that could not be measured never became a plan entry,
+/// so subtracting it once underflowed and printed a number near `u64::MAX`.
+#[test]
+fn loudness_reports_what_it_wrote_when_most_files_could_not_be_read() {
+    needs_ffmpeg!();
+    let _guard = exclusive();
+    let harness = Harness::new("cli-loudness-mostly-broken");
+    let root = levelled_library(&harness);
+    harness.with_config(&root);
+    run(&["library", "scan"]);
+
+    // More unreadable files than readable ones, which is what underflowed.
+    for name in ["x.flac", "y.flac", "z.flac", "w.flac"] {
+        std::fs::write(root.join("ZUN").join(name), b"not audio").expect("a written file");
+    }
+
+    assert_eq!(run(&["loudness", "--apply"]), 0);
+
+    let changes = logged(&harness);
+    assert_eq!(changes.len(), 3);
+    drop(harness);
+}
+
+/// An album gain describes a whole record, so naming one track of one gets a
+/// track gain and no album gain -- a figure measured from that track alone
+/// would tell a player the record is as loud as its loudest song.
+#[test]
+fn loudness_gives_no_album_gain_to_one_track_of_a_record() {
+    needs_ffmpeg!();
+    let _guard = exclusive();
+    let harness = Harness::new("cli-loudness-partial");
+    let root = levelled_library(&harness);
+    harness.with_config(&root);
+    run(&["library", "scan"]);
+
+    let track = root.join("DECO_27").join("01 - Roki.flac");
+    assert_eq!(
+        run(&["loudness", "--apply", &track.display().to_string()]),
+        0
+    );
+
+    let written = stk::library::tags::read_replay_gain(&track).expect("readable loudness tags");
+    assert!(written.track_gain.is_some());
+    assert_eq!(written.album_gain, None);
+    assert_eq!(written.album_peak, None);
+    drop(harness);
+}
+
+/// The whole record named, so the album gain is one the record earns.
+#[test]
+fn loudness_gives_an_album_gain_when_the_whole_record_is_named() {
+    needs_ffmpeg!();
+    let _guard = exclusive();
+    let harness = Harness::new("cli-loudness-whole-record");
+    let root = levelled_library(&harness);
+    harness.with_config(&root);
+    run(&["library", "scan"]);
+
+    let folder = root.join("DECO_27");
+    assert_eq!(
+        run(&["loudness", "--apply", &folder.display().to_string()]),
+        0
+    );
+
+    let written = stk::library::tags::read_replay_gain(&folder.join("01 - Roki.flac"))
+        .expect("readable loudness tags");
+    assert!(written.album_gain.is_some());
+    drop(harness);
+}

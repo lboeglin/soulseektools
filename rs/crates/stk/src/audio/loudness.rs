@@ -54,7 +54,12 @@ pub struct LoudnessResult {
 #[derive(Debug, Clone, PartialEq)]
 pub struct AlbumScan {
     pub tracks: Vec<LoudnessResult>,
-    /// The record's own figure, absent when nothing in the group could be read.
+    /// The record's own figure.
+    ///
+    /// Absent unless every track was measured. A gate is relative to the
+    /// programme it is applied to, so a figure taken from nine tracks of a
+    /// twelve-track record describes nine tracks -- and writing it to those
+    /// nine as their album gain would say otherwise.
     pub album: Option<Loudness>,
 }
 
@@ -84,21 +89,23 @@ pub fn measure_album(paths: &[PathBuf], settings: &LoudnessSettings) -> AlbumSca
         .map(|path| (path.clone(), analyse(path, settings)))
         .collect();
 
-    let states: Vec<&EbuR128> = analysed
+    let states: Option<Vec<&EbuR128>> = analysed
         .iter()
-        .filter_map(|(_, state)| state.as_ref().ok())
+        .map(|(_, state)| state.as_ref().ok())
         .collect();
 
-    let album = EbuR128::loudness_global_multiple(states.iter().copied())
-        .ok()
-        .filter(|loudness| loudness.is_finite())
-        .map(|integrated_lufs| Loudness {
-            integrated_lufs,
-            peak: states
-                .iter()
-                .map(|state| loudest(state, settings.true_peak))
-                .fold(0.0_f64, f64::max),
-        });
+    let album = states.and_then(|states| {
+        EbuR128::loudness_global_multiple(states.iter().copied())
+            .ok()
+            .filter(|loudness| loudness.is_finite())
+            .map(|integrated_lufs| Loudness {
+                integrated_lufs,
+                peak: states
+                    .iter()
+                    .map(|state| loudest(state, settings.true_peak))
+                    .fold(0.0_f64, f64::max),
+            })
+    });
 
     AlbumScan {
         tracks: analysed
@@ -126,8 +133,29 @@ fn analyse(path: &Path, settings: &LoudnessSettings) -> Result<EbuR128> {
         )));
     };
 
-    let samples = ffmpeg::decode_interleaved(path, sample_rate, channels)?;
-    measure_samples(&samples, sample_rate, channels, settings.true_peak)
+    // Fed a block at a time as ffmpeg decodes it: the analyser only ever needs
+    // the last 400 ms, so holding a whole four-minute track -- 85 MB of `f32`,
+    // times every track of a record decoded at once -- would be memory spent on
+    // nothing.
+    let mut state = analyser(sample_rate, channels, settings.true_peak)?;
+    ffmpeg::decode_interleaved(path, sample_rate, channels, &mut |frames| {
+        state
+            .add_frames_f32(frames)
+            .map_err(|error| Error::Tag(format!("loudness analyser: {error}")))
+    })?;
+    Ok(state)
+}
+
+/// An analyser set up to answer the questions a gain figure needs.
+pub fn analyser(sample_rate: u32, channels: u32, true_peak: bool) -> Result<EbuR128> {
+    let mode = Mode::I
+        | if true_peak {
+            Mode::TRUE_PEAK
+        } else {
+            Mode::SAMPLE_PEAK
+        };
+    EbuR128::new(channels, sample_rate, mode)
+        .map_err(|error| Error::Tag(format!("loudness analyser: {error}")))
 }
 
 /// Measure interleaved samples that are already in memory.
@@ -140,14 +168,7 @@ pub fn measure_samples(
     channels: u32,
     true_peak: bool,
 ) -> Result<EbuR128> {
-    let mode = Mode::I
-        | if true_peak {
-            Mode::TRUE_PEAK
-        } else {
-            Mode::SAMPLE_PEAK
-        };
-    let mut state = EbuR128::new(channels, sample_rate, mode)
-        .map_err(|error| Error::Tag(format!("loudness analyser: {error}")))?;
+    let mut state = analyser(sample_rate, channels, true_peak)?;
     state
         .add_frames_f32(samples)
         .map_err(|error| Error::Tag(format!("loudness analyser: {error}")))?;

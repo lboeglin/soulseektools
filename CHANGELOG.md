@@ -38,7 +38,9 @@ a set of ad-hoc scripts and a Nicotine+ plugin, and was then rewritten in Rust.
   an album's threshold is the album's -- which is why a run is grouped, decided
   and scanned per record throughout, and why an existing scan is never
   overwritten without `--force` a record at a time: an album gain derived from
-  half a record is not one.
+  half a record is not one. A run covering only part of a record -- one track
+  named on the command line, or a record with a track that could not be read --
+  writes a track gain and says why there is no album one.
 
   Opus keeps its gain in the container header, so those files also get
   `R128_TRACK_GAIN`, the one place `library/tags.rs` dispatches on a container.
@@ -53,7 +55,11 @@ a set of ad-hoc scripts and a Nicotine+ plugin, and was then rewritten in Rust.
   useful even to someone who scans elsewhere: a fetch that drops forty
   un-scanned files into the library is otherwise invisible, and `stk` is the
   thing that put them there. The snapshot column is nullable, so a measurement
-  taken before it existed reads `-` rather than zero (#7).
+  taken before it existed reads `-` rather than zero. Adding a column moves
+  neither the size nor the mtime a row is invalidated by, so the first scan
+  after the upgrade fills the six columns for rows an older build wrote --
+  updating those alone, since re-describing a row would throw away the verdict
+  `stk verify` recorded against it (#7).
 - `stk review albums` and `stk review approve-album`, so a peer's folder can be
   taken as one decision instead of one approval per track. Soulseek's real unit
   is the folder: one peer holding four of the waiting tracks is one queue

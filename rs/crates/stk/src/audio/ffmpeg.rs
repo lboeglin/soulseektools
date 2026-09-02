@@ -283,14 +283,31 @@ fn probe_windows(
         .collect()
 }
 
-/// Decode the whole file to interleaved `f32`, at its own rate and layout.
+/// How much of a decode is held at once, in bytes off the pipe.
+///
+/// Small enough that a library-wide scan's memory does not depend on how long
+/// its longest track is, large enough that the analyser is not called once per
+/// handful of samples.
+const DECODE_BLOCK_BYTES: usize = 64 * 1024;
+
+/// Decode the whole file to interleaved `f32`, at its own rate and layout,
+/// handing it to `on_frames` a block at a time.
 ///
 /// [`decode`] folds to mono at a rate of the caller's choosing, which is right
 /// for a fingerprint and wrong for a loudness scan: BS.1770 sums the channels
 /// under fixed weights, so a stereo file measured as mono is a different
 /// figure. Rate and channel count are passed in rather than discovered, so what
-/// the analyser is told about the buffer is what ffmpeg was asked to produce.
-pub fn decode_interleaved(path: &Path, sample_rate: u32, channels: u32) -> Result<Vec<f32>> {
+/// the caller is told about the buffer is what ffmpeg was asked to produce.
+///
+/// Streamed rather than collected. A four-minute stereo track is 85 MB of
+/// `f32`, and a whole record is decoded at once across the thread pool, so
+/// returning a `Vec` would have peaked in the gigabytes on an ordinary album.
+pub fn decode_interleaved(
+    path: &Path,
+    sample_rate: u32,
+    channels: u32,
+    on_frames: &mut dyn FnMut(&[f32]) -> Result<()>,
+) -> Result<()> {
     let arguments = [
         "-v".to_owned(),
         "quiet".to_owned(),
@@ -305,11 +322,124 @@ pub fn decode_interleaved(path: &Path, sample_rate: u32, channels: u32) -> Resul
         "-".to_owned(),
     ];
 
-    let stdout = run(&require("ffmpeg")?, &arguments)?;
-    Ok(stdout
-        .chunks_exact(4)
-        .map(|bytes| f32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]))
-        .collect())
+    let mut frames: Vec<f32> = Vec::with_capacity(DECODE_BLOCK_BYTES / 4);
+    // A read can split a sample across two blocks, so the tail of one is held
+    // over rather than decoded as if it were whole.
+    let mut carried: Vec<u8> = Vec::with_capacity(4);
+    stream(&require("ffmpeg")?, &arguments, &mut |block: &[u8]| {
+        frames.clear();
+        let mut rest = block;
+        if !carried.is_empty() {
+            let wanted = 4 - carried.len();
+            let take = wanted.min(rest.len());
+            carried.extend_from_slice(&rest[..take]);
+            rest = &rest[take..];
+            if carried.len() == 4 {
+                frames.push(f32::from_le_bytes([
+                    carried[0], carried[1], carried[2], carried[3],
+                ]));
+                carried.clear();
+            }
+        }
+        frames.extend(
+            rest.chunks_exact(4)
+                .map(|bytes| f32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]])),
+        );
+        carried.extend_from_slice(rest.chunks_exact(4).remainder());
+        on_frames(&frames)
+    })
+}
+
+/// Run a tool and hand its standard output to `on_block` as it arrives.
+///
+/// Reading happens on its own thread and reaches this one through a bounded
+/// channel, for the two reasons [`run`] drains both pipes on threads: a child
+/// blocks once a pipe buffer fills, and `Command` has no timeout of its own.
+/// The bound is what makes this stream rather than buffer -- a slow consumer
+/// stalls the reader instead of growing a queue behind it.
+fn stream(
+    program: &Path,
+    arguments: &[String],
+    on_block: &mut dyn FnMut(&[u8]) -> Result<()>,
+) -> Result<()> {
+    let name = program.file_stem().map_or_else(
+        || program.display().to_string(),
+        |stem| stem.to_string_lossy().into_owned(),
+    );
+
+    let mut child = Command::new(program)
+        .args(arguments)
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .map_err(|error| Error::ExternalTool(format!("{name} could not be started: {error}")))?;
+
+    let mut stdout = child.stdout.take().expect("a piped stdout");
+    let mut stderr = child.stderr.take().expect("a piped stderr");
+    let reading_stderr = std::thread::spawn(move || {
+        let mut buffer = Vec::new();
+        let _ = stderr.read_to_end(&mut buffer);
+        buffer
+    });
+
+    let (send, receive) = std::sync::mpsc::sync_channel::<Vec<u8>>(2);
+    let reading_stdout = std::thread::spawn(move || {
+        let mut buffer = vec![0_u8; DECODE_BLOCK_BYTES];
+        loop {
+            match stdout.read(&mut buffer) {
+                Ok(0) | Err(_) => return,
+                Ok(read) => {
+                    if send.send(buffer[..read].to_vec()).is_err() {
+                        return;
+                    }
+                }
+            }
+        }
+    });
+
+    let deadline = std::time::Instant::now() + TIMEOUT;
+    let mut failed = None;
+    loop {
+        let left = deadline.saturating_duration_since(std::time::Instant::now());
+        match receive.recv_timeout(left) {
+            Ok(block) => {
+                if let Err(error) = on_block(&block) {
+                    failed = Some(error);
+                    break;
+                }
+            }
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                let _ = child.kill();
+                let _ = reading_stdout.join();
+                return Err(Error::ExternalTool(format!("{name} timed out")));
+            }
+        }
+    }
+
+    // Draining the channel is what lets the reader finish; without it a
+    // consumer that stopped early leaves the child blocked on a full pipe.
+    drop(receive);
+    let _ = reading_stdout.join();
+    if let Some(error) = failed {
+        let _ = child.kill();
+        let _ = child.wait();
+        return Err(error);
+    }
+
+    let status = child
+        .wait()
+        .map_err(|error| Error::ExternalTool(format!("{name} failed: {error}")))?;
+    if status.success() {
+        return Ok(());
+    }
+
+    let stderr = reading_stderr.join().unwrap_or_default();
+    let stderr = String::from_utf8_lossy(&stderr);
+    let detail = stderr.trim().lines().next_back().map(str::to_owned);
+    Err(Error::ExternalTool(
+        detail.unwrap_or_else(|| format!("{name} failed")),
+    ))
 }
 
 /// Write a spectrogram image, for eyeballing a flagged file.
