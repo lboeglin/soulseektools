@@ -16,6 +16,7 @@ use crate::config::SlskdSettings;
 use crate::errors::Error;
 use crate::errors::Result;
 use crate::models::{ScoredCandidate, Track};
+use crate::review::picker;
 use crate::soulseek::base::SoulseekClient;
 use crate::soulseek::ranking;
 use crate::soulseek::slskd::{HttpTransport, SlskdClient};
@@ -229,23 +230,23 @@ fn print_candidates(context: &AppContext, scored: &[ScoredCandidate]) {
 }
 
 /// Ask which candidate to take, or none.
+///
+/// The answer is read by the review picker's parser, so the two prompts agree on
+/// what a number, an empty line and `n` mean. An exhausted stdin is *not* an
+/// empty line: reading it as one would take the top candidate and download it
+/// with nobody at the keyboard, and nothing downloads without a human choosing.
 fn ask(count: usize) -> Option<usize> {
     println!("Take which? [1-{count}, or n for none] (1): ");
     let mut answer = String::new();
-    if std::io::stdin().lock().read_line(&mut answer).is_err() {
-        return None;
+    match std::io::stdin().lock().read_line(&mut answer) {
+        Ok(0) | Err(_) => return None,
+        Ok(_) => {}
     }
 
-    let answer = answer.trim().to_lowercase();
-    if answer.is_empty() {
-        return Some(1);
-    }
-    if matches!(answer.as_str(), "n" | "no" | "none" | "q") {
-        return None;
-    }
-    match answer.parse::<usize>() {
-        Ok(chosen) if (1..=count).contains(&chosen) => Some(chosen),
-        _ => {
+    match picker::parse(&answer, count) {
+        Some(picker::Decision::Approve(chosen)) => usize::try_from(chosen).ok(),
+        Some(_) => None,
+        None => {
             println!("Not one of the offered candidates.");
             None
         }
