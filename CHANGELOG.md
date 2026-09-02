@@ -17,26 +17,34 @@ a set of ad-hoc scripts and a Nicotine+ plugin, and was then rewritten in Rust.
   fix is metadata rather than a re-encode, so it is reversible and costs nothing
   in quality. Both figures are written -- track gain for shuffle, album gain so
   a quiet interlude stays quiet relative to the track after it -- because
-  players choose between them per context. The measurement is EBU R 128 against
-  a -18 LUFS reference, which is ReplayGain 2.0 and what `loudgain`, `rsgain`
-  and foobar2000 write today, with a true peak alongside it so a player applying
-  positive gain has a clipping guard. An album is defined by its tags and
-  nothing else, since that is how a player groups when it applies album gain; a
-  file with no album tag gets a track gain only, rather than sharing a figure
-  with whatever else sits in its folder. An existing scan is never overwritten
-  without `--force`, and the decision is made per record rather than per file,
-  so an album half of which is already scanned is measured entire -- an album
-  gain derived from half a record is not one. Opus keeps its gain in the
-  container header, so those files also get `R128_TRACK_GAIN`, the one place
-  `library/tags.rs` dispatches on a container. Album loudness is combined from
-  the tracks' own figures rather than measured in a second pass: it is an
-  approximation of a few tenths of an LU, because a true album measurement
-  re-gates against the album's threshold, and the exact version doubles the
-  decode cost of the slowest thing this tool does and fails on an album whose
-  tracks do not share a sample rate. All four figures share one write-log row
-  rather than one apiece, against the rule the other fields follow: they are a
-  single measurement, and a row apiece would let an undo restore a gain without
-  the peak that bounds it (#7).
+  players choose between them per context. The scan is EBU R 128 against a
+  -18 LUFS reference, which is ReplayGain 2.0 and what `loudgain`, `rsgain` and
+  foobar2000 write today, with a true peak alongside it so a player applying
+  positive gain has a clipping guard.
+
+  It measures through the `ebur128` crate, a port of libebur128, rather than
+  ffmpeg's filter of the same name: #9 is removing ffmpeg, and a scan built on
+  parsing a subprocess's text output would have been a line-for-line rewrite
+  later. Only the decode is still ffmpeg's, and that is the single call #9
+  replaces. Checked against the filter on the same files, the two agree to
+  within 0.04 dB -- which is the rounding the filter's one-decimal output
+  imposed, so the crate is the more precise of the pair.
+
+  An album is defined by its tags and nothing else, since that is how a player
+  groups when it applies album gain; a file with no album tag gets a track gain
+  only, rather than sharing a figure with whatever else sits in its folder. A
+  record is measured as one programme rather than averaged from its tracks --
+  the gate deciding which 400 ms blocks count is relative to the programme, so
+  an album's threshold is the album's -- which is why a run is grouped, decided
+  and scanned per record throughout, and why an existing scan is never
+  overwritten without `--force` a record at a time: an album gain derived from
+  half a record is not one.
+
+  Opus keeps its gain in the container header, so those files also get
+  `R128_TRACK_GAIN`, the one place `library/tags.rs` dispatches on a container.
+  All four figures share one write-log row rather than one apiece, against the
+  rule the other fields follow: they are a single measurement, and a row apiece
+  would let an undo restore a gain without the peak that bounds it (#7).
 - `library.db` v6: `files` gains the six loudness columns and `snapshots` gains
   `with_replay_gain`, added in place like every version before them. They come
   off the header parse `describe` already performs -- which now happens once

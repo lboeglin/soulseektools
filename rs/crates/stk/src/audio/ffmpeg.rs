@@ -55,15 +55,6 @@ pub fn require(tool: &str) -> Result<PathBuf> {
 }
 
 fn run(program: &Path, arguments: &[String]) -> Result<Vec<u8>> {
-    run_captured(program, arguments).map(|(stdout, _)| stdout)
-}
-
-/// Run a tool and keep both streams.
-///
-/// ffmpeg's filters report on stderr even when the run succeeds -- `ebur128`
-/// prints its whole summary there -- so a caller after a measurement rather
-/// than a decode needs the half [`run`] throws away.
-fn run_captured(program: &Path, arguments: &[String]) -> Result<(Vec<u8>, Vec<u8>)> {
     let name = program.file_stem().map_or_else(
         || program.display().to_string(),
         |stem| stem.to_string_lossy().into_owned(),
@@ -112,7 +103,7 @@ fn run_captured(program: &Path, arguments: &[String]) -> Result<(Vec<u8>, Vec<u8
     let stderr = reading_stderr.join().unwrap_or_default();
 
     if status.success() {
-        return Ok((stdout, stderr));
+        return Ok(stdout);
     }
 
     let stderr = String::from_utf8_lossy(&stderr);
@@ -292,31 +283,33 @@ fn probe_windows(
         .collect()
 }
 
-/// Scan a file for EBU R 128 loudness, returning the filter's summary.
+/// Decode the whole file to interleaved `f32`, at its own rate and layout.
 ///
-/// The whole file is decoded rather than probed: a gain figure describes the
-/// track, and the windows `decode_probes` takes for the spectral check would
-/// answer a different question. `peak=true` costs an oversampling pass and
-/// catches inter-sample peaks a sample scan misses, which is what a player
-/// applying positive gain clips on.
-pub fn ebur128(path: &Path, true_peak: bool) -> Result<String> {
-    let peak = if true_peak { "true" } else { "sample" };
+/// [`decode`] folds to mono at a rate of the caller's choosing, which is right
+/// for a fingerprint and wrong for a loudness scan: BS.1770 sums the channels
+/// under fixed weights, so a stereo file measured as mono is a different
+/// figure. Rate and channel count are passed in rather than discovered, so what
+/// the analyser is told about the buffer is what ffmpeg was asked to produce.
+pub fn decode_interleaved(path: &Path, sample_rate: u32, channels: u32) -> Result<Vec<f32>> {
     let arguments = [
-        "-hide_banner".to_owned(),
-        "-nostats".to_owned(),
+        "-v".to_owned(),
+        "quiet".to_owned(),
         "-i".to_owned(),
         path.display().to_string(),
-        "-filter_complex".to_owned(),
-        format!("ebur128=peak={peak}"),
         "-f".to_owned(),
-        "null".to_owned(),
+        "f32le".to_owned(),
+        "-ac".to_owned(),
+        channels.to_string(),
+        "-ar".to_owned(),
+        sample_rate.to_string(),
         "-".to_owned(),
     ];
 
-    // The summary is logged at info level, alongside a running line per frame;
-    // there is no level that keeps one and drops the other.
-    let (_, stderr) = run_captured(&require("ffmpeg")?, &arguments)?;
-    Ok(String::from_utf8_lossy(&stderr).into_owned())
+    let stdout = run(&require("ffmpeg")?, &arguments)?;
+    Ok(stdout
+        .chunks_exact(4)
+        .map(|bytes| f32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]))
+        .collect())
 }
 
 /// Write a spectrogram image, for eyeballing a flagged file.

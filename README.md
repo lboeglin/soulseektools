@@ -427,9 +427,11 @@ album gain derived from half a record is not an album gain.
 The measurement is EBU R 128 / ITU-R BS.1770 against a −18 LUFS reference —
 ReplayGain 2.0, which is what every current scanner writes. A true peak is
 measured alongside it, so a player applying positive gain has something to
-check itself against. Opus keeps its gain in the container header rather than in
-a tag, so those files get `R128_TRACK_GAIN` as well as the usual four keys;
-both say the same thing.
+check itself against. A record is measured as one programme rather than
+averaged from its tracks, because the gate deciding which of its moments count
+is relative to the whole record. Opus keeps its gain in the container header
+rather than in a tag, so those files get `R128_TRACK_GAIN` as well as the usual
+four keys; both say the same thing.
 
 Nothing in `stk` plays audio, so these tags are written purely for other
 players — `stk` never reads them back to make a decision. What it does read is

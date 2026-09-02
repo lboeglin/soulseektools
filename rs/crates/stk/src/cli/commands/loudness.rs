@@ -5,13 +5,13 @@ use std::path::{Path, PathBuf};
 use clap::Args;
 use serde_json::json;
 
-use crate::audio::loudness::{measure_files, LoudnessResult};
+use crate::audio::loudness::{measure_album, LoudnessResult};
 use crate::cli::context::{show, table, unix_now, AppContext};
 use crate::errors::{Error, Result};
 use crate::library::changes::ChangeLog;
 use crate::library::scan::{iter_audio_files, Excludes, TAGGABLE_EXTENSIONS};
 use crate::library::tags;
-use crate::replaygain::{self, GainChange, Measured, Selection, Target};
+use crate::replaygain::{self, GainChange, Scanned, Selection, Target};
 
 #[derive(Args, Debug)]
 pub struct LoudnessArgs {
@@ -44,39 +44,16 @@ pub fn run(context: &AppContext, args: &LoudnessArgs) -> Result<i32> {
         return Ok(0);
     }
 
-    let album_gain = !args.track_only;
-    let (selection, unreadable) = inspect(&paths);
-    let selection = replaygain::select(selection, album_gain, args.force);
-
-    let wanted: Vec<PathBuf> = selection
-        .wanted
-        .iter()
-        .map(|target| target.path.clone())
-        .collect();
-    let results = measure_files(&wanted, &context.settings().loudness);
-    let measured: Vec<Measured> = selection
-        .wanted
-        .iter()
-        .zip(&results)
-        .map(|(target, result)| Measured {
-            target: target.clone(),
-            loudness: result.loudness,
-        })
-        .collect();
-
-    let changes: Vec<GainChange> =
-        replaygain::plan(&measured, &context.settings().loudness, album_gain)
-            .into_iter()
-            .filter(GainChange::is_change)
-            .collect();
+    let (targets, unreadable) = inspect(&paths);
+    let selection = replaygain::select(replaygain::group(targets, !args.track_only), args.force);
 
     let mut failures: Vec<(String, String)> = unreadable;
-    failures.extend(
-        results
-            .iter()
-            .filter(|result| result.loudness.is_none())
-            .map(|result| (show(&result.path), reason(result))),
-    );
+    let scanned = scan(context, &selection, &mut failures);
+
+    let changes: Vec<GainChange> = replaygain::plan(&scanned, &context.settings().loudness)
+        .into_iter()
+        .filter(GainChange::is_change)
+        .collect();
 
     if args.apply {
         apply(context, &changes, &mut failures)?;
@@ -104,7 +81,6 @@ fn inspect(paths: &[PathBuf]) -> (Vec<Target>, Vec<(String, String)>) {
             Ok(described) => targets.push(Target {
                 path: path.clone(),
                 tags: described.tags,
-                duration_seconds: described.stream.duration_seconds,
                 current: described.replay_gain,
                 r128: tags::carries_r128(path),
             }),
@@ -112,6 +88,49 @@ fn inspect(paths: &[PathBuf]) -> (Vec<Target>, Vec<(String, String)>) {
         }
     }
     (targets, failed)
+}
+
+/// Measure one record at a time.
+///
+/// A record is one programme to EBU R 128, so its tracks are scanned together;
+/// the analyser states that makes the exact album figure from never outlive the
+/// group they belong to, which is what keeps a library-wide run's memory to one
+/// album rather than every file.
+fn scan(
+    context: &AppContext,
+    selection: &Selection,
+    failures: &mut Vec<(String, String)>,
+) -> Vec<Scanned> {
+    let settings = &context.settings().loudness;
+    let mut scanned = Vec::new();
+    for group in &selection.wanted {
+        let paths: Vec<PathBuf> = group
+            .targets
+            .iter()
+            .map(|target| target.path.clone())
+            .collect();
+        let measured = measure_album(&paths, settings);
+
+        failures.extend(
+            measured
+                .tracks
+                .iter()
+                .filter(|result| result.loudness.is_none())
+                .map(|result| (show(&result.path), reason(result))),
+        );
+        scanned.push(Scanned {
+            // A group of files that name no album is not a record, however
+            // many of them share a folder.
+            album: group.album.as_ref().and(measured.album),
+            tracks: group
+                .targets
+                .iter()
+                .cloned()
+                .zip(measured.tracks.iter().map(|result| result.loudness))
+                .collect(),
+        });
+    }
+    scanned
 }
 
 fn apply(

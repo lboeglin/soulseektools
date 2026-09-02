@@ -7,24 +7,36 @@
 //! throwing the absolute level away on purpose so two copies of one track match
 //! whatever they were mastered at.
 //!
-//! ffmpeg's `ebur128` filter does the measurement. Reading its summary is a
-//! pure function over text, so what the parser accepts is tested directly
-//! rather than through a subprocess.
+//! The measurement is the `ebur128` crate, a port of libebur128, rather than
+//! ffmpeg's filter of the same name: #9 is removing ffmpeg, and a scan built on
+//! a subprocess whose text output had to be parsed would be a line-for-line
+//! rewrite later. Only the decode is still ffmpeg's, and that is the one call
+//! #9 replaces wholesale.
+//!
+//! Measuring a record is not averaging its tracks. The gate that decides which
+//! 400 ms blocks count is relative to the *programme* being measured, so an
+//! album's threshold is the album's, not each track's. `EbuR128` keeps the
+//! block energies that make the exact figure reachable, which is why an album
+//! is scanned as a unit here rather than combined arithmetically afterwards.
 
 use std::path::{Path, PathBuf};
 
+use ebur128::{EbuR128, Mode};
 use rayon::prelude::*;
 
 use crate::audio::ffmpeg;
 use crate::config::LoudnessSettings;
+use crate::errors::{Error, Result};
+use crate::library::tags;
 
-/// What a scan found in one file.
+/// What a scan found in one file, or in one record.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Loudness {
-    /// Integrated loudness over the whole file, gated as BS.1770 specifies.
+    /// Integrated loudness, gated as BS.1770 specifies.
     pub integrated_lufs: f64,
-    /// The loudest the signal gets, in dBFS. Above zero on a clipped master.
-    pub peak_dbfs: f64,
+    /// The loudest the signal gets, as a linear amplitude: 1.0 is full scale,
+    /// and a clipped master goes above it.
+    pub peak: f64,
 }
 
 /// One file's measurement, or why it has none.
@@ -38,24 +50,128 @@ pub struct LoudnessResult {
     pub detail: String,
 }
 
-/// Measure one file.
+/// One group of files measured together: a figure each, and one for the record.
+#[derive(Debug, Clone, PartialEq)]
+pub struct AlbumScan {
+    pub tracks: Vec<LoudnessResult>,
+    /// The record's own figure, absent when nothing in the group could be read.
+    pub album: Option<Loudness>,
+}
+
+/// Measure one file on its own.
 #[must_use]
 pub fn measure_file(path: &Path, settings: &LoudnessSettings) -> LoudnessResult {
-    let summary = match ffmpeg::ebur128(path, settings.true_peak) {
-        Ok(summary) => summary,
-        Err(error) => {
-            return LoudnessResult {
-                path: path.to_path_buf(),
-                loudness: None,
-                detail: error.to_string(),
-            }
-        }
+    match analyse(path, settings) {
+        Ok(state) => finish(path, &state),
+        Err(error) => LoudnessResult {
+            path: path.to_path_buf(),
+            loudness: None,
+            detail: error.to_string(),
+        },
+    }
+}
+
+/// Measure every file in one record, and the record itself.
+///
+/// The tracks are measured in parallel -- each is a full decode spent waiting
+/// on ffmpeg rather than computing -- and their analyser states are kept only
+/// as long as this call, which is what bounds the memory a library-wide scan
+/// holds: one album's worth at a time rather than every file's.
+#[must_use]
+pub fn measure_album(paths: &[PathBuf], settings: &LoudnessSettings) -> AlbumScan {
+    let analysed: Vec<(PathBuf, Result<EbuR128>)> = paths
+        .par_iter()
+        .map(|path| (path.clone(), analyse(path, settings)))
+        .collect();
+
+    let states: Vec<&EbuR128> = analysed
+        .iter()
+        .filter_map(|(_, state)| state.as_ref().ok())
+        .collect();
+
+    let album = EbuR128::loudness_global_multiple(states.iter().copied())
+        .ok()
+        .filter(|loudness| loudness.is_finite())
+        .map(|integrated_lufs| Loudness {
+            integrated_lufs,
+            peak: states
+                .iter()
+                .map(|state| loudest(state, settings.true_peak))
+                .fold(0.0_f64, f64::max),
+        });
+
+    AlbumScan {
+        tracks: analysed
+            .iter()
+            .map(|(path, state)| match state {
+                Ok(state) => finish(path, state),
+                Err(error) => LoudnessResult {
+                    path: path.clone(),
+                    loudness: None,
+                    detail: error.to_string(),
+                },
+            })
+            .collect(),
+        album,
+    }
+}
+
+/// Run the analyser over a whole file.
+fn analyse(path: &Path, settings: &LoudnessSettings) -> Result<EbuR128> {
+    let stream = tags::read_stream_info(path)?;
+    let (Some(sample_rate), Some(channels)) = (stream.sample_rate, stream.channels) else {
+        return Err(Error::Tag(format!(
+            "{}: the header states no sample rate or channel count",
+            path.display()
+        )));
     };
 
-    match parse_summary(&summary, settings.true_peak) {
-        Some(loudness) => LoudnessResult {
+    let samples = ffmpeg::decode_interleaved(path, sample_rate, channels)?;
+    measure_samples(&samples, sample_rate, channels, settings.true_peak)
+}
+
+/// Measure interleaved samples that are already in memory.
+///
+/// The whole of the analysis, with nothing to decode and nothing to spawn, so
+/// what a figure means is established directly.
+pub fn measure_samples(
+    samples: &[f32],
+    sample_rate: u32,
+    channels: u32,
+    true_peak: bool,
+) -> Result<EbuR128> {
+    let mode = Mode::I
+        | if true_peak {
+            Mode::TRUE_PEAK
+        } else {
+            Mode::SAMPLE_PEAK
+        };
+    let mut state = EbuR128::new(channels, sample_rate, mode)
+        .map_err(|error| Error::Tag(format!("loudness analyser: {error}")))?;
+    state
+        .add_frames_f32(samples)
+        .map_err(|error| Error::Tag(format!("loudness analyser: {error}")))?;
+    Ok(state)
+}
+
+/// The figures a finished analyser holds, for one file.
+///
+/// A file of digital silence gates away to nothing and reports `-inf`, which is
+/// not a loudness and would become a gain asking a player to raise silence
+/// infinitely. It is reported as unmeasurable instead.
+fn finish(path: &Path, state: &EbuR128) -> LoudnessResult {
+    let integrated = state
+        .loudness_global()
+        .ok()
+        .filter(|loudness| loudness.is_finite());
+
+    match integrated {
+        Some(integrated_lufs) => LoudnessResult {
             path: path.to_path_buf(),
-            loudness: Some(loudness),
+            loudness: Some(Loudness {
+                integrated_lufs,
+                peak: loudest(state, state.mode().contains(Mode::TRUE_PEAK)),
+            }),
             detail: String::new(),
         },
         None => LoudnessResult {
@@ -66,93 +182,16 @@ pub fn measure_file(path: &Path, settings: &LoudnessSettings) -> LoudnessResult 
     }
 }
 
-/// Measure many files, in parallel.
-///
-/// Every one is a full decode spent waiting on ffmpeg rather than computing, so
-/// this is the same trade `verify_files` makes and the only one that matters
-/// for how long a library-wide scan takes. Results come back in the order the
-/// paths were given, so a plan is reproducible.
-#[must_use]
-pub fn measure_files(paths: &[PathBuf], settings: &LoudnessSettings) -> Vec<LoudnessResult> {
-    paths
-        .par_iter()
-        .map(|path| measure_file(path, settings))
-        .collect()
-}
-
-/// Read what the `ebur128` filter reported.
-///
-/// The summary looks like this, and both peak blocks are present when both peak
-/// modes are enabled, so the peak has to be read under its own heading rather
-/// than by finding a `Peak:` line:
-///
-/// ```text
-///   Integrated loudness:
-///     I:         -21.1 LUFS
-///     Threshold: -31.1 LUFS
-///   ...
-///   Sample peak:
-///     Peak:      -18.1 dBFS
-///
-///   True peak:
-///     Peak:      -18.1 dBFS
-/// ```
-///
-/// A file of digital silence reports `-inf` for both and has no gain anyone can
-/// compute, so it reads back as `None` rather than as an enormous boost.
-#[must_use]
-pub fn parse_summary(text: &str, true_peak: bool) -> Option<Loudness> {
-    let wanted_peak = if true_peak {
-        "True peak:"
-    } else {
-        "Sample peak:"
-    };
-
-    let mut integrated = None;
-    let mut peak = None;
-    let mut under_wanted_peak = false;
-
-    for line in text.lines() {
-        let line = line.trim();
-        if is_heading(line) {
-            under_wanted_peak = line == wanted_peak;
-            continue;
-        }
-        if let Some(value) = line.strip_prefix("I:") {
-            integrated = number_before_unit(value);
-        } else if under_wanted_peak {
-            if let Some(value) = line.strip_prefix("Peak:") {
-                peak = number_before_unit(value);
+/// The loudest any one channel gets.
+fn loudest(state: &EbuR128, true_peak: bool) -> f64 {
+    (0..state.channels())
+        .filter_map(|channel| {
+            if true_peak {
+                state.true_peak(channel)
+            } else {
+                state.sample_peak(channel)
             }
-        }
-    }
-
-    Some(Loudness {
-        integrated_lufs: integrated?,
-        peak_dbfs: peak?,
-    })
-}
-
-/// One of the summary's section headings, rather than a figure inside one.
-fn is_heading(line: &str) -> bool {
-    matches!(
-        line,
-        "Integrated loudness:" | "Loudness range:" | "Sample peak:" | "True peak:"
-    )
-}
-
-/// The number in `-21.1 LUFS`, or `None` for the `-inf` a silent file reports.
-///
-/// `-inf` parses perfectly well as a float, and would then become a gain asking
-/// a player to raise a silent file by an infinite amount. A file whose peak is
-/// `-inf` holds no signal at all, which is the case ffmpeg reports as an
-/// integrated loudness of exactly -70 -- the absolute gate -- rather than as
-/// `-inf` of its own.
-fn number_before_unit(value: &str) -> Option<f64> {
-    value
-        .split_whitespace()
-        .next()?
-        .parse()
-        .ok()
-        .filter(|number: &f64| number.is_finite())
+            .ok()
+        })
+        .fold(0.0_f64, f64::max)
 }

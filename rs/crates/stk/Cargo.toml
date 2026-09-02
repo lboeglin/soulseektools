@@ -19,6 +19,7 @@ path = "src/bin/stk.rs"
 [dependencies]
 clap = { version = "4.5.61", features = ["derive", "env"] }
 csv = "1.4.0"
+ebur128 = "0.1.10"
 fancy-regex = "0.19.0"
 globset = "0.4.16"
 kakasi = "0.1.0"

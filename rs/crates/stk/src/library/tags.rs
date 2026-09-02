@@ -114,6 +114,7 @@ fn stream_info_of(file: &TaggedFile) -> StreamInfo {
         bitrate: properties.audio_bitrate(),
         sample_rate: properties.sample_rate(),
         bit_depth: properties.bit_depth().map(u32::from),
+        channels: properties.channels().map(u32::from),
         duration_seconds: {
             let seconds = properties.duration().as_secs_f64();
             (seconds != 0.0).then_some(seconds)
@@ -122,12 +123,17 @@ fn stream_info_of(file: &TaggedFile) -> StreamInfo {
 }
 
 /// What a container's header says about its audio stream.
+///
+/// `channels` is not an index column: nothing reports it, and it is here
+/// because a loudness scan has to tell the analyser how the samples it is
+/// handed are laid out. It comes off the same parse as the rest.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct StreamInfo {
     pub codec: String,
     pub bitrate: Option<u32>,
     pub sample_rate: Option<u32>,
     pub bit_depth: Option<u32>,
+    pub channels: Option<u32>,
     pub duration_seconds: Option<f64>,
 }
 

@@ -1,7 +1,7 @@
-//! The arithmetic and the album grouping behind `stk loudness` (#7).
+//! The album grouping and the gain arithmetic behind `stk loudness` (#7).
 //!
 //! All of it is pure, so what a gain figure means is established here rather
-//! than through ffmpeg. The measurement itself is in `loudness.rs`.
+//! than through a decode. The measurement itself is in `loudness.rs`.
 
 use std::path::PathBuf;
 
@@ -9,18 +9,17 @@ use stk::audio::loudness::Loudness;
 use stk::config::LoudnessSettings;
 use stk::models::{ReplayGainTags, TrackTags};
 use stk::replaygain::{
-    album_key, album_loudness, format_gain, format_peak, format_r128, gain_db, peak_amplitude,
-    plan, select, Measured, Target,
+    album_key, format_gain, format_peak, format_r128, gain_db, group, plan, select, Scanned, Target,
 };
 
 fn settings() -> LoudnessSettings {
     LoudnessSettings::default()
 }
 
-fn loudness(integrated_lufs: f64, peak_dbfs: f64) -> Loudness {
+fn loudness(integrated_lufs: f64, peak: f64) -> Loudness {
     Loudness {
         integrated_lufs,
-        peak_dbfs,
+        peak,
     }
 }
 
@@ -37,16 +36,19 @@ fn target(path: &str, tags: TrackTags) -> Target {
     Target {
         path: PathBuf::from(path),
         tags,
-        duration_seconds: Some(180.0),
         current: ReplayGainTags::default(),
         r128: false,
     }
 }
 
-fn measured(path: &str, tags: TrackTags, integrated_lufs: f64) -> Measured {
-    Measured {
-        target: target(path, tags),
-        loudness: Some(loudness(integrated_lufs, -1.0)),
+/// One group's worth of scan, as the command hands it to `plan`.
+fn scanned(album: Option<Loudness>, tracks: &[(Target, f64)]) -> Scanned {
+    Scanned {
+        album,
+        tracks: tracks
+            .iter()
+            .map(|(target, integrated)| (target.clone(), Some(loudness(*integrated, 0.5))))
+            .collect(),
     }
 }
 
@@ -63,15 +65,6 @@ fn a_quieter_track_earns_a_larger_gain() {
 
     assert!(quiet > loud);
     assert!((quiet - loud - 12.0).abs() < 1e-9);
-}
-
-#[test]
-fn a_peak_in_dbfs_becomes_a_linear_amplitude() {
-    assert!((peak_amplitude(0.0) - 1.0).abs() < 1e-9);
-    assert!((peak_amplitude(-6.0206) - 0.5).abs() < 1e-4);
-    // A clipped master peaks above full scale, which is the case a player
-    // applying positive gain needs the figure for.
-    assert!(peak_amplitude(1.0) > 1.0);
 }
 
 #[test]
@@ -104,12 +97,14 @@ fn an_absurd_opus_gain_saturates_rather_than_wrapping() {
 #[test]
 fn an_album_gain_is_one_figure_across_its_tracks() {
     let changes = plan(
-        &[
-            measured("/music/a.flac", tags("ZUN", "Heian Alien"), -9.0),
-            measured("/music/b.flac", tags("ZUN", "Heian Alien"), -21.0),
-        ],
+        &[scanned(
+            Some(loudness(-13.0, 0.9)),
+            &[
+                (target("/music/a.flac", tags("ZUN", "Heian Alien")), -9.0),
+                (target("/music/b.flac", tags("ZUN", "Heian Alien")), -21.0),
+            ],
+        )],
         &settings(),
-        true,
     );
 
     assert_eq!(changes.len(), 2);
@@ -117,98 +112,102 @@ fn an_album_gain_is_one_figure_across_its_tracks() {
         changes[0].proposed.track_gain,
         changes[1].proposed.track_gain
     );
+    assert_eq!(changes[0].proposed.album_gain, Some("-5.00 dB".to_owned()));
     assert_eq!(
         changes[0].proposed.album_gain,
         changes[1].proposed.album_gain
     );
-}
-
-#[test]
-fn an_album_sits_between_its_loudest_and_its_quietest_track() {
-    let album = album_loudness(&[
-        (loudness(-9.0, -1.0), 180.0),
-        (loudness(-21.0, -1.0), 180.0),
-    ])
-    .expect("an album loudness");
-
-    assert!(album < -9.0 && album > -21.0);
-}
-
-/// Energy, not decibels: the loud track dominates the average the way it
-/// dominates the record.
-#[test]
-fn an_album_follows_its_loud_tracks_rather_than_the_mean_of_the_numbers() {
-    let album = album_loudness(&[
-        (loudness(-9.0, -1.0), 180.0),
-        (loudness(-21.0, -1.0), 180.0),
-    ])
-    .expect("an album loudness");
-
-    assert!(album > -15.0, "{album}");
-}
-
-#[test]
-fn a_long_track_weighs_more_in_its_album_than_a_short_one() {
-    let quiet = loudness(-24.0, -1.0);
-    let loud = loudness(-12.0, -1.0);
-
-    let long_quiet = album_loudness(&[(quiet, 600.0), (loud, 60.0)]).expect("an album loudness");
-    let long_loud = album_loudness(&[(quiet, 60.0), (loud, 600.0)]).expect("an album loudness");
-
-    assert!(long_loud > long_quiet);
-}
-
-#[test]
-fn an_album_peak_is_the_loudest_of_its_tracks() {
-    let quiet = Measured {
-        target: target("/music/a.flac", tags("ZUN", "Heian Alien")),
-        loudness: Some(loudness(-12.0, -20.0)),
-    };
-    let loud = Measured {
-        target: target("/music/b.flac", tags("ZUN", "Heian Alien")),
-        loudness: Some(loudness(-12.0, -3.0)),
-    };
-
-    let changes = plan(&[quiet, loud], &settings(), true);
-
-    assert_eq!(
-        changes[0].proposed.album_peak,
-        Some(format_peak(peak_amplitude(-3.0)))
-    );
-    assert_eq!(
-        changes[0].proposed.album_peak,
-        changes[1].proposed.album_peak
-    );
+    assert_eq!(changes[0].proposed.album_peak, Some("0.900000".to_owned()));
 }
 
 #[test]
 fn a_file_with_no_album_tag_gets_a_track_gain_and_nothing_else() {
     let changes = plan(
-        &[measured("/music/single.flac", tags("ZUN", ""), -9.0)],
+        &[scanned(
+            None,
+            &[(target("/music/single.flac", tags("ZUN", "")), -9.0)],
+        )],
         &settings(),
-        true,
     );
 
-    assert!(changes[0].proposed.track_gain.is_some());
+    assert_eq!(changes[0].proposed.track_gain, Some("-9.00 dB".to_owned()));
     assert_eq!(changes[0].proposed.album_gain, None);
     assert_eq!(changes[0].proposed.album_peak, None);
 }
 
 #[test]
-fn two_albums_of_the_same_name_by_different_artists_stay_apart() {
+fn a_file_that_could_not_be_measured_is_planned_for_nothing() {
     let changes = plan(
-        &[
-            measured("/music/a.flac", tags("ZUN", "Greatest Hits"), -9.0),
-            measured("/music/b.flac", tags("DECO*27", "Greatest Hits"), -21.0),
-        ],
+        &[Scanned {
+            album: None,
+            tracks: vec![(target("/music/broken.flac", tags("ZUN", "Ghost")), None)],
+        }],
         &settings(),
+    );
+
+    assert!(changes.is_empty());
+}
+
+#[test]
+fn an_opus_file_is_planned_both_spellings_and_everything_else_only_the_standard_ones() {
+    let mut opus = target("/music/a.opus", tags("ZUN", "Heian Alien"));
+    opus.r128 = true;
+    let flac = target("/music/b.flac", tags("ZUN", "Heian Alien"));
+
+    let changes = plan(
+        &[scanned(
+            Some(loudness(-13.0, 0.9)),
+            &[(opus, -9.0), (flac, -9.0)],
+        )],
+        &settings(),
+    );
+
+    assert!(changes[0].proposed.r128_track_gain.is_some());
+    assert!(changes[0].proposed.r128_album_gain.is_some());
+    assert_eq!(changes[1].proposed.r128_track_gain, None);
+    assert_eq!(changes[1].proposed.r128_album_gain, None);
+}
+
+#[test]
+fn the_tracks_of_one_album_are_gathered_into_one_group() {
+    let groups = group(
+        vec![
+            target("/music/a.flac", tags("ZUN", "Heian Alien")),
+            target("/music/b.flac", tags("ZUN", "Heian Alien")),
+        ],
         true,
     );
 
-    assert_ne!(
-        changes[0].proposed.album_gain,
-        changes[1].proposed.album_gain
+    assert_eq!(groups.len(), 1);
+    assert_eq!(groups[0].targets.len(), 2);
+    assert!(groups[0].album.is_some());
+}
+
+#[test]
+fn a_file_with_no_album_tag_is_a_group_of_its_own() {
+    let groups = group(
+        vec![
+            target("/music/a.flac", tags("ZUN", "")),
+            target("/music/b.flac", tags("ZUN", "")),
+        ],
+        true,
     );
+
+    assert_eq!(groups.len(), 2);
+    assert!(groups.iter().all(|group| group.album.is_none()));
+}
+
+#[test]
+fn two_albums_of_the_same_name_by_different_artists_stay_apart() {
+    let groups = group(
+        vec![
+            target("/music/a.flac", tags("ZUN", "Greatest Hits")),
+            target("/music/b.flac", tags("DECO*27", "Greatest Hits")),
+        ],
+        true,
+    );
+
+    assert_eq!(groups.len(), 2);
 }
 
 /// `normalize` drops a bracketed suffix, which would make a deluxe edition and
@@ -229,34 +228,19 @@ fn an_album_artist_decides_the_group_where_one_is_tagged() {
     assert_eq!(album_key(&compilation), album_key(&tags("ZUN", "Various")));
 }
 
+/// `--track-only`: nothing is measured against anything else.
 #[test]
-fn track_only_leaves_every_album_field_empty() {
-    let changes = plan(
-        &[
-            measured("/music/a.flac", tags("ZUN", "Heian Alien"), -9.0),
-            measured("/music/b.flac", tags("ZUN", "Heian Alien"), -21.0),
+fn track_only_makes_every_file_a_group_of_one() {
+    let groups = group(
+        vec![
+            target("/music/a.flac", tags("ZUN", "Heian Alien")),
+            target("/music/b.flac", tags("ZUN", "Heian Alien")),
         ],
-        &settings(),
         false,
     );
 
-    assert!(changes
-        .iter()
-        .all(|change| change.proposed.album_gain.is_none()));
-}
-
-#[test]
-fn a_file_that_could_not_be_measured_is_planned_for_nothing() {
-    let changes = plan(
-        &[Measured {
-            target: target("/music/broken.flac", tags("ZUN", "Heian Alien")),
-            loudness: None,
-        }],
-        &settings(),
-        true,
-    );
-
-    assert!(changes.is_empty());
+    assert_eq!(groups.len(), 2);
+    assert!(groups.iter().all(|group| group.album.is_none()));
 }
 
 /// The point of the default: a library somebody scanned in foobar2000 is not
@@ -266,9 +250,9 @@ fn a_file_that_already_carries_a_gain_is_left_alone() {
     let mut scanned = target("/music/a.flac", tags("ZUN", ""));
     scanned.current.track_gain = Some("-7.29 dB".to_owned());
 
-    let selection = select(vec![scanned], true, false);
+    let selection = select(group(vec![scanned], true), false);
 
-    assert_eq!(selection.wanted.len(), 0);
+    assert!(selection.wanted.is_empty());
     assert_eq!(selection.skipped.len(), 1);
 }
 
@@ -277,7 +261,7 @@ fn force_measures_a_file_that_already_carries_a_gain() {
     let mut scanned = target("/music/a.flac", tags("ZUN", ""));
     scanned.current.track_gain = Some("-7.29 dB".to_owned());
 
-    let selection = select(vec![scanned], true, true);
+    let selection = select(group(vec![scanned], true), true);
 
     assert_eq!(selection.wanted.len(), 1);
     assert!(selection.skipped.is_empty());
@@ -292,9 +276,10 @@ fn a_half_scanned_album_is_measured_entire() {
     done.current.track_gain = Some("-7.29 dB".to_owned());
     let pending = target("/music/b.flac", tags("ZUN", "Heian Alien"));
 
-    let selection = select(vec![done, pending], true, false);
+    let selection = select(group(vec![done, pending], true), false);
 
-    assert_eq!(selection.wanted.len(), 2);
+    assert_eq!(selection.wanted.len(), 1);
+    assert_eq!(selection.wanted[0].targets.len(), 2);
     assert!(selection.skipped.is_empty());
 }
 
@@ -305,7 +290,7 @@ fn a_fully_scanned_album_is_left_alone() {
     let mut second = target("/music/b.flac", tags("ZUN", "Heian Alien"));
     second.current.track_gain = Some("-4.10 dB".to_owned());
 
-    let selection = select(vec![first, second], true, false);
+    let selection = select(group(vec![first, second], true), false);
 
     assert!(selection.wanted.is_empty());
     assert_eq!(selection.skipped.len(), 2);
@@ -319,33 +304,5 @@ fn an_opus_file_carrying_only_r128_counts_as_scanned() {
     scanned.r128 = true;
     scanned.current.r128_track_gain = Some("-2022".to_owned());
 
-    assert!(select(vec![scanned], true, false).wanted.is_empty());
-}
-
-#[test]
-fn an_opus_file_is_planned_both_gains_and_everything_else_only_the_standard_ones() {
-    let mut opus = measured("/music/a.opus", tags("ZUN", "Heian Alien"), -9.0);
-    opus.target.r128 = true;
-    let flac = measured("/music/b.flac", tags("ZUN", "Heian Alien"), -9.0);
-
-    let changes = plan(&[opus, flac], &settings(), true);
-
-    assert!(changes[0].proposed.r128_track_gain.is_some());
-    assert!(changes[0].proposed.r128_album_gain.is_some());
-    assert_eq!(changes[1].proposed.r128_track_gain, None);
-    assert_eq!(changes[1].proposed.r128_album_gain, None);
-}
-
-#[test]
-fn an_album_of_nothing_has_no_loudness() {
-    assert_eq!(album_loudness(&[]), None);
-}
-
-/// Neither `stk` nor the index need know how long a track is for a scan to
-/// work, so lengths that are all unknown weigh one apiece.
-#[test]
-fn an_album_whose_tracks_have_no_known_length_is_still_measured() {
-    let album = album_loudness(&[(loudness(-9.0, -1.0), 0.0), (loudness(-21.0, -1.0), 0.0)]);
-
-    assert!(album.is_some());
+    assert!(select(group(vec![scanned], true), false).wanted.is_empty());
 }
