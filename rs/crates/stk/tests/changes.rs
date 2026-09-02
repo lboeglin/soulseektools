@@ -10,12 +10,13 @@ mod support;
 use std::path::{Path, PathBuf};
 
 use stk::library::changes::{
-    apply_undo, decode_genres, digest, plan_undo, Blocked, ChangeFilter, ChangeLog,
+    apply_undo, decode_genres, decode_replay_gain, digest, plan_undo, Blocked, ChangeFilter,
+    ChangeLog,
 };
 use stk::library::index::{default_extensions, LibraryIndex};
 use stk::library::scan::Excludes;
 use stk::library::tags::{self, TagField};
-use stk::models::Artwork;
+use stk::models::{Artwork, ReplayGainTags};
 use support::{encode, Encoded, Scratch};
 
 macro_rules! needs_ffmpeg {
@@ -664,4 +665,125 @@ fn a_move_that_never_happened_cannot_be_undone() {
 
     assert_eq!(plan.blocked, Some(Blocked::FileGone));
     assert!(from.is_file(), "the source is untouched");
+}
+
+fn measurement(track_gain: &str) -> ReplayGainTags {
+    ReplayGainTags {
+        track_gain: Some(track_gain.to_owned()),
+        track_peak: Some("0.988556".to_owned()),
+        album_gain: Some("-6.25 dB".to_owned()),
+        album_peak: Some("0.995000".to_owned()),
+        r128_track_gain: None,
+        r128_album_gain: None,
+    }
+}
+
+/// The four figures are one measurement, so they share one row: a row apiece
+/// would let an undo restore a gain without the peak that bounds it (#7).
+#[test]
+fn a_loudness_write_is_logged_as_one_row_carrying_every_figure() {
+    needs_ffmpeg!();
+    let scratch = Scratch::new("changes-loudness");
+    let root = library(&scratch);
+    let track = root.join("ZUN").join("Heian Alien.flac");
+    let mut index = indexed(&scratch, &root);
+
+    let written = measurement("-7.29 dB");
+    let log = ChangeLog::open(&index, "loudness", 100.0).expect("a run");
+    tags::write_replay_gain(&track, &written).expect("a loudness write");
+    log.replay_gain(&mut index, &track, &ReplayGainTags::default(), &written)
+        .expect("a logged change");
+
+    let changes = index
+        .changes(&ChangeFilter::default())
+        .expect("the logged rows");
+    assert_eq!(changes.len(), 1);
+    assert_eq!(changes[0].command, "loudness");
+    assert_eq!(changes[0].field, "replay_gain");
+    assert_eq!(
+        decode_replay_gain(changes[0].old_value.as_deref()),
+        ReplayGainTags::default()
+    );
+    assert_eq!(decode_replay_gain(changes[0].new_value.as_deref()), written);
+}
+
+/// A library scanned elsewhere carries figures somebody chose, and `--force`
+/// replaces them. The undo has to give them back exactly as they were spelled.
+#[test]
+fn undoing_a_loudness_write_puts_the_previous_scan_back() {
+    needs_ffmpeg!();
+    let scratch = Scratch::new("changes-loudness-undo");
+    let root = library(&scratch);
+    let track = root.join("ZUN").join("Heian Alien.flac");
+    let mut index = indexed(&scratch, &root);
+
+    let before = measurement("-11.11 dB");
+    tags::write_replay_gain(&track, &before).expect("an earlier scan");
+
+    let after = measurement("-7.29 dB");
+    let log = ChangeLog::open(&index, "loudness", 100.0).expect("a run");
+    tags::write_replay_gain(&track, &after).expect("a loudness write");
+    log.replay_gain(&mut index, &track, &before, &after)
+        .expect("a logged change");
+
+    let change = index.change(1).expect("a lookup").expect("the row");
+    let plan = plan_undo(&index, change).expect("a plan");
+    assert!(plan.ready(), "{:?}", plan.blocked);
+
+    let undo = ChangeLog::open(&index, "changes undo", 200.0).expect("a run");
+    apply_undo(&mut index, &plan, &undo, std::slice::from_ref(&root)).expect("an undo");
+
+    assert_eq!(
+        tags::read_replay_gain(&track).expect("readable loudness tags"),
+        before
+    );
+}
+
+#[test]
+fn undoing_a_first_scan_removes_the_loudness_tags() {
+    needs_ffmpeg!();
+    let scratch = Scratch::new("changes-loudness-first");
+    let root = library(&scratch);
+    let track = root.join("ZUN").join("Heian Alien.flac");
+    let mut index = indexed(&scratch, &root);
+
+    let written = measurement("-7.29 dB");
+    let log = ChangeLog::open(&index, "loudness", 100.0).expect("a run");
+    tags::write_replay_gain(&track, &written).expect("a loudness write");
+    log.replay_gain(&mut index, &track, &ReplayGainTags::default(), &written)
+        .expect("a logged change");
+
+    let change = index.change(1).expect("a lookup").expect("the row");
+    let plan = plan_undo(&index, change).expect("a plan");
+    let undo = ChangeLog::open(&index, "changes undo", 200.0).expect("a run");
+    apply_undo(&mut index, &plan, &undo, std::slice::from_ref(&root)).expect("an undo");
+
+    assert!(tags::read_replay_gain(&track)
+        .expect("readable loudness tags")
+        .is_empty());
+}
+
+/// A gain someone has since corrected by hand is not overwritten, the same
+/// rule every other field is undone under.
+#[test]
+fn a_scan_changed_since_it_was_logged_blocks_its_undo() {
+    needs_ffmpeg!();
+    let scratch = Scratch::new("changes-loudness-blocked");
+    let root = library(&scratch);
+    let track = root.join("ZUN").join("Heian Alien.flac");
+    let mut index = indexed(&scratch, &root);
+
+    let written = measurement("-7.29 dB");
+    let log = ChangeLog::open(&index, "loudness", 100.0).expect("a run");
+    tags::write_replay_gain(&track, &written).expect("a loudness write");
+    log.replay_gain(&mut index, &track, &ReplayGainTags::default(), &written)
+        .expect("a logged change");
+
+    tags::write_replay_gain(&track, &measurement("-3.00 dB")).expect("a later edit");
+
+    let change = index.change(1).expect("a lookup").expect("the row");
+    let plan = plan_undo(&index, change).expect("a plan");
+
+    assert_eq!(plan.blocked, Some(Blocked::FileChanged));
+    assert!(plan.allowed(true));
 }

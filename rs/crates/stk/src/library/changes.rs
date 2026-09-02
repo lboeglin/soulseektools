@@ -25,7 +25,7 @@ use sha2::{Digest, Sha256};
 use crate::errors::{Error, Result};
 use crate::library::index::LibraryIndex;
 use crate::library::tags::{self, TagField};
-use crate::models::{Artwork, TrackTags};
+use crate::models::{Artwork, ReplayGainTags, TrackTags};
 
 /// What a logged row changed about a file.
 ///
@@ -39,6 +39,14 @@ use crate::models::{Artwork, TrackTags};
 pub enum ChangeField {
     Genre,
     Artwork,
+    /// Every loudness figure at once, unlike the tag fields below.
+    ///
+    /// The four ReplayGain values are one measurement, not four decisions. A
+    /// row apiece would let an undo put a gain back without the peak that
+    /// bounds it, leaving a player applying positive gain nothing to check
+    /// itself against -- the opposite of what splitting genre from title
+    /// protects (#7).
+    ReplayGain,
     Artist,
     AlbumArtist,
     Album,
@@ -54,6 +62,7 @@ impl ChangeField {
         match self {
             Self::Genre => "genre",
             Self::Artwork => "artwork",
+            Self::ReplayGain => "replay_gain",
             Self::Artist => "artist",
             Self::AlbumArtist => "album_artist",
             Self::Album => "album",
@@ -90,6 +99,7 @@ impl FromStr for ChangeField {
         [
             Self::Genre,
             Self::Artwork,
+            Self::ReplayGain,
             Self::Artist,
             Self::AlbumArtist,
             Self::Album,
@@ -230,6 +240,27 @@ impl ChangeLog {
         })
     }
 
+    /// Log a whole loudness measurement, as `stk loudness` writes them.
+    pub fn replay_gain(
+        &self,
+        index: &mut LibraryIndex,
+        path: &Path,
+        old: &ReplayGainTags,
+        new: &ReplayGainTags,
+    ) -> Result<i64> {
+        index.record_change(&NewChange {
+            run_id: self.run_id,
+            applied_at: self.applied_at,
+            command: self.command.clone(),
+            path: path.to_path_buf(),
+            field: ChangeField::ReplayGain,
+            // Always present, an empty set meaning the file had never been
+            // scanned, so the comparison `plan_undo` makes stays total.
+            old_value: Some(encode_replay_gain(old)),
+            new_value: Some(encode_replay_gain(new)),
+        })
+    }
+
     /// `new` is absent when the cover was removed rather than replaced, which
     /// is what undoing a first-time embed comes to.
     pub fn artwork(
@@ -366,6 +397,20 @@ pub fn plan_undo(index: &LibraryIndex, change: Change) -> Result<UndoPlan> {
                 },
             )
         }
+        ChangeField::ReplayGain => {
+            let restored = decode_replay_gain(change.old_value.as_deref());
+            (
+                Some(encode_replay_gain(&tags::read_replay_gain(&change.path)?)),
+                if restored.is_empty() {
+                    "remove the loudness tags".to_owned()
+                } else {
+                    format!(
+                        "set the track gain back to {}",
+                        restored.track_gain.clone().unwrap_or_default()
+                    )
+                },
+            )
+        }
         ChangeField::Artist => planned_tag(&change, TagField::Artist)?,
         ChangeField::AlbumArtist => planned_tag(&change, TagField::AlbumArtist)?,
         ChangeField::Album => planned_tag(&change, TagField::Album)?,
@@ -437,6 +482,12 @@ pub fn apply_undo(
                 None => tags::clear_artwork(&change.path)?,
             }
             log.artwork(index, &change.path, current.as_ref(), restored.as_ref())?;
+        }
+        ChangeField::ReplayGain => {
+            let current = tags::read_replay_gain(&change.path)?;
+            let restored = decode_replay_gain(change.old_value.as_deref());
+            tags::write_replay_gain(&change.path, &restored)?;
+            log.replay_gain(index, &change.path, &current, &restored)?;
         }
         ChangeField::Artist => restore_tag(index, change, log, TagField::Artist)?,
         ChangeField::AlbumArtist => restore_tag(index, change, log, TagField::AlbumArtist)?,
@@ -541,6 +592,19 @@ pub fn encode_genres(genres: &[String]) -> String {
 
 #[must_use]
 pub fn decode_genres(value: Option<&str>) -> Vec<String> {
+    value
+        .and_then(|text| serde_json::from_str(text).ok())
+        .unwrap_or_default()
+}
+
+/// How a measurement is stored, so every figure round-trips through the log.
+#[must_use]
+pub fn encode_replay_gain(gain: &ReplayGainTags) -> String {
+    serde_json::to_string(gain).unwrap_or_else(|_| "{}".to_owned())
+}
+
+#[must_use]
+pub fn decode_replay_gain(value: Option<&str>) -> ReplayGainTags {
     value
         .and_then(|text| serde_json::from_str(text).ok())
         .unwrap_or_default()
