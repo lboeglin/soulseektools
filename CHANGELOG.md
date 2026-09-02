@@ -11,6 +11,32 @@ a set of ad-hoc scripts and a Nicotine+ plugin, and was then rewritten in Rust.
 
 ### Added
 
+- `stk review pick`, which walks the tracks awaiting review and asks one question
+  each, so a decision costs a keystroke rather than a track id read off a table
+  and typed back into `stk review approve`. Reviewing a wantlist is the only
+  high-volume decision loop in the tool -- everything else is a batch job that
+  runs to completion or a report read once -- and over a 147-track wantlist it
+  was the worst ergonomics in it (#8). Enter takes the top pick, a number takes
+  that candidate, `r` rejects, `s` passes over, `u` takes back the decision just
+  made and offers that track again, `q` stops.
+
+  It is a prompt loop, not the full-screen app the Python's Textual build had.
+  Every command carries `--json` and a meaningful exit code, so the tool is
+  scriptable throughout; a full-screen app would reimplement each command's
+  presentation and give the project a second place where output is decided, and
+  it would have landed without automated coverage in a project whose rule is
+  that no change lands without tests for its behaviour. The loop instead takes
+  its input and its transcript as arguments, so a whole session is a string of
+  answers in a test, and `stk review list/approve/reject` remain the scriptable
+  form of the same decisions. It refuses to run under `--json` rather than
+  blocking a pipeline on a keystroke nobody can see it waiting for.
+
+  Only tracks awaiting review are walked, ranks are passed to the store exactly
+  as the listing shows them, and nothing is downloaded: a decision changes
+  `review.db` and `stk fetch download` is what acts on it. Undo clears the
+  candidate's `attempted` mark along with the approval, or the retry added in #2
+  would fall past a candidate nothing had actually tried and the best copy would
+  never be fetched.
 - `stk loudness`, which measures how loud every file actually is and writes the
   ReplayGain tags a player levels playback with. Albums are mastered at wildly
   different levels, so a shuffled library jumps in volume between tracks; the
@@ -210,6 +236,12 @@ a set of ad-hoc scripts and a Nicotine+ plugin, and was then rewritten in Rust.
 
 ### Fixed
 
+- `stk get` read an exhausted stdin as the empty answer, which takes the top
+  candidate, so `stk get "..." < /dev/null` chose and downloaded a file with
+  nobody at the keyboard -- against the invariant that nothing downloads without
+  a human choosing it. End of input is now "nothing downloaded". Found while
+  building the review picker on the same prompt, where it would have approved a
+  whole queue.
 - `sanitize_folder_name` did not strip backslashes, so an artist name containing
   one produced a nested directory and the finished download was then looked for
   somewhere it had never been written (#5).

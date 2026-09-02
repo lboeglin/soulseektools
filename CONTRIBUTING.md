@@ -103,12 +103,18 @@ rs/crates/stk/src/
                     the EBU R 128 loudness scan behind `stk loudness`
   artwork/          providers and the artist-verification guard
   soulseek/         the client trait, the slskd backend, ranking
-  review/           the review queue, and the album view over it
+  review/           the review queue, the album view over it, and the picker
+                    that walks it
   cli/              one module per command group
 ```
 
-There is no `tui/`. The review app was Textual and did not survive the port;
-`review list/approve/reject` cover the same ground.
+There is no `tui/`, and `review/picker.rs` is a prompt loop rather than a
+full-screen app. Every command has `--json` and a meaningful exit code, so the
+tool is scriptable throughout; a full-screen app would reimplement each command's
+presentation and give the project a second place where output is decided. The
+picker takes its input and its transcript as arguments for the same reason the
+spectral classifier is pure: a whole session is then a string of answers in a
+test.
 
 Two rules keep this from drifting back into what it replaced:
 

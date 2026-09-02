@@ -4,9 +4,9 @@ Build a music library from a streaming-service export via Soulseek, and keep it
 clean afterwards: no duplicates, full cover art, consistent genre tags, and no
 FLACs that are really transcoded MP3s.
 
-One `stk` command-line tool with a terminal review app, driven by a config file.
-Nothing is hardcoded to one machine, every command that writes to your files
-shows its plan first, and nothing downloads without you choosing it.
+One `stk` command-line tool, driven by a config file. Nothing is hardcoded to
+one machine, every command that writes to your files shows its plan first, and
+nothing downloads without you choosing it.
 
 ```
 $ stk library scan
@@ -17,9 +17,9 @@ $ stk wantlist diff "My Spotify Library.csv"
 Queued 147 new track(s) for searching
 
 $ stk fetch search
-Searched 147 track(s); 139 have candidates to review. Run stk review to choose.
+Searched 147 track(s); 139 have candidates to review. Run stk review pick to choose.
 
-$ stk review          # pick a candidate per track, one keystroke each
+$ stk review pick     # choose a candidate per track, one keystroke each
 $ stk fetch download  # queue the approved picks, verify what arrives
 ```
 
@@ -201,16 +201,39 @@ cover, and only the folder it sits in says so.
 **3. Review.**
 
 ```bash
-stk review
+stk review pick
 ```
 
-A terminal app listing each track with its candidates. Every candidate shows its
-format, uploader, queue position, full remote path and any warnings raised.
-Press `1`, `2` or `3` to take a candidate, `r` to reject the track, `u` to undo,
-`a` to show everything, `q` to quit.
+Walks the tracks awaiting review, one question each. Every candidate shows its
+format, uploader, queue position, any warnings raised, and its full remote path
+on the line beneath — which is what reveals a live recording or an orchestral
+cover behind a filename that looks exactly right.
 
-Prefer not to use the app? `stk review list --candidates`, `stk review approve
-<id> <rank>` and `stk review reject <id>` do the same thing.
+```
+$ stk review pick
+
+1/139  DECO*27 - Roki
+ 1. 01 Roki.flac [flac, 44.1kHz/16bit] user=bulk queue=0 slot=free flags=preferred-uploader
+    @@bulk\Music\DECO*27 - Ghost Rule EP\01 Roki.flac
+ 2. Roki.mp3 [mp3, 320kbps] user=peerC queue=4 slot=busy
+    @@peerC\shared\Vocaloid\Roki.mp3
+ 3. Roki (Live at Budokan).mp3 [mp3, 256kbps] user=livefan queue=1 slot=free
+    @@livefan\bootlegs\Roki (Live at Budokan).mp3
+Take which? [1-3, r reject, s skip, u undo, q quit] (1):
+```
+
+Enter takes the top pick, `1`–`n` takes that one, `r` rejects the track, `s`
+passes over it, `u` takes back the decision just made and offers that track
+again, `q` stops. Nothing is downloaded here: a decision changes the review
+queue, and `stk fetch download` is what acts on it.
+
+It is a prompt loop rather than a full-screen app on purpose. Every command has
+`--json` and a meaningful exit code, so the whole tool is scriptable; a
+full-screen app would reimplement each command's presentation and give the
+project a second place where output is decided. So `stk review list
+--candidates`, `stk review approve <id> <rank>` and `stk review reject <id>`
+remain the scriptable form, and `pick` is the same decisions asked for out loud.
+It refuses to run under `--json`, rather than blocking a pipeline on a keystroke.
 
 Soulseek's real unit is the folder, though, and `stk review albums` says which
 of them one peer could supply several waiting tracks from:
@@ -569,9 +592,8 @@ That implementation is still reachable, tagged `python-reference`:
 git checkout python-reference -- py/     # restores the whole tree
 ```
 
-It is worth knowing it exists for one reason: the review TUI has not been
-rewritten. `stk review list --candidates`, `stk review approve` and
-`stk review reject` cover the same workflow non-interactively.
+Its review app was Textual, and `stk review pick` is deliberately not a
+reimplementation of it: a prompt loop, not a full-screen one.
 
 ## Contributing
 
