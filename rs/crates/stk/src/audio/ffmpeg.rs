@@ -55,6 +55,15 @@ pub fn require(tool: &str) -> Result<PathBuf> {
 }
 
 fn run(program: &Path, arguments: &[String]) -> Result<Vec<u8>> {
+    run_captured(program, arguments).map(|(stdout, _)| stdout)
+}
+
+/// Run a tool and keep both streams.
+///
+/// ffmpeg's filters report on stderr even when the run succeeds -- `ebur128`
+/// prints its whole summary there -- so a caller after a measurement rather
+/// than a decode needs the half [`run`] throws away.
+fn run_captured(program: &Path, arguments: &[String]) -> Result<(Vec<u8>, Vec<u8>)> {
     let name = program.file_stem().map_or_else(
         || program.display().to_string(),
         |stem| stem.to_string_lossy().into_owned(),
@@ -103,7 +112,7 @@ fn run(program: &Path, arguments: &[String]) -> Result<Vec<u8>> {
     let stderr = reading_stderr.join().unwrap_or_default();
 
     if status.success() {
-        return Ok(stdout);
+        return Ok((stdout, stderr));
     }
 
     let stderr = String::from_utf8_lossy(&stderr);
@@ -281,6 +290,33 @@ fn probe_windows(
     (0..probes)
         .map(|index| (margin + step * index as f64, window_seconds))
         .collect()
+}
+
+/// Scan a file for EBU R 128 loudness, returning the filter's summary.
+///
+/// The whole file is decoded rather than probed: a gain figure describes the
+/// track, and the windows `decode_probes` takes for the spectral check would
+/// answer a different question. `peak=true` costs an oversampling pass and
+/// catches inter-sample peaks a sample scan misses, which is what a player
+/// applying positive gain clips on.
+pub fn ebur128(path: &Path, true_peak: bool) -> Result<String> {
+    let peak = if true_peak { "true" } else { "sample" };
+    let arguments = [
+        "-hide_banner".to_owned(),
+        "-nostats".to_owned(),
+        "-i".to_owned(),
+        path.display().to_string(),
+        "-filter_complex".to_owned(),
+        format!("ebur128=peak={peak}"),
+        "-f".to_owned(),
+        "null".to_owned(),
+        "-".to_owned(),
+    ];
+
+    // The summary is logged at info level, alongside a running line per frame;
+    // there is no level that keeps one and drops the other.
+    let (_, stderr) = run_captured(&require("ffmpeg")?, &arguments)?;
+    Ok(String::from_utf8_lossy(&stderr).into_owned())
 }
 
 /// Write a spectrogram image, for eyeballing a flagged file.

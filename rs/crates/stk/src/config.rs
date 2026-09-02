@@ -193,6 +193,35 @@ impl VerifySettings {
     }
 }
 
+/// Tuning for the ReplayGain scan (#7).
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, default)]
+pub struct LoudnessSettings {
+    /// What a scanned file is levelled to.
+    ///
+    /// -18 LUFS is ReplayGain 2.0, and what `loudgain`, `rsgain` and
+    /// foobar2000 write today. Moving it makes this tool's figures disagree
+    /// with theirs, which is a reason to leave it alone and the reason it is
+    /// settable at all.
+    pub reference_lufs: f64,
+
+    /// Measure the true peak rather than the loudest sample.
+    ///
+    /// A true-peak scan oversamples and catches the inter-sample peaks above
+    /// 0 dBFS that a player applying positive gain clips on; the sample peak
+    /// misses them and costs less to find.
+    pub true_peak: bool,
+}
+
+impl Default for LoudnessSettings {
+    fn default() -> Self {
+        Self {
+            reference_lufs: -18.0,
+            true_peak: true,
+        }
+    }
+}
+
 /// Connection details for the headless Soulseek daemon.
 ///
 /// `api_key` is deliberately absent from the serialised form: it is read from
@@ -418,6 +447,7 @@ pub struct Settings {
     pub ranking: RankingSettings,
     pub uploader: UploaderSettings,
     pub verify: VerifySettings,
+    pub loudness: LoudnessSettings,
     pub artwork: ArtworkSettings,
     pub genres: GenreSettings,
     pub organise: OrganiseSettings,
