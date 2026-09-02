@@ -20,11 +20,11 @@ use crate::library::scan::{
 use crate::library::stats::LibrarySnapshot;
 use crate::library::tags;
 use crate::matching::NameForms;
-use crate::models::{LibraryEntry, TrackTags, Verdict};
+use crate::models::{LibraryEntry, ReplayGainTags, TrackTags, Verdict};
 use crate::text::normalize::strip_artist_prefix;
 
-/// Bumped from 4 to 5 by the per-scan snapshots behind `library trend` (#3).
-pub const SCHEMA_VERSION: i64 = 5;
+/// Bumped from 5 to 6 by the loudness tags behind `stk loudness` (#7).
+pub const SCHEMA_VERSION: i64 = 6;
 
 /// The oldest version this opens rather than refusing.
 ///
@@ -122,6 +122,28 @@ const V3_COLUMNS: &[(&str, &str)] = &[
 /// port already wrote a v3 `changes` table into.
 const V4_CHANGE_COLUMNS: &[(&str, &str)] = &[("run_id", "INTEGER NOT NULL DEFAULT 0")];
 
+/// The six columns schema v6 adds to `files`, from #7.
+///
+/// The tags as the file spells them, so counting what nothing has level-matched
+/// is a query rather than a walk. `describe` reads them off the header parse it
+/// already performs, the same argument that put `codec` and `bitrate` here.
+const V6_COLUMNS: &[(&str, &str)] = &[
+    ("replay_gain_track_gain", "TEXT"),
+    ("replay_gain_track_peak", "TEXT"),
+    ("replay_gain_album_gain", "TEXT"),
+    ("replay_gain_album_peak", "TEXT"),
+    ("r128_track_gain", "TEXT"),
+    ("r128_album_gain", "TEXT"),
+];
+
+/// The column schema v6 adds to `snapshots`.
+///
+/// Nullable rather than `NOT NULL DEFAULT 0`: a measurement taken before v6 did
+/// not count this, and saying so is not the same as saying it counted none.
+/// Zero would make the first scan after an upgrade read as a jump from nothing
+/// to the whole library.
+const V6_SNAPSHOT_COLUMNS: &[(&str, &str)] = &[("with_replay_gain", "INTEGER")];
+
 const COLUMNS: &[&str] = &[
     "path",
     "size",
@@ -145,6 +167,12 @@ const COLUMNS: &[&str] = &[
     "bitrate",
     "sample_rate",
     "bit_depth",
+    "replay_gain_track_gain",
+    "replay_gain_track_peak",
+    "replay_gain_album_gain",
+    "replay_gain_album_peak",
+    "r128_track_gain",
+    "r128_album_gain",
 ];
 
 const CHANGE_COLUMNS: &str = "id, run_id, applied_at, command, path, field, old_value, new_value";
@@ -162,8 +190,10 @@ fn row_to_change(row: &rusqlite::Row<'_>) -> rusqlite::Result<Change> {
     })
 }
 
-const SNAPSHOT_COLUMNS: &str =
-    "taken_at, total, tagged, with_artwork, with_genre, lossless, verified_clean, flagged";
+const SNAPSHOT_COLUMNS: &str = concat!(
+    "taken_at, total, tagged, with_artwork, with_genre, ",
+    "lossless, verified_clean, flagged, with_replay_gain"
+);
 
 /// SQLite counts in `i64` and the domain counts in `usize`; the conversion
 /// belongs at the boundary rather than in the type.
@@ -180,6 +210,9 @@ fn row_to_snapshot(row: &rusqlite::Row<'_>) -> rusqlite::Result<LibrarySnapshot>
         lossless: count(5)?,
         verified_clean: count(6)?,
         flagged: count(7)?,
+        with_replay_gain: row
+            .get::<_, Option<i64>>(8)?
+            .map(|value| usize::try_from(value).unwrap_or(0)),
     })
 }
 
@@ -215,8 +248,9 @@ pub fn describe(path: &Path, root: &Path) -> Result<LibraryEntry> {
         .map_err(|error| Error::Tag(format!("{}: {error}", path.display())))?;
     let artist_folder = folder_artist(path, root);
 
-    let read = tags::read_tags(path).unwrap_or_default();
-    let stream = tags::read_stream_info(path).unwrap_or_default();
+    let described = tags::describe_file(path).unwrap_or_default();
+    let read = described.tags;
+    let stream = described.stream;
 
     let artist = if read.artist.is_empty() {
         if read.album_artist.is_empty() {
@@ -251,7 +285,8 @@ pub fn describe(path: &Path, root: &Path) -> Result<LibraryEntry> {
         artist: NameForms::of(&artist),
         title: NameForms::of(&title),
         duration_seconds: stream.duration_seconds,
-        artwork_bytes: tags::artwork_size(path),
+        artwork_bytes: described.artwork_bytes,
+        replay_gain: described.replay_gain,
         tags: read,
         codec: stream.codec,
         bitrate: stream.bitrate,
@@ -317,6 +352,8 @@ impl LibraryIndex {
 
         add_missing_columns(&connection, "files", V3_COLUMNS)?;
         add_missing_columns(&connection, "changes", V4_CHANGE_COLUMNS)?;
+        add_missing_columns(&connection, "files", V6_COLUMNS)?;
+        add_missing_columns(&connection, "snapshots", V6_SNAPSHOT_COLUMNS)?;
         connection
             .execute_batch(MIGRATED_INDEXES)
             .map_err(|error| sqlite_error(&error))?;
@@ -693,7 +730,7 @@ impl LibraryIndex {
             return Ok(None);
         }
 
-        let placeholders = (1..=8).map(|index| format!("?{index}")).collect::<Vec<_>>();
+        let placeholders = (1..=9).map(|index| format!("?{index}")).collect::<Vec<_>>();
         self.connection
             .execute(
                 &format!(
@@ -709,6 +746,7 @@ impl LibraryIndex {
                     stored(snapshot.lossless),
                     stored(snapshot.verified_clean),
                     stored(snapshot.flagged),
+                    snapshot.with_replay_gain.map(stored),
                 ],
             )
             .map_err(|error| sqlite_error(&error))?;
@@ -846,6 +884,12 @@ impl LibraryIndex {
                     entry.bitrate,
                     entry.sample_rate,
                     entry.bit_depth,
+                    entry.replay_gain.track_gain,
+                    entry.replay_gain.track_peak,
+                    entry.replay_gain.album_gain,
+                    entry.replay_gain.album_peak,
+                    entry.replay_gain.r128_track_gain,
+                    entry.replay_gain.r128_album_gain,
                 ],
             )
             .map_err(|error| sqlite_error(&error))?;
@@ -888,6 +932,14 @@ fn row_to_entry(row: &rusqlite::Row<'_>) -> rusqlite::Result<LibraryEntry> {
         bitrate: row.get("bitrate")?,
         sample_rate: row.get("sample_rate")?,
         bit_depth: row.get("bit_depth")?,
+        replay_gain: ReplayGainTags {
+            track_gain: row.get("replay_gain_track_gain")?,
+            track_peak: row.get("replay_gain_track_peak")?,
+            album_gain: row.get("replay_gain_album_gain")?,
+            album_peak: row.get("replay_gain_album_peak")?,
+            r128_track_gain: row.get("r128_track_gain")?,
+            r128_album_gain: row.get("r128_album_gain")?,
+        },
     })
 }
 

@@ -16,7 +16,7 @@ use stk::audio::fingerprint::{Fingerprint, Values};
 use stk::duplicates::{self, DuplicatePair};
 use stk::library::index::LibraryIndex;
 use stk::matching::{MatchThresholds, NameForms};
-use stk::models::{LibraryEntry, TrackTags};
+use stk::models::{LibraryEntry, ReplayGainTags, TrackTags};
 use support::Scratch;
 
 fn entry(path: &str, artist: &str, title: &str) -> LibraryEntry {
@@ -48,6 +48,7 @@ fn entry_with(
         bitrate: None,
         sample_rate: None,
         bit_depth: None,
+        replay_gain: ReplayGainTags::default(),
     }
 }
 

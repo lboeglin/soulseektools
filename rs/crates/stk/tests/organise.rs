@@ -8,7 +8,7 @@ use stk::audio::fingerprint::{Fingerprint, Values};
 use stk::config::OrganiseSettings;
 use stk::library::index::{describe, LibraryIndex};
 use stk::matching::NameForms;
-use stk::models::{LibraryEntry, TrackTags};
+use stk::models::{LibraryEntry, ReplayGainTags, TrackTags};
 use stk::organise::{
     move_file, plan_moves, prune_empty, render, spelled_on_disk, Obstacle, Pattern, PlannedMove,
 };
@@ -59,6 +59,7 @@ fn entry(path: &str, tags: TrackTags) -> LibraryEntry {
         bitrate: None,
         sample_rate: None,
         bit_depth: None,
+        replay_gain: ReplayGainTags::default(),
     }
 }
 

@@ -497,10 +497,94 @@ fn a_v2_database_is_upgraded_in_place_rather_than_rewritten() {
     assert_eq!(entry.tags.artist, "ZUN");
     assert_eq!(entry.codec, "");
     assert_eq!(entry.bitrate, None);
-    assert_eq!(index.schema_version().expect("a version"), 5);
+    assert_eq!(index.schema_version().expect("a version"), 6);
     // The v5 snapshots table is created alongside, so a trend can start being
     // recorded against a database that predates it (#3).
     assert!(index.snapshots(None).expect("a series").is_empty());
+}
+
+/// A database written before the loudness columns opens where it stands, the
+/// way every version before them did (#7).
+#[test]
+fn a_v5_database_gains_the_loudness_columns_in_place() {
+    let scratch = Scratch::new("index-v5");
+    let database = scratch.join("v5.db");
+
+    // A v5 `snapshots` table: the trend existed, the loudness column did not.
+    let connection = rusqlite::Connection::open(&database).expect("a database");
+    connection
+        .execute_batch(
+            "CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+             CREATE TABLE snapshots (
+                id INTEGER PRIMARY KEY, taken_at REAL NOT NULL, total INTEGER NOT NULL,
+                tagged INTEGER NOT NULL, with_artwork INTEGER NOT NULL,
+                with_genre INTEGER NOT NULL, lossless INTEGER NOT NULL,
+                verified_clean INTEGER NOT NULL, flagged INTEGER NOT NULL
+             );
+             INSERT INTO meta VALUES ('schema_version', '5');
+             INSERT INTO snapshots
+                (taken_at, total, tagged, with_artwork, with_genre, lossless,
+                 verified_clean, flagged)
+             VALUES (1.0, 10, 9, 8, 7, 6, 5, 4);",
+        )
+        .expect("a v5 database");
+    drop(connection);
+
+    let index = LibraryIndex::open(&database).expect("an upgraded index");
+
+    let series = index.snapshots(None).expect("a series");
+    assert_eq!(series.len(), 1);
+    assert_eq!(series[0].total, 10);
+    // Absent rather than zero: that scan did not count this, which is not the
+    // same as having counted none.
+    assert_eq!(series[0].with_replay_gain, None);
+    assert_eq!(index.schema_version().expect("a version"), 6);
+}
+
+/// The v6 columns come off the header parse `describe` already performs, so a
+/// scan records them without being asked (#7).
+#[test]
+fn a_scan_records_the_loudness_tags_a_file_carries() {
+    needs_ffmpeg!();
+    let scratch = Scratch::new("index-loudness");
+    let root = library_root(&scratch);
+    let track = root.join("DECO_27").join("01 - Roki.flac");
+    let written = stk::models::ReplayGainTags {
+        track_gain: Some("-7.29 dB".to_owned()),
+        track_peak: Some("0.988556".to_owned()),
+        album_gain: Some("-6.25 dB".to_owned()),
+        album_peak: Some("0.995000".to_owned()),
+        r128_track_gain: None,
+        r128_album_gain: None,
+    };
+    stk::library::tags::write_replay_gain(&track, &written).expect("a loudness write");
+
+    let mut index = open(&scratch, "index.db");
+    refresh(&mut index, &root);
+
+    let entry = index
+        .entry(&track)
+        .expect("a lookup")
+        .expect("the indexed row");
+    assert_eq!(entry.replay_gain, written);
+    assert!(entry.is_level_matched());
+}
+
+#[test]
+fn a_file_nothing_has_scanned_is_indexed_as_not_level_matched() {
+    needs_ffmpeg!();
+    let scratch = Scratch::new("index-loudness-absent");
+    let root = library_root(&scratch);
+    let mut index = open(&scratch, "index.db");
+    refresh(&mut index, &root);
+
+    let entry = index
+        .entry(&root.join("DECO_27").join("01 - Roki.flac"))
+        .expect("a lookup")
+        .expect("the indexed row");
+
+    assert!(entry.replay_gain.is_empty());
+    assert!(!entry.is_level_matched());
 }
 
 /// `verify` stops being a one-shot report once its verdict is persisted (#2).

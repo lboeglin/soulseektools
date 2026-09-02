@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use stk::library::index::describe;
 use stk::library::tags::{self, TagField};
 use stk::matching::NameForms;
-use stk::models::{LibraryEntry, TrackTags};
+use stk::models::{LibraryEntry, ReplayGainTags, TrackTags};
 use stk::tagsheet::{plan_changes, read_sheet, Blanks, PlannedEdit, Skipped, TagChange};
 use support::{encode, Encoded, Scratch};
 
@@ -43,6 +43,7 @@ fn entry(path: &Path, tags: TrackTags) -> LibraryEntry {
         bitrate: None,
         sample_rate: None,
         bit_depth: None,
+        replay_gain: ReplayGainTags::default(),
     }
 }
 

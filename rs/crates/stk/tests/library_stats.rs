@@ -8,7 +8,7 @@ use std::path::PathBuf;
 use stk::library::index::LibraryIndex;
 use stk::library::stats::{date_of, measure, LibrarySnapshot};
 use stk::matching::NameForms;
-use stk::models::{LibraryEntry, TrackTags, Verdict};
+use stk::models::{LibraryEntry, ReplayGainTags, TrackTags, Verdict};
 
 fn entry(path: &str, tags: TrackTags, artwork_bytes: u64) -> LibraryEntry {
     LibraryEntry {
@@ -25,6 +25,7 @@ fn entry(path: &str, tags: TrackTags, artwork_bytes: u64) -> LibraryEntry {
         bitrate: None,
         sample_rate: None,
         bit_depth: None,
+        replay_gain: ReplayGainTags::default(),
     }
 }
 
@@ -75,6 +76,49 @@ fn artwork_and_genre_are_counted_separately() {
 
     assert_eq!(measured.with_artwork, 1);
     assert_eq!(measured.with_genre, 1);
+}
+
+/// The figure exists to notice a fetch that left un-scanned files behind,
+/// whoever did the scanning (#7).
+#[test]
+fn a_file_counts_as_level_matched_only_with_a_track_gain() {
+    let mut scanned = titled("/music/a.flac");
+    scanned.replay_gain.track_gain = Some("-7.29 dB".to_owned());
+    // A peak on its own says nothing a player can act on.
+    let mut peak_only = titled("/music/b.flac");
+    peak_only.replay_gain.track_peak = Some("0.988556".to_owned());
+
+    let measured = snapshot(&[scanned, peak_only, titled("/music/c.flac")]);
+
+    assert_eq!(measured.with_replay_gain, Some(1));
+}
+
+/// An Opus file scanned in its native mode carries only the header field, and
+/// is level-matched wherever it is played.
+#[test]
+fn an_opus_file_carrying_only_r128_counts_as_level_matched() {
+    let mut scanned = titled("/music/a.opus");
+    scanned.replay_gain.r128_track_gain = Some("-2022".to_owned());
+
+    assert_eq!(snapshot(&[scanned]).with_replay_gain, Some(1));
+}
+
+/// A measurement taken before the column existed did not count this, which is
+/// not the same as having counted none.
+#[test]
+fn a_snapshot_taken_before_v6_reports_no_loudness_figure() {
+    let before = LibrarySnapshot {
+        taken_at: 1.0,
+        total: 10,
+        with_replay_gain: None,
+        ..LibrarySnapshot::default()
+    };
+    let after = LibrarySnapshot {
+        with_replay_gain: Some(0),
+        ..before
+    };
+
+    assert_ne!(before.counts(), after.counts());
 }
 
 #[test]

@@ -5,6 +5,8 @@ use std::fmt::Write as _;
 use std::path::PathBuf;
 use std::str::FromStr;
 
+use serde::{Deserialize, Serialize};
+
 use crate::matching::NameForms;
 
 /// The metadata fields this project reads or writes, container-independent.
@@ -16,6 +18,44 @@ pub struct TrackTags {
     pub title: String,
     pub genres: Vec<String>,
     pub track_number: Option<i64>,
+}
+
+/// The loudness figures a player applies at playback (#7).
+///
+/// Held as the tags spell them rather than as numbers: an undo has to put back
+/// exactly what was there, and a round trip through `f64` would rewrite a
+/// foobar2000 `-7.29 dB` as `-7.290000 dB`. Nothing in this project reads these
+/// back to make a decision, so there is nothing to parse them for.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ReplayGainTags {
+    pub track_gain: Option<String>,
+    pub track_peak: Option<String>,
+    pub album_gain: Option<String>,
+    pub album_peak: Option<String>,
+
+    /// The Opus spelling of the same two gains, against a fixed -23 LUFS.
+    /// Absent on every other container, and on an Opus file no scanner has
+    /// reached.
+    pub r128_track_gain: Option<String>,
+    pub r128_album_gain: Option<String>,
+}
+
+impl ReplayGainTags {
+    /// Whether the file is level-matched at all, which is the track gain.
+    ///
+    /// A peak without a gain says nothing a player can act on, and an album
+    /// gain belongs to a record rather than to a file. An Opus file scanned by
+    /// a tool that wrote only `R128_TRACK_GAIN` counts: it is level-matched
+    /// wherever it is played, and re-measuring it would overwrite a scan.
+    #[must_use]
+    pub fn is_scanned(&self) -> bool {
+        self.track_gain.is_some() || self.r128_track_gain.is_some()
+    }
+
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self == &Self::default()
+    }
 }
 
 /// An embedded cover image.
@@ -54,6 +94,11 @@ pub struct LibraryEntry {
     pub duration_seconds: Option<f64>,
     pub artwork_bytes: u64,
 
+    /// The loudness tags the file carries, new in `library.db` v6 (#7). Read
+    /// from the same header parse as everything else here, so counting the
+    /// files nothing has level-matched costs no extra I/O.
+    pub replay_gain: ReplayGainTags,
+
     /// Stream properties, new in `library.db` v3 (#2). They come off the same
     /// header read `read_duration` already performs, so storing them costs no
     /// extra I/O -- and without them "every file under 320 kbps" cannot be asked.
@@ -67,6 +112,11 @@ impl LibraryEntry {
     #[must_use]
     pub fn has_artwork(&self) -> bool {
         self.artwork_bytes > 0
+    }
+
+    #[must_use]
+    pub fn is_level_matched(&self) -> bool {
+        self.replay_gain.is_scanned()
     }
 }
 

@@ -337,7 +337,7 @@ fn a_v3_change_table_gains_its_run_column_in_place() {
         .expect("the logged rows");
     assert_eq!(changes.len(), 1);
     assert_eq!(changes[0].run_id, 0);
-    assert_eq!(index.schema_version().expect("a version"), 5);
+    assert_eq!(index.schema_version().expect("a version"), 6);
 }
 
 /// Write one field and log it the way `tags apply` does.

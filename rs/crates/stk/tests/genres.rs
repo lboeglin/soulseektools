@@ -11,7 +11,7 @@ use stk::genres::{
 use stk::library::index::describe;
 use stk::library::tags;
 use stk::matching::NameForms;
-use stk::models::{LibraryEntry, TrackTags};
+use stk::models::{LibraryEntry, ReplayGainTags, TrackTags};
 use support::{encode, Encoded, Scratch};
 
 macro_rules! needs_ffmpeg {
@@ -47,6 +47,7 @@ fn entry(folder_artist: &str, title: &str, genres: &[&str]) -> LibraryEntry {
         bitrate: None,
         sample_rate: None,
         bit_depth: None,
+        replay_gain: ReplayGainTags::default(),
     }
 }
 

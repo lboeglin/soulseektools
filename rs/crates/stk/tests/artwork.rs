@@ -23,7 +23,7 @@ use stk::artwork::service::{
 use stk::config::ArtworkSettings;
 use stk::errors::{Error, Result};
 use stk::matching::NameForms;
-use stk::models::{Artwork, LibraryEntry, TrackTags};
+use stk::models::{Artwork, LibraryEntry, ReplayGainTags, TrackTags};
 use support::{encode, Encoded, Scratch};
 
 macro_rules! needs_ffmpeg {
@@ -124,6 +124,7 @@ fn entry(artist: &str, title: &str, artwork_bytes: u64) -> LibraryEntry {
         bitrate: None,
         sample_rate: None,
         bit_depth: None,
+        replay_gain: ReplayGainTags::default(),
     }
 }
 

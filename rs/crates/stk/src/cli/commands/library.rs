@@ -118,6 +118,10 @@ fn stats(context: &AppContext, top: usize) -> Result<i32> {
         .iter()
         .filter(|entry| !entry.tags.genres.is_empty())
         .count();
+    let level_matched = entries
+        .iter()
+        .filter(|entry| entry.is_level_matched())
+        .count();
 
     if context.as_json {
         let mut artists = serde_json::Map::new();
@@ -129,6 +133,7 @@ fn stats(context: &AppContext, top: usize) -> Result<i32> {
             "tagged": tagged,
             "with_artwork": with_art,
             "with_genre": genres,
+            "with_replay_gain": level_matched,
             "artists": artists,
         }));
         return Ok(0);
@@ -141,7 +146,7 @@ fn stats(context: &AppContext, top: usize) -> Result<i32> {
 
     context.say(&format!(
         "{total} file(s) across {} artist folder(s): {tagged} titled, {with_art} with artwork, \
-         {genres} with a genre",
+         {genres} with a genre, {level_matched} level-matched",
         by_artist.len()
     ));
 
@@ -199,6 +204,10 @@ fn trend(context: &AppContext, limit: usize) -> Result<i32> {
                 previous.map(|last| last.verified_clean),
             ),
             against(snapshot.flagged, previous.map(|last| last.flagged)),
+            optional(
+                snapshot.with_replay_gain,
+                previous.and_then(|last| last.with_replay_gain),
+            ),
         ]);
         previous = Some(snapshot);
     }
@@ -206,6 +215,7 @@ fn trend(context: &AppContext, limit: usize) -> Result<i32> {
     context.say(&table(
         &[
             "Measured", "Files", "Tagged", "Artwork", "Genre", "Lossless", "Verified", "Flagged",
+            "Loudness",
         ],
         &rows,
     ));
@@ -230,7 +240,16 @@ fn as_row(snapshot: &LibrarySnapshot) -> serde_json::Value {
         "lossless": snapshot.lossless,
         "verified_clean": snapshot.verified_clean,
         "flagged": snapshot.flagged,
+        "with_replay_gain": snapshot.with_replay_gain,
     })
+}
+
+/// A count a measurement may not have taken at all.
+///
+/// A scan recorded before the loudness column existed did not count this, and
+/// printing a zero would read as a library nothing had level-matched.
+fn optional(now: Option<usize>, before: Option<usize>) -> String {
+    now.map_or_else(|| "-".to_owned(), |now| against(now, before))
 }
 
 /// A count, and how it moved since the measurement before it.

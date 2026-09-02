@@ -21,7 +21,7 @@ use lofty::prelude::{Accessor, ItemKey};
 use lofty::tag::{Tag, TagType};
 
 use crate::errors::{Error, Result};
-use crate::models::{Artwork, TrackTags};
+use crate::models::{Artwork, ReplayGainTags, TrackTags};
 
 /// Containers whose tags this module can read and write.
 pub const TAGGABLE_EXTENSIONS: &[&str] = crate::library::scan::TAGGABLE_EXTENSIONS;
@@ -45,16 +45,19 @@ fn first_tag(file: &TaggedFile) -> Option<&Tag> {
 
 /// Read the metadata fields this project cares about.
 pub fn read_tags(path: &Path) -> Result<TrackTags> {
-    let file = read_file(path)?;
-    let Some(tag) = first_tag(&file) else {
-        return Ok(TrackTags::default());
+    Ok(tags_of(&read_file(path)?))
+}
+
+fn tags_of(file: &TaggedFile) -> TrackTags {
+    let Some(tag) = first_tag(file) else {
+        return TrackTags::default();
     };
 
     let track_number = tag
         .get_string(&ItemKey::TrackNumber)
         .and_then(leading_number);
 
-    Ok(TrackTags {
+    TrackTags {
         artist: tag.artist().unwrap_or_default().into_owned(),
         album_artist: tag
             .get_string(&ItemKey::AlbumArtist)
@@ -68,7 +71,7 @@ pub fn read_tags(path: &Path) -> Result<TrackTags> {
             .map(str::to_owned)
             .collect(),
         track_number,
-    })
+    }
 }
 
 /// The number a track-number field states, ignoring any total after it.
@@ -101,9 +104,12 @@ pub fn read_duration(path: &Path) -> Result<Option<f64>> {
 /// storing them costs no extra I/O and makes "every file under 320 kbps"
 /// expressible for the first time.
 pub fn read_stream_info(path: &Path) -> Result<StreamInfo> {
-    let file = read_file(path)?;
+    Ok(stream_info_of(&read_file(path)?))
+}
+
+fn stream_info_of(file: &TaggedFile) -> StreamInfo {
     let properties = file.properties();
-    Ok(StreamInfo {
+    StreamInfo {
         codec: codec_name(file.file_type()),
         bitrate: properties.audio_bitrate(),
         sample_rate: properties.sample_rate(),
@@ -112,7 +118,7 @@ pub fn read_stream_info(path: &Path) -> Result<StreamInfo> {
             let seconds = properties.duration().as_secs_f64();
             (seconds != 0.0).then_some(seconds)
         },
-    })
+    }
 }
 
 /// What a container's header says about its audio stream.
@@ -142,6 +148,36 @@ fn codec_name(file_type: lofty::file::FileType) -> String {
         _ => "",
     }
     .to_owned()
+}
+
+/// Everything the index stores about a file, from one parse of its header.
+///
+/// Each public reader in this module opens the file for itself, which is right
+/// for a caller that wants one of them and was three parses per file for
+/// [`describe`](crate::library::index::describe) -- four once the loudness tags
+/// joined them. Reading them together is what keeps the v6 columns free, the
+/// way #2's `codec` and `bitrate` were.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Described {
+    pub tags: TrackTags,
+    pub stream: StreamInfo,
+    pub replay_gain: ReplayGainTags,
+    pub artwork_bytes: u64,
+}
+
+pub fn describe_file(path: &Path) -> Result<Described> {
+    let file = read_file(path)?;
+    let artwork_bytes = if require_artwork_container(path).is_ok() {
+        artwork_of(&file).map_or(0, |artwork| artwork.data.len() as u64)
+    } else {
+        0
+    };
+    Ok(Described {
+        tags: tags_of(&file),
+        stream: stream_info_of(&file),
+        replay_gain: replay_gain_of(&file),
+        artwork_bytes,
+    })
 }
 
 /// A metadata field this project can write, and put back.
@@ -314,6 +350,105 @@ pub fn write_genres(path: &Path, genres: &[String]) -> Result<()> {
         .map_err(|error| Error::Tag(format!("{}: {error}", path.display())))
 }
 
+/// The keys the four ReplayGain figures live under.
+///
+/// `lofty` maps every one of them for ID3v2 (as a TXXX frame), Vorbis comments,
+/// MP4 freeform atoms and APE, so the per-format dispatch the rest of this
+/// module exists to avoid is not needed for them either.
+const REPLAY_GAIN_KEYS: [ItemKey; 4] = [
+    ItemKey::ReplayGainTrackGain,
+    ItemKey::ReplayGainTrackPeak,
+    ItemKey::ReplayGainAlbumGain,
+    ItemKey::ReplayGainAlbumPeak,
+];
+
+/// The Opus spelling, which is a key `lofty` has no variant for.
+const R128_TRACK_GAIN: &str = "R128_TRACK_GAIN";
+const R128_ALBUM_GAIN: &str = "R128_ALBUM_GAIN";
+
+fn unknown_key(key: &str) -> ItemKey {
+    ItemKey::Unknown(key.to_owned())
+}
+
+/// Whether a container keeps its gain as an `R128_*` header field (#7).
+///
+/// Opus does, and players read that in preference to anything else: the format
+/// defines the figure against a fixed -23 LUFS, where `REPLAYGAIN_*` is against
+/// whatever reference the scanner chose. Both are written, so a player reading
+/// either finds the same loudness.
+#[must_use]
+pub fn carries_r128(path: &Path) -> bool {
+    path.extension()
+        .and_then(|extension| extension.to_str())
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("opus"))
+}
+
+/// The loudness tags a file already carries, if any.
+pub fn read_replay_gain(path: &Path) -> Result<ReplayGainTags> {
+    Ok(replay_gain_of(&read_file(path)?))
+}
+
+fn replay_gain_of(file: &TaggedFile) -> ReplayGainTags {
+    let Some(tag) = first_tag(file) else {
+        return ReplayGainTags::default();
+    };
+    let read = |key: &ItemKey| tag.get_string(key).map(str::to_owned);
+    ReplayGainTags {
+        track_gain: read(&ItemKey::ReplayGainTrackGain),
+        track_peak: read(&ItemKey::ReplayGainTrackPeak),
+        album_gain: read(&ItemKey::ReplayGainAlbumGain),
+        album_peak: read(&ItemKey::ReplayGainAlbumPeak),
+        r128_track_gain: read(&unknown_key(R128_TRACK_GAIN)),
+        r128_album_gain: read(&unknown_key(R128_ALBUM_GAIN)),
+    }
+}
+
+/// Replace every loudness field, removing the ones the caller left absent.
+///
+/// Total rather than a patch, for the same reason [`write_tags`] is: an undo
+/// restoring one figure without the rest would leave a player applying a gain
+/// with no peak to check it against. Nothing else in the tag block is touched,
+/// so a file's artist and cover survive a scan.
+pub fn write_replay_gain(path: &Path, gain: &ReplayGainTags) -> Result<()> {
+    let mut file = read_file(path)?;
+    let tag_type = existing_or_default_tag_type(&file);
+    let tag = tag_for_writing(&mut file, tag_type);
+
+    for (key, value) in REPLAY_GAIN_KEYS.into_iter().zip([
+        gain.track_gain.as_deref(),
+        gain.track_peak.as_deref(),
+        gain.album_gain.as_deref(),
+        gain.album_peak.as_deref(),
+    ]) {
+        tag.remove_key(&key);
+        if let Some(value) = value.filter(|value| !value.is_empty()) {
+            tag.push(lofty::tag::TagItem::new(
+                key,
+                lofty::tag::ItemValue::Text(value.to_owned()),
+            ));
+        }
+    }
+
+    for (key, value) in [
+        (R128_TRACK_GAIN, gain.r128_track_gain.as_deref()),
+        (R128_ALBUM_GAIN, gain.r128_album_gain.as_deref()),
+    ] {
+        tag.remove_key(&unknown_key(key));
+        if let Some(value) = value.filter(|value| !value.is_empty()) {
+            // `push` refuses a key it cannot map to a variant, which is every
+            // key outside `lofty`'s table. The Opus comment header takes
+            // arbitrary names, so the check is the wrong one here.
+            tag.push_unchecked(lofty::tag::TagItem::new(
+                unknown_key(key),
+                lofty::tag::ItemValue::Text(value.to_owned()),
+            ));
+        }
+    }
+
+    file.save_to_path(path, WriteOptions::default())
+        .map_err(|error| Error::Tag(format!("{}: {error}", path.display())))
+}
+
 /// Containers that can carry an embedded cover.
 ///
 /// `lofty` would return no picture for a WAV rather than refusing, but the
@@ -341,10 +476,11 @@ fn require_artwork_container(path: &Path) -> Result<()> {
 /// The embedded front cover, or `None` when the file has none.
 pub fn read_artwork(path: &Path) -> Result<Option<Artwork>> {
     require_artwork_container(path)?;
-    let file = read_file(path)?;
-    let Some(tag) = first_tag(&file) else {
-        return Ok(None);
-    };
+    Ok(artwork_of(&read_file(path)?))
+}
+
+fn artwork_of(file: &TaggedFile) -> Option<Artwork> {
+    let tag = first_tag(file)?;
 
     // A front cover wins; failing that, whatever image is there. An untagged
     // file has none, which is not an error.
@@ -352,14 +488,14 @@ pub fn read_artwork(path: &Path) -> Result<Option<Artwork>> {
         .pictures()
         .iter()
         .find(|picture| picture.pic_type() == PictureType::CoverFront)
-        .or_else(|| tag.pictures().first());
+        .or_else(|| tag.pictures().first())?;
 
-    Ok(picture.map(|picture| Artwork {
+    Some(Artwork {
         data: picture.data().to_vec(),
         mime: picture
             .mime_type()
             .map_or_else(|| "image/jpeg".to_owned(), ToString::to_string),
-    }))
+    })
 }
 
 /// Size in bytes of the embedded cover, or `0` when there is none.

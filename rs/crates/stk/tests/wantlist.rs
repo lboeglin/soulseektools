@@ -5,7 +5,7 @@ mod support;
 use std::path::PathBuf;
 
 use stk::matching::{MatchThresholds, NameForms};
-use stk::models::{LibraryEntry, Track, TrackTags};
+use stk::models::{LibraryEntry, ReplayGainTags, Track, TrackTags};
 use stk::wantlist::{diff, read_export, WantlistDiff};
 use support::Scratch;
 
@@ -28,6 +28,7 @@ fn entry(artist: &str, title: &str) -> LibraryEntry {
         bitrate: None,
         sample_rate: None,
         bit_depth: None,
+        replay_gain: ReplayGainTags::default(),
     }
 }
 

@@ -24,6 +24,13 @@ pub struct LibrarySnapshot {
     pub lossless: usize,
     pub verified_clean: usize,
     pub flagged: usize,
+
+    /// How many files carry a track gain, new in v6 (#7).
+    ///
+    /// Absent, rather than zero, on a measurement taken before the column
+    /// existed: that scan did not count this, which is not the same as having
+    /// counted none.
+    pub with_replay_gain: Option<usize>,
 }
 
 /// The counted part of a snapshot, which is what decides whether it is new.
@@ -39,6 +46,7 @@ pub struct Counts {
     pub lossless: usize,
     pub verified_clean: usize,
     pub flagged: usize,
+    pub with_replay_gain: Option<usize>,
 }
 
 impl LibrarySnapshot {
@@ -52,6 +60,7 @@ impl LibrarySnapshot {
             lossless: self.lossless,
             verified_clean: self.verified_clean,
             flagged: self.flagged,
+            with_replay_gain: self.with_replay_gain,
         }
     }
 }
@@ -62,6 +71,9 @@ impl LibrarySnapshot {
 /// choose what to analyse, so the two figures describe one set of files.
 /// `flagged` is everything `verify` doubted -- FAKE and SUSPECT together --
 /// because a library owner chasing them down treats them the same way.
+/// `with_replay_gain` counts files carrying a track gain, whoever scanned them:
+/// the point of the figure is to notice a fetch that left new files behind, not
+/// to take credit for this tool's own writes.
 #[must_use]
 pub fn measure(
     entries: &[LibraryEntry],
@@ -84,6 +96,12 @@ pub fn measure(
         lossless: entries.iter().filter(|entry| is_lossless(entry)).count(),
         verified_clean: count(Verdict::Ok),
         flagged: count(Verdict::Fake) + count(Verdict::Suspect),
+        with_replay_gain: Some(
+            entries
+                .iter()
+                .filter(|entry| entry.is_level_matched())
+                .count(),
+        ),
     }
 }
 
