@@ -276,8 +276,36 @@ fn every_answer_the_prompt_offers_is_understood() {
     assert_eq!(picker::parse("skip", 3), Some(Decision::Skip));
     assert_eq!(picker::parse("u", 3), Some(Decision::Undo));
     assert_eq!(picker::parse("q", 3), Some(Decision::Quit));
-    assert_eq!(picker::parse("none", 3), Some(Decision::Quit));
     assert_eq!(picker::parse("4", 3), None);
     assert_eq!(picker::parse("0", 3), None);
     assert_eq!(picker::parse("maybe", 3), None);
+}
+
+#[test]
+fn declining_a_track_is_not_abandoning_the_queue() {
+    // `stk get` asks the same question of one track, where "none" and "quit" are
+    // the same act, and its prompt is where someone learns to type `n`. Carried
+    // into a walk of a hundred and thirty-nine, `n` meaning quit would drop the
+    // remaining hundred and thirty-four on a keystroke meaning "not this one".
+    for answer in ["n", "no", "none"] {
+        assert_eq!(picker::parse(answer, 3), Some(Decision::Skip), "{answer}");
+    }
+
+    let scratch = Scratch::new("picker-none");
+    let mut store = queue(&scratch);
+
+    let (tally, _) = walk(&mut store, "n\n2\n");
+
+    assert_eq!(tally.skipped, 1);
+    assert_eq!(status_of(&store, "Roki"), TrackStatus::AwaitingReview);
+    assert_eq!(approved_rank(&store, "Ghost Rule"), Some(2));
+}
+
+#[test]
+fn a_listing_with_no_candidates_has_no_default_to_take() {
+    // The empty answer takes the first candidate, which is a rank nothing can
+    // honour when there is no listing -- so it is not a decision to record.
+    assert_eq!(picker::parse("", 0), None);
+    assert_eq!(picker::parse("1", 0), None);
+    assert_eq!(picker::parse("q", 0), Some(Decision::Quit));
 }

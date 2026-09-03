@@ -36,18 +36,25 @@ pub enum Decision {
 ///
 /// `None` means the answer named nothing on offer, which is a question to ask
 /// again rather than a decision to record. An empty answer takes the first
-/// candidate, which is the ranking's own pick and the reason it is ranked.
+/// candidate, which is the ranking's own pick and the reason it is ranked --
+/// so a listing with nothing in it has no default either, and every answer
+/// naming a rank is one nothing can honour.
+///
+/// "None of these" is [`Decision::Skip`], not [`Decision::Quit`]: `stk get`
+/// asks the same question of a single track, where declining it and ending the
+/// command are the same act, and someone carrying that habit into a walk of a
+/// hundred and thirty-nine means "not this one", never "abandon the rest".
 #[must_use]
 pub fn parse(answer: &str, count: usize) -> Option<Decision> {
     let answer = answer.trim().to_lowercase();
     if answer.is_empty() {
-        return Some(Decision::Approve(1));
+        return (count > 0).then_some(Decision::Approve(1));
     }
     match answer.as_str() {
         "r" | "reject" => return Some(Decision::Reject),
-        "s" | "skip" => return Some(Decision::Skip),
+        "s" | "skip" | "n" | "no" | "none" => return Some(Decision::Skip),
         "u" | "undo" => return Some(Decision::Undo),
-        "q" | "quit" | "n" | "no" | "none" => return Some(Decision::Quit),
+        "q" | "quit" => return Some(Decision::Quit),
         _ => {}
     }
     match answer.parse::<usize>() {

@@ -231,10 +231,15 @@ fn print_candidates(context: &AppContext, scored: &[ScoredCandidate]) {
 
 /// Ask which candidate to take, or none.
 ///
-/// The answer is read by the review picker's parser, so the two prompts agree on
-/// what a number, an empty line and `n` mean. An exhausted stdin is *not* an
-/// empty line: reading it as one would take the top candidate and download it
-/// with nobody at the keyboard, and nothing downloads without a human choosing.
+/// The answer is read by the review picker's parser, so a number, an empty line
+/// and `n` cannot come to mean different things in the two prompts. Declining
+/// and quitting are one act here, where there is a single track to decline;
+/// `r` and `u` belong to a walk of a queue and mean nothing to one track, so
+/// they are refused rather than read as a decline nobody typed.
+///
+/// An exhausted stdin is *not* an empty line: reading it as one would take the
+/// top candidate and download it with nobody at the keyboard, and nothing
+/// downloads without a human choosing.
 fn ask(count: usize) -> Option<usize> {
     println!("Take which? [1-{count}, or n for none] (1): ");
     let mut answer = String::new();
@@ -245,8 +250,8 @@ fn ask(count: usize) -> Option<usize> {
 
     match picker::parse(&answer, count) {
         Some(picker::Decision::Approve(chosen)) => usize::try_from(chosen).ok(),
-        Some(_) => None,
-        None => {
+        Some(picker::Decision::Skip | picker::Decision::Quit) => None,
+        Some(picker::Decision::Reject | picker::Decision::Undo) | None => {
             println!("Not one of the offered candidates.");
             None
         }
