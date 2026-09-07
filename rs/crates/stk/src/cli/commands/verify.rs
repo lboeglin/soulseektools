@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use clap::Args;
 use serde_json::json;
 
-use crate::audio::{ffmpeg, verify::verify_files};
+use crate::audio::{spectrogram, verify::verify_files};
 use crate::cli::context::{show, table, unix_now, AppContext};
 use crate::errors::{Error, Result};
 use crate::library::index::LibraryIndex;
@@ -116,8 +116,8 @@ pub fn run(context: &AppContext, args: &VerifyArgs) -> Result<i32> {
 /// Whether `--changed` may skip a file.
 ///
 /// An `ERROR` verdict is not a judgement about the audio, it is a report that
-/// the audio could not be read -- usually a missing ffmpeg or a truncated
-/// download. Caching it would make the failure permanent, so it is retried.
+/// the audio could not be read -- usually a truncated download. Caching it
+/// would make the failure permanent, so it is retried.
 fn already_judged(index: &LibraryIndex, path: &Path) -> Result<bool> {
     Ok(matches!(
         index.current_verdict(path)?,
@@ -154,7 +154,7 @@ fn render_spectrograms(context: &AppContext, results: &[VerifyResult]) {
             continue;
         }
         let destination = result.path.with_extension("spectrogram.png");
-        if let Err(error) = ffmpeg::render_spectrogram(&result.path, &destination) {
+        if let Err(error) = spectrogram::render(&result.path, &destination) {
             context.say(&format!("could not render {}: {error}", show(&destination)));
         }
     }

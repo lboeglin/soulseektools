@@ -19,15 +19,6 @@ use stk::review::store::ReviewStore;
 use stk::soulseek::base::{SoulseekClient, Transfer, TransferState};
 use support::{encode, noise_source, transcode_to_flac, Encoded, Scratch};
 
-macro_rules! needs_ffmpeg {
-    () => {
-        if support::ffmpeg().is_none() {
-            eprintln!("skipping: ffmpeg is not on PATH");
-            return;
-        }
-    };
-}
-
 #[derive(Default)]
 struct FakeClient {
     candidates: Vec<Candidate>,
@@ -532,7 +523,6 @@ fn no_local_path_is_guessed_without_a_configured_download_directory() {
 
 #[test]
 fn a_downloaded_lossless_file_is_verified() {
-    needs_ffmpeg!();
     let scratch = Scratch::new("fetch-verify");
     let settings = settings(&scratch);
     let mut store = store(&scratch);
@@ -559,14 +549,12 @@ fn a_downloaded_lossless_file_is_verified() {
 
 #[test]
 fn a_downloaded_transcode_is_recorded_against_the_track() {
-    needs_ffmpeg!();
     let scratch = Scratch::new("fetch-transcode");
     let settings = settings(&scratch);
     let mut store = store(&scratch);
     let track_id = queued(&mut store, &settings);
 
-    let source = noise_source(&scratch.join("source.flac"), 8, 44100);
-    let faked = transcode_to_flac(&source, &scratch, "fake", "128k");
+    let faked = transcode_to_flac(&scratch, "fake", "128k");
     let destination = scratch.join("downloads").join("DECO_27").join("Roki.flac");
     std::fs::create_dir_all(destination.parent().expect("a parent")).expect("a directory");
     std::fs::copy(&faked, &destination).expect("a copied file");
@@ -605,7 +593,6 @@ fn a_missing_file_is_recorded_without_a_verdict() {
 
 #[test]
 fn verification_can_be_skipped() {
-    needs_ffmpeg!();
     let scratch = Scratch::new("fetch-skip-verify");
     let settings = settings(&scratch);
     let mut store = store(&scratch);
@@ -629,7 +616,6 @@ fn verification_can_be_skipped() {
 
 #[test]
 fn a_lossy_download_is_not_put_through_the_lossless_check() {
-    needs_ffmpeg!();
     let scratch = Scratch::new("fetch-lossy");
     let settings = settings(&scratch);
     let mut store = store(&scratch);

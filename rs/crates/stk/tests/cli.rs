@@ -21,15 +21,6 @@ fn exclusive() -> MutexGuard<'static, ()> {
     LOCK.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
-macro_rules! needs_ffmpeg {
-    () => {
-        if support::ffmpeg().is_none() {
-            eprintln!("skipping: ffmpeg is not on PATH");
-            return;
-        }
-    };
-}
-
 /// A scratch home with its own config, index and review database.
 struct Harness {
     scratch: Scratch,
@@ -249,7 +240,6 @@ fn doctor_fails_when_the_library_root_is_absent() {
 
 #[test]
 fn doctor_passes_with_a_real_root() {
-    needs_ffmpeg!();
     let _guard = exclusive();
     let harness = Harness::new("cli-doctor-ok");
     let root = library(&harness);
@@ -262,7 +252,6 @@ fn doctor_passes_with_a_real_root() {
 
 #[test]
 fn library_scan_then_stats() {
-    needs_ffmpeg!();
     let _guard = exclusive();
     let harness = Harness::new("cli-scan");
     let root = library(&harness);
@@ -281,7 +270,6 @@ fn library_scan_then_stats() {
 /// The config half of #2's multiple roots: two drives, one index.
 #[test]
 fn library_scan_covers_every_configured_root() {
-    needs_ffmpeg!();
     let _guard = exclusive();
     let harness = Harness::new("cli-scan-roots");
     let first = library(&harness);
@@ -302,7 +290,6 @@ fn library_scan_covers_every_configured_root() {
 
 #[test]
 fn library_scan_skips_an_excluded_folder() {
-    needs_ffmpeg!();
     let _guard = exclusive();
     let harness = Harness::new("cli-scan-exclude");
     let root = library(&harness);
@@ -340,7 +327,6 @@ fn stats_on_an_empty_index_says_so() {
 
 #[test]
 fn tags_dump_writes_a_csv_with_a_bom() {
-    needs_ffmpeg!();
     let _guard = exclusive();
     let harness = Harness::new("cli-tags-dump");
     let root = library(&harness);
@@ -363,7 +349,6 @@ fn tags_dump_writes_a_csv_with_a_bom() {
 
 #[test]
 fn dupes_titles_runs_over_the_index() {
-    needs_ffmpeg!();
     let _guard = exclusive();
     let harness = Harness::new("cli-dupes");
     let root = library(&harness);
@@ -386,7 +371,6 @@ fn dupes_on_an_empty_index_says_so() {
 
 #[test]
 fn art_check_reports_what_needs_a_cover() {
-    needs_ffmpeg!();
     let _guard = exclusive();
     let harness = Harness::new("cli-art-check");
     let root = library(&harness);
@@ -400,7 +384,6 @@ fn art_check_reports_what_needs_a_cover() {
 
 #[test]
 fn genre_check_runs_without_a_map() {
-    needs_ffmpeg!();
     let _guard = exclusive();
     let harness = Harness::new("cli-genre-no-map");
     let root = library(&harness);
@@ -413,7 +396,6 @@ fn genre_check_runs_without_a_map() {
 
 #[test]
 fn genre_apply_without_the_flag_writes_nothing() {
-    needs_ffmpeg!();
     let _guard = exclusive();
     let harness = Harness::new("cli-genre-dry-run");
     let root = library(&harness);
@@ -434,7 +416,6 @@ fn genre_apply_without_the_flag_writes_nothing() {
 
 #[test]
 fn genre_apply_with_the_flag_writes_the_tag() {
-    needs_ffmpeg!();
     let _guard = exclusive();
     let harness = Harness::new("cli-genre-apply");
     let root = library(&harness);
@@ -458,7 +439,6 @@ fn genre_apply_with_the_flag_writes_the_tag() {
 /// without the flag.
 #[test]
 fn genre_apply_logs_what_it_wrote_only_when_applied() {
-    needs_ffmpeg!();
     let _guard = exclusive();
     let harness = Harness::new("cli-genre-log");
     let root = library(&harness);
@@ -485,7 +465,6 @@ fn genre_apply_logs_what_it_wrote_only_when_applied() {
 
 #[test]
 fn changes_undo_puts_a_genre_back_only_with_apply() {
-    needs_ffmpeg!();
     let _guard = exclusive();
     let harness = Harness::new("cli-changes-undo");
     let root = library(&harness);
@@ -512,7 +491,6 @@ fn changes_undo_puts_a_genre_back_only_with_apply() {
 
 #[test]
 fn changes_list_renders_and_serialises() {
-    needs_ffmpeg!();
     let _guard = exclusive();
     let harness = Harness::new("cli-changes-list");
     let root = library(&harness);
@@ -546,7 +524,6 @@ fn changes_undo_needs_to_be_told_what_to_undo() {
 
 #[test]
 fn genre_apply_without_a_map_explains_itself() {
-    needs_ffmpeg!();
     let _guard = exclusive();
     let harness = Harness::new("cli-genre-missing-map");
     let root = library(&harness);
@@ -559,7 +536,6 @@ fn genre_apply_without_a_map_explains_itself() {
 
 #[test]
 fn verify_checks_a_single_file() {
-    needs_ffmpeg!();
     let _guard = exclusive();
     let harness = Harness::new("cli-verify-one");
     let root = library(&harness);
@@ -583,7 +559,6 @@ fn verifiable_library(harness: &Harness) -> PathBuf {
 /// #2 wanted verify to stop being a one-shot report.
 #[test]
 fn verify_records_its_verdict_in_the_index() {
-    needs_ffmpeg!();
     let _guard = exclusive();
     let harness = Harness::new("cli-verify-verdict");
     let root = verifiable_library(&harness);
@@ -605,7 +580,6 @@ fn verify_records_its_verdict_in_the_index() {
 
 #[test]
 fn verify_changed_skips_a_file_that_still_carries_its_verdict() {
-    needs_ffmpeg!();
     let _guard = exclusive();
     let harness = Harness::new("cli-verify-changed");
     let root = verifiable_library(&harness);
@@ -632,7 +606,6 @@ fn verify_changed_skips_a_file_that_still_carries_its_verdict() {
 
 #[test]
 fn verify_changed_comes_back_to_a_file_that_moved() {
-    needs_ffmpeg!();
     let _guard = exclusive();
     let harness = Harness::new("cli-verify-moved");
     let root = verifiable_library(&harness);
@@ -671,7 +644,6 @@ fn verify_reports_a_target_that_does_not_exist() {
 
 #[test]
 fn verify_writes_a_report_with_a_bom() {
-    needs_ffmpeg!();
     let _guard = exclusive();
     let harness = Harness::new("cli-verify-report");
     let root = library(&harness);
@@ -727,7 +699,6 @@ fn title_of(track: &Path) -> String {
 
 #[test]
 fn tags_apply_without_the_flag_writes_nothing() {
-    needs_ffmpeg!();
     let _guard = exclusive();
     let harness = Harness::new("cli-tags-apply-dry");
     let root = library(&harness);
@@ -747,7 +718,6 @@ fn tags_apply_without_the_flag_writes_nothing() {
 
 #[test]
 fn tags_apply_writes_the_edited_field_and_logs_it() {
-    needs_ffmpeg!();
     let _guard = exclusive();
     let harness = Harness::new("cli-tags-apply");
     let root = library(&harness);
@@ -788,7 +758,6 @@ fn tags_apply_writes_the_edited_field_and_logs_it() {
 #[test]
 fn a_dump_applied_unedited_changes_nothing() {
     // The round-trip property: dump, apply, and the library is where it was.
-    needs_ffmpeg!();
     let _guard = exclusive();
     let harness = Harness::new("cli-tags-apply-round-trip");
     let root = library(&harness);
@@ -811,7 +780,6 @@ fn a_dump_applied_unedited_changes_nothing() {
 
 #[test]
 fn undoing_a_tags_apply_run_puts_the_field_back() {
-    needs_ffmpeg!();
     let _guard = exclusive();
     let harness = Harness::new("cli-tags-apply-undo");
     let root = library(&harness);
@@ -832,7 +800,6 @@ fn undoing_a_tags_apply_run_puts_the_field_back() {
 #[test]
 fn tags_apply_reports_a_row_that_is_not_in_the_index() {
     // Reported, not fatal: a stray row in an edited spreadsheet is routine.
-    needs_ffmpeg!();
     let _guard = exclusive();
     let harness = Harness::new("cli-tags-apply-unknown");
     let root = library(&harness);
@@ -866,7 +833,6 @@ fn tags_apply_rejects_a_sheet_with_no_path_column() {
 
 #[test]
 fn a_scan_records_a_measurement_and_a_repeat_scan_does_not() {
-    needs_ffmpeg!();
     let _guard = exclusive();
     let harness = Harness::new("cli-trend-record");
     let root = library(&harness);
@@ -885,7 +851,6 @@ fn a_scan_records_a_measurement_and_a_repeat_scan_does_not() {
 
 #[test]
 fn a_scan_after_files_were_added_records_a_new_measurement() {
-    needs_ffmpeg!();
     let _guard = exclusive();
     let harness = Harness::new("cli-trend-grown");
     let root = library(&harness);
@@ -911,7 +876,6 @@ fn a_scan_after_files_were_added_records_a_new_measurement() {
 
 #[test]
 fn trend_reports_the_measurements_it_recorded() {
-    needs_ffmpeg!();
     let _guard = exclusive();
     let harness = Harness::new("cli-trend-report");
     let root = library(&harness);
@@ -954,7 +918,6 @@ fn trend_on_an_index_that_was_never_scanned_says_so() {
 
 #[test]
 fn organise_without_the_flag_moves_nothing() {
-    needs_ffmpeg!();
     let _guard = exclusive();
     let harness = Harness::new("cli-organise-dry");
     let root = library(&harness);
@@ -970,7 +933,6 @@ fn organise_without_the_flag_moves_nothing() {
 
 #[test]
 fn organise_moves_the_file_and_carries_its_index_row_along() {
-    needs_ffmpeg!();
     let _guard = exclusive();
     let harness = Harness::new("cli-organise");
     let root = library(&harness);
@@ -1000,7 +962,6 @@ fn organise_moves_the_file_and_carries_its_index_row_along() {
 
 #[test]
 fn undoing_an_organise_run_puts_the_files_back() {
-    needs_ffmpeg!();
     let _guard = exclusive();
     let harness = Harness::new("cli-organise-undo");
     let root = library(&harness);
@@ -1017,7 +978,6 @@ fn undoing_an_organise_run_puts_the_files_back() {
 
 #[test]
 fn organise_accepts_a_pattern_for_one_run() {
-    needs_ffmpeg!();
     let _guard = exclusive();
     let harness = Harness::new("cli-organise-pattern");
     let root = library(&harness);
@@ -1037,7 +997,6 @@ fn organise_accepts_a_pattern_for_one_run() {
 fn organise_refuses_a_destination_outside_every_root() {
     // Otherwise the files leave the library and the next scan evicts all of
     // them, the walk never having seen them again.
-    needs_ffmpeg!();
     let _guard = exclusive();
     let harness = Harness::new("cli-organise-outside");
     let root = library(&harness);
@@ -1098,7 +1057,6 @@ fn organise_rejects_a_pattern_it_cannot_use() {
 
 #[test]
 fn organise_leaves_no_empty_artist_folder_behind() {
-    needs_ffmpeg!();
     let _guard = exclusive();
     let harness = Harness::new("cli-organise-prune");
     let root = harness.join("Music");
@@ -1121,7 +1079,6 @@ fn organise_leaves_no_empty_artist_folder_behind() {
 
 #[test]
 fn a_genre_playlist_holds_only_the_files_carrying_that_genre() {
-    needs_ffmpeg!();
     let _guard = exclusive();
     let harness = Harness::new("cli-playlist-genre");
     let root = library(&harness);
@@ -1149,7 +1106,6 @@ fn a_genre_playlist_holds_only_the_files_carrying_that_genre() {
 
 #[test]
 fn an_artist_playlist_matches_the_normalised_name() {
-    needs_ffmpeg!();
     let _guard = exclusive();
     let harness = Harness::new("cli-playlist-artist");
     let root = library(&harness);
@@ -1178,7 +1134,6 @@ fn an_artist_playlist_matches_the_normalised_name() {
 fn an_exported_playlist_keeps_the_export_row_order() {
     // The order was in the export and nowhere else: the index reads back sorted
     // by path, which would put DECO_27 before ZUN.
-    needs_ffmpeg!();
     let _guard = exclusive();
     let harness = Harness::new("cli-playlist-export");
     let root = library(&harness);
@@ -1216,7 +1171,6 @@ Roki,DECO*27
 
 #[test]
 fn a_relative_playlist_can_be_moved_with_the_music() {
-    needs_ffmpeg!();
     let _guard = exclusive();
     let harness = Harness::new("cli-playlist-relative");
     let root = library(&harness);
@@ -1254,7 +1208,6 @@ fn a_relative_playlist_without_a_destination_is_refused() {
 
 #[test]
 fn wantlist_diff_queues_what_is_missing() {
-    needs_ffmpeg!();
     let _guard = exclusive();
     let harness = Harness::new("cli-wantlist");
     let root = library(&harness);
@@ -1281,7 +1234,6 @@ fn wantlist_diff_queues_what_is_missing() {
 
 #[test]
 fn wantlist_diff_can_skip_queueing() {
-    needs_ffmpeg!();
     let _guard = exclusive();
     let harness = Harness::new("cli-wantlist-no-queue");
     let root = library(&harness);
@@ -1314,7 +1266,6 @@ fn wantlist_diff_can_skip_queueing() {
 
 #[test]
 fn wantlist_diff_writes_the_missing_and_owned_reports() {
-    needs_ffmpeg!();
     let _guard = exclusive();
     let harness = Harness::new("cli-wantlist-reports");
     let root = library(&harness);
@@ -1350,7 +1301,6 @@ fn wantlist_diff_writes_the_missing_and_owned_reports() {
 
 #[test]
 fn a_second_diff_of_the_same_export_reports_nothing_new() {
-    needs_ffmpeg!();
     let _guard = exclusive();
     let harness = Harness::new("cli-wantlist-new-again");
     let root = library(&harness);
@@ -1390,7 +1340,6 @@ Senbonzakura,Hatsune Miku
 
 #[test]
 fn a_track_added_to_the_export_since_the_last_diff_is_reported_as_new() {
-    needs_ffmpeg!();
     let _guard = exclusive();
     let harness = Harness::new("cli-wantlist-new-grown");
     let root = library(&harness);
@@ -1439,7 +1388,6 @@ Ghost Rule,DECO*27
 fn a_track_the_queue_gave_up_on_is_not_reported_as_new_again() {
     // The point of --new: a FAILED track is still missing from the library, so
     // a plain diff re-reports it every single run.
-    needs_ffmpeg!();
     let _guard = exclusive();
     let harness = Harness::new("cli-wantlist-new-failed");
     let root = library(&harness);
@@ -1489,7 +1437,6 @@ Senbonzakura,Hatsune Miku
 
 #[test]
 fn the_new_flag_does_not_change_what_is_queued() {
-    needs_ffmpeg!();
     let _guard = exclusive();
     let harness = Harness::new("cli-wantlist-new-queues");
     let root = library(&harness);
@@ -1733,7 +1680,6 @@ fn get_splits_an_artist_from_a_title() {
 
 #[test]
 fn the_library_flag_overrides_the_configured_root() {
-    needs_ffmpeg!();
     let _guard = exclusive();
     let harness = Harness::new("cli-library-flag");
     let root = library(&harness);
@@ -1750,7 +1696,6 @@ fn the_library_flag_overrides_the_configured_root() {
 
 #[test]
 fn json_output_is_a_document_rather_than_a_table() {
-    needs_ffmpeg!();
     let _guard = exclusive();
     let harness = Harness::new("cli-json-shape");
     let root = library(&harness);
@@ -1797,7 +1742,6 @@ fn the_api_key_is_never_written_into_the_config() {
 
 #[test]
 fn art_fetch_without_the_flag_writes_nothing() {
-    needs_ffmpeg!();
     let _guard = exclusive();
     let harness = Harness::new("cli-art-dry-run");
     let root = library(&harness);
@@ -1849,7 +1793,6 @@ fn the_json_flag_must_precede_the_subcommand_but_is_accepted_after_it() {
 
 #[test]
 fn a_json_document_written_by_the_cli_parses() {
-    needs_ffmpeg!();
     let _guard = exclusive();
     let harness = Harness::new("cli-json-parses");
     let root = library(&harness);
@@ -2017,7 +1960,6 @@ fn levelled_library(harness: &Harness) -> PathBuf {
 
 #[test]
 fn loudness_writes_nothing_without_apply() {
-    needs_ffmpeg!();
     let _guard = exclusive();
     let harness = Harness::new("cli-loudness-dry-run");
     let root = levelled_library(&harness);
@@ -2034,7 +1976,6 @@ fn loudness_writes_nothing_without_apply() {
 
 #[test]
 fn loudness_with_the_flag_writes_a_gain_and_logs_it() {
-    needs_ffmpeg!();
     let _guard = exclusive();
     let harness = Harness::new("cli-loudness-apply");
     let root = levelled_library(&harness);
@@ -2054,7 +1995,6 @@ fn loudness_with_the_flag_writes_a_gain_and_logs_it() {
 /// An album gain belongs to a record; a file with no album tag has none.
 #[test]
 fn loudness_gives_an_album_gain_only_to_files_that_name_an_album() {
-    needs_ffmpeg!();
     let _guard = exclusive();
     let harness = Harness::new("cli-loudness-albums");
     let root = levelled_library(&harness);
@@ -2079,7 +2019,6 @@ fn loudness_gives_an_album_gain_only_to_files_that_name_an_album() {
 /// it -- that is what `--force` is for.
 #[test]
 fn loudness_leaves_a_file_that_already_carries_a_gain_alone() {
-    needs_ffmpeg!();
     let _guard = exclusive();
     let harness = Harness::new("cli-loudness-skip");
     let root = levelled_library(&harness);
@@ -2107,7 +2046,6 @@ fn loudness_leaves_a_file_that_already_carries_a_gain_alone() {
 
 #[test]
 fn loudness_force_replaces_an_existing_scan() {
-    needs_ffmpeg!();
     let _guard = exclusive();
     let harness = Harness::new("cli-loudness-force");
     let root = levelled_library(&harness);
@@ -2139,7 +2077,6 @@ fn loudness_force_replaces_an_existing_scan() {
 
 #[test]
 fn loudness_reports_the_plan_as_json() {
-    needs_ffmpeg!();
     let _guard = exclusive();
     let harness = Harness::new("cli-loudness-json");
     let root = levelled_library(&harness);
@@ -2153,7 +2090,6 @@ fn loudness_reports_the_plan_as_json() {
 /// The whole run undone leaves the library exactly as it was found.
 #[test]
 fn changes_undo_takes_a_whole_loudness_run_back() {
-    needs_ffmpeg!();
     let _guard = exclusive();
     let harness = Harness::new("cli-loudness-undo");
     let root = levelled_library(&harness);
@@ -2180,7 +2116,6 @@ fn changes_undo_takes_a_whole_loudness_run_back() {
 /// so subtracting it once underflowed and printed a number near `u64::MAX`.
 #[test]
 fn loudness_reports_what_it_wrote_when_most_files_could_not_be_read() {
-    needs_ffmpeg!();
     let _guard = exclusive();
     let harness = Harness::new("cli-loudness-mostly-broken");
     let root = levelled_library(&harness);
@@ -2204,7 +2139,6 @@ fn loudness_reports_what_it_wrote_when_most_files_could_not_be_read() {
 /// would tell a player the record is as loud as its loudest song.
 #[test]
 fn loudness_gives_no_album_gain_to_one_track_of_a_record() {
-    needs_ffmpeg!();
     let _guard = exclusive();
     let harness = Harness::new("cli-loudness-partial");
     let root = levelled_library(&harness);
@@ -2227,7 +2161,6 @@ fn loudness_gives_no_album_gain_to_one_track_of_a_record() {
 /// The whole record named, so the album gain is one the record earns.
 #[test]
 fn loudness_gives_an_album_gain_when_the_whole_record_is_named() {
-    needs_ffmpeg!();
     let _guard = exclusive();
     let harness = Harness::new("cli-loudness-whole-record");
     let root = levelled_library(&harness);

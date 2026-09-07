@@ -12,15 +12,6 @@ use stk::audio::loudness::{measure_album, measure_file, measure_samples, Loudnes
 use stk::config::LoudnessSettings;
 use support::{encode, silence, Encoded, Scratch};
 
-macro_rules! needs_ffmpeg {
-    () => {
-        if support::ffmpeg().is_none() {
-            eprintln!("skipping: ffmpeg is not on PATH");
-            return;
-        }
-    };
-}
-
 const RATE: u32 = 48_000;
 
 /// A stereo 1 kHz tone at a known amplitude, interleaved as the analyser wants.
@@ -107,7 +98,6 @@ fn digital_silence_has_no_measurable_loudness() {
 
 #[test]
 fn a_measurement_reads_back_from_a_real_file() {
-    needs_ffmpeg!();
     let scratch = Scratch::new("loudness-real");
     let path = encode(
         &scratch.join("tone.flac"),
@@ -129,7 +119,6 @@ fn a_measurement_reads_back_from_a_real_file() {
 
 #[test]
 fn a_file_six_db_quieter_is_measured_six_db_quieter() {
-    needs_ffmpeg!();
     let scratch = Scratch::new("loudness-relative");
     let loud = encode(
         &scratch.join("loud.flac"),
@@ -139,16 +128,16 @@ fn a_file_six_db_quieter_is_measured_six_db_quieter() {
             ..Encoded::default()
         },
     );
-    let quiet = scratch.join("quiet.flac");
-    support::run_ffmpeg(&[
-        "-i",
-        &loud.display().to_string(),
-        "-filter:a",
-        "volume=-6dB",
-        "-c:a",
-        "flac",
-        &quiet.display().to_string(),
-    ]);
+    let quiet = encode(
+        &scratch.join("quiet.flac"),
+        &Encoded {
+            seconds: 2.0,
+            modulation_hz: 0.5,
+            // -6dB, as an amplitude.
+            gain: 0.501_187_2,
+            ..Encoded::default()
+        },
+    );
 
     let settings = LoudnessSettings::default();
     let first = measure_file(&loud, &settings)
@@ -166,7 +155,6 @@ fn a_file_six_db_quieter_is_measured_six_db_quieter() {
 
 #[test]
 fn a_file_of_digital_silence_is_reported_rather_than_measured() {
-    needs_ffmpeg!();
     let scratch = Scratch::new("loudness-silence");
     let path = silence(&scratch.join("quiet.flac"), 2, 44100);
 
@@ -193,7 +181,6 @@ fn a_file_that_cannot_be_read_carries_its_reason_rather_than_failing() {
 /// one programme rather than averaged from the figures its tracks got.
 #[test]
 fn an_album_is_measured_across_its_tracks_at_once() {
-    needs_ffmpeg!();
     let scratch = Scratch::new("loudness-album");
     let loud = encode(
         &scratch.join("loud.flac"),
@@ -203,16 +190,16 @@ fn an_album_is_measured_across_its_tracks_at_once() {
             ..Encoded::default()
         },
     );
-    let quiet = scratch.join("quiet.flac");
-    support::run_ffmpeg(&[
-        "-i",
-        &loud.display().to_string(),
-        "-filter:a",
-        "volume=-12dB",
-        "-c:a",
-        "flac",
-        &quiet.display().to_string(),
-    ]);
+    let quiet = encode(
+        &scratch.join("quiet.flac"),
+        &Encoded {
+            seconds: 2.0,
+            modulation_hz: 0.5,
+            // -12dB, as an amplitude.
+            gain: 0.251_188_65,
+            ..Encoded::default()
+        },
+    );
 
     let scan = measure_album(&[loud, quiet], &LoudnessSettings::default());
 
@@ -233,7 +220,6 @@ fn an_album_is_measured_across_its_tracks_at_once() {
 
 #[test]
 fn tracks_come_back_in_the_order_the_paths_were_given() {
-    needs_ffmpeg!();
     let scratch = Scratch::new("loudness-order");
     let paths: Vec<_> = ["a", "b", "c"]
         .iter()
@@ -277,7 +263,6 @@ fn an_album_of_unreadable_files_reports_no_album_loudness() {
 /// those nine as their album gain would say otherwise.
 #[test]
 fn a_record_with_a_track_it_could_not_read_has_no_album_figure() {
-    needs_ffmpeg!();
     let scratch = Scratch::new("loudness-album-partial");
     let readable = encode(
         &scratch.join("a.flac"),
@@ -303,7 +288,6 @@ fn a_record_with_a_track_it_could_not_read_has_no_album_figure() {
 /// has to measure exactly what a short one of the same tone does.
 #[test]
 fn a_long_track_measures_what_a_short_one_of_the_same_tone_does() {
-    needs_ffmpeg!();
     let scratch = Scratch::new("loudness-blocks");
     let settings = LoudnessSettings::default();
     let measure = |name: &str, seconds: f64| {

@@ -1,7 +1,8 @@
-//! ffmpeg wrappers, spectral analysis, and fingerprinting.
+//! Decoding, spectral analysis, fingerprinting and loudness.
 
-pub mod ffmpeg;
+pub mod decode;
 pub mod fingerprint;
 pub mod loudness;
 pub mod spectral;
+pub mod spectrogram;
 pub mod verify;

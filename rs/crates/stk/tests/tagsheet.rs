@@ -11,15 +11,6 @@ use stk::models::{LibraryEntry, ReplayGainTags, TrackTags};
 use stk::tagsheet::{plan_changes, read_sheet, Blanks, PlannedEdit, Skipped, TagChange};
 use support::{encode, Encoded, Scratch};
 
-macro_rules! needs_ffmpeg {
-    () => {
-        if support::ffmpeg().is_none() {
-            eprintln!("skipping: ffmpeg is not on PATH");
-            return;
-        }
-    };
-}
-
 /// The planner asks the filesystem whether the file is still there, so a row
 /// standing in for one has to exist.
 fn entry(path: &Path, tags: TrackTags) -> LibraryEntry {
@@ -260,7 +251,6 @@ fn a_row_with_no_path_is_skipped_rather_than_read_as_one() {
 fn the_written_tags_are_built_from_the_file_and_not_from_the_index() {
     // The plan is diffed against a cache. Writing what the cache remembered
     // would silently revert every field the sheet never mentioned.
-    needs_ffmpeg!();
     let scratch = Scratch::new("sheet-writes-from-file");
     let path = encode(
         &scratch.join("a.flac"),
@@ -292,7 +282,6 @@ fn the_written_tags_are_built_from_the_file_and_not_from_the_index() {
 
 #[test]
 fn a_field_edited_on_disk_since_the_plan_blocks_that_row() {
-    needs_ffmpeg!();
     let scratch = Scratch::new("sheet-stale-field");
     let path = encode(
         &scratch.join("a.flac"),

@@ -4,29 +4,20 @@ use std::path::{Path, PathBuf};
 
 use rayon::prelude::*;
 
-use crate::audio::{ffmpeg, spectral};
+use crate::audio::decode::{probe_windows, Audio, StreamInfo};
+use crate::audio::spectral;
 use crate::config::VerifySettings;
+use crate::errors::Result;
 use crate::models::{Verdict, VerifyResult};
 
 /// Decide whether a lossless container really holds lossless audio.
 ///
-/// Decoding or probing failures are reported as [`Verdict::Error`] rather than
-/// returned as an error, so one unreadable file cannot abort a library-wide run.
+/// Decoding failures are reported as [`Verdict::Error`] rather than returned as
+/// an error, so one unreadable file cannot abort a library-wide run.
 #[must_use]
 pub fn verify_file(path: &Path, settings: &VerifySettings) -> VerifyResult {
-    let probed = ffmpeg::probe(path).and_then(|stream| {
-        let chunks = ffmpeg::decode_probes(
-            path,
-            stream.sample_rate,
-            stream.duration_seconds,
-            settings.probe_seconds,
-            settings.probe_count,
-        )?;
-        Ok((stream, chunks))
-    });
-
-    let (stream, chunks) = match probed {
-        Ok(probed) => probed,
+    let (stream, chunks) = match sample(path, settings) {
+        Ok(sampled) => sampled,
         Err(error) => {
             return VerifyResult {
                 path: path.to_path_buf(),
@@ -70,6 +61,25 @@ pub fn verify_file(path: &Path, settings: &VerifySettings) -> VerifyResult {
     }
 }
 
+/// The stream's properties and a few windows of its audio, from one open.
+fn sample(path: &Path, settings: &VerifySettings) -> Result<(StreamInfo, Vec<Vec<f32>>)> {
+    let mut audio = Audio::open(path)?;
+    let stream = audio.stream().clone();
+
+    let mut chunks = Vec::new();
+    for (start, length) in probe_windows(
+        stream.duration_seconds,
+        settings.probe_seconds,
+        settings.probe_count,
+    ) {
+        let chunk = audio.window(start, length)?;
+        if !chunk.is_empty() {
+            chunks.push(chunk);
+        }
+    }
+    Ok((stream, chunks))
+}
+
 /// Python's `round()`, which breaks ties to even where Rust's rounds away from
 /// zero.
 ///
@@ -87,11 +97,11 @@ fn round_half_even_to(value: f64, digits: usize) -> f64 {
 
 /// Verify many files, in parallel.
 ///
-/// `verify` is the most expensive command in the tool -- five subprocesses per
-/// file, so roughly 1,300 for a 266-file library -- and every one of them is
-/// spent waiting on ffmpeg rather than computing. The Python runs them one after
-/// another; fanning out over the files is the single largest win available here,
-/// and it is deliberate work rather than something the language gives for free.
+/// `verify` is the most expensive command in the tool: every file is opened,
+/// seeked to four places and decoded there, and the transform over what comes
+/// back is the work. The Python runs the files one after another; fanning out
+/// over them is the single largest win available here, and it is deliberate
+/// work rather than something the language gives for free.
 ///
 /// Results come back in the order the paths were given, so a report is
 /// reproducible.

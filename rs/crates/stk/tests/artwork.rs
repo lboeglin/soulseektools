@@ -26,15 +26,6 @@ use stk::matching::NameForms;
 use stk::models::{Artwork, LibraryEntry, ReplayGainTags, TrackTags};
 use support::{encode, Encoded, Scratch};
 
-macro_rules! needs_ffmpeg {
-    () => {
-        if support::ffmpeg().is_none() {
-            eprintln!("skipping: ffmpeg is not on PATH");
-            return;
-        }
-    };
-}
-
 #[derive(Default)]
 struct Recorded {
     json: HashMap<String, Value>,
@@ -648,7 +639,6 @@ fn download_takes_its_type_from_the_bytes() {
 
 #[test]
 fn embeds_a_verified_cover_into_a_real_file() {
-    needs_ffmpeg!();
     let scratch = Scratch::new("artwork-embed");
     let track = encode(
         &scratch.join("DECO_27").join("Roki.flac"),

@@ -4,7 +4,7 @@ mod support;
 
 use std::path::{Path, PathBuf};
 
-use stk::audio::fingerprint::{Fingerprint, Values};
+use stk::audio::fingerprint::Fingerprint;
 use stk::config::OrganiseSettings;
 use stk::library::index::{describe, LibraryIndex};
 use stk::matching::NameForms;
@@ -13,15 +13,6 @@ use stk::organise::{
     move_file, plan_moves, prune_empty, render, spelled_on_disk, Obstacle, Pattern, PlannedMove,
 };
 use support::{encode, Encoded, Scratch};
-
-macro_rules! needs_ffmpeg {
-    () => {
-        if support::ffmpeg().is_none() {
-            eprintln!("skipping: ffmpeg is not on PATH");
-            return;
-        }
-    };
-}
 
 fn settings() -> OrganiseSettings {
     OrganiseSettings::default()
@@ -266,7 +257,6 @@ fn two_files_rendering_to_one_name_are_reported_before_anything_moves() {
 
 #[test]
 fn an_occupied_destination_is_never_overwritten() {
-    needs_ffmpeg!();
     let scratch = Scratch::new("organise-occupied");
     let root = scratch.join("Music");
     let source = encode(&root.join("loose.flac"), &Encoded::default());
@@ -290,7 +280,6 @@ fn an_occupied_destination_is_never_overwritten() {
 fn a_case_only_rename_is_a_move_and_not_a_collision() {
     // On NTFS the destination "exists" because it is the same file, and a plain
     // exists() check would refuse the one rename most worth making.
-    needs_ffmpeg!();
     let scratch = Scratch::new("organise-case");
     let root = scratch.join("Music");
     let source = encode(&root.join("ZUN").join("song.flac"), &Encoded::default());
@@ -320,7 +309,6 @@ fn a_case_only_rename_is_a_move_and_not_a_collision() {
 
 #[test]
 fn a_move_carries_the_row_and_its_fingerprint_to_the_new_path() {
-    needs_ffmpeg!();
     let scratch = Scratch::new("organise-relocate");
     let root = scratch.join("Music");
     let source = encode(
@@ -337,7 +325,7 @@ fn a_move_carries_the_row_and_its_fingerprint_to_the_new_path() {
         .reindex(&source, std::slice::from_ref(&root))
         .expect("a row");
     let shape = Fingerprint {
-        values: Values::Envelope(vec![0.1, 0.2, 0.3]),
+        values: vec![1, 2, 3],
         duration_seconds: Some(1.0),
     };
     index

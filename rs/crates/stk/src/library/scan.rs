@@ -19,14 +19,21 @@ pub const TAGGABLE_EXTENSIONS: &[&str] = &[".flac", ".mp3", ".m4a", ".mp4", ".og
 
 /// Every container recognised as part of a library, taggable or not.
 pub const AUDIO_EXTENSIONS: &[&str] = &[
-    ".aif", ".aiff", ".alac", ".ape", ".flac", ".m4a", ".mp3", ".mp4", ".ogg", ".opus", ".wav",
-    ".wv",
+    ".aif", ".aiff", ".alac", ".flac", ".m4a", ".mp3", ".mp4", ".ogg", ".opus", ".wav",
 ];
 
 /// Containers that can hold lossless audio, and so are worth verifying.
-pub const LOSSLESS_EXTENSIONS: &[&str] = &[
-    ".flac", ".wav", ".aiff", ".aif", ".ape", ".wv", ".alac", ".m4a",
-];
+pub const LOSSLESS_EXTENSIONS: &[&str] = &[".flac", ".wav", ".aiff", ".aif", ".alac", ".m4a"];
+
+/// Containers a loudness scan can both decode and write its result to.
+///
+/// [`TAGGABLE_EXTENSIONS`] less Opus, which is the one container this crate can
+/// tag and cannot decode: it keeps its gains in a header `library/tags.rs`
+/// reads and writes, and there is no pure-Rust Opus decoder to measure it with.
+/// Monkey's Audio and WavPack are neither taggable nor decodable, which is why
+/// they left the lists above -- #9 dropped them rather than keep an ffmpeg
+/// fallback for two formats the library holds none of.
+pub const MEASURABLE_EXTENSIONS: &[&str] = &[".flac", ".m4a", ".mp3", ".mp4", ".ogg"];
 
 /// Folders the scan leaves alone, as configured globs.
 ///

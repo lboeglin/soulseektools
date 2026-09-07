@@ -1,9 +1,11 @@
 //! The last oracle gate: `dupes content`, over chromaprint fingerprints.
 //!
-//! Held back from step 3 because `fpcalc` was not installed when the oracle was
-//! captured. Diffing against the loudness-envelope fallback instead would have
-//! pinned the wrong backend as the reference, so `oracle/README.md` asks for
-//! Chromaprint to be installed and the capture taken before this is trusted.
+//! The capture was taken with `fpcalc` installed, so it pins chromaprint rather
+//! than the loudness-envelope fallback the Python used when it was absent. The
+//! fingerprints here are computed by `rusty-chromaprint`, which disagrees with
+//! `fpcalc` in about 1.5% of bits -- so what this gate compares is the pairs a
+//! library-wide run finds, which is the thing that has to hold, and not the
+//! fingerprints themselves, which cannot.
 //!
 //! To produce what this reads:
 //!
@@ -13,7 +15,7 @@
 //! stk --json dupes content > oracle/dupes-content.json
 //! ```
 //!
-//! Skips while either the capture or `fpcalc` is absent, which is what CI sees.
+//! Skips while the capture is absent, which is what CI sees.
 
 mod support;
 
@@ -21,7 +23,6 @@ use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
 use serde_json::Value;
-use stk::audio::fingerprint::{available_kind, FingerprintKind};
 use stk::duplicates::{self, DEFAULT_AUDIO_THRESHOLD, DEFAULT_DURATION_TOLERANCE_SECONDS};
 use stk::library::index::{default_extensions, LibraryIndex};
 use stk::library::scan::Excludes;
@@ -75,16 +76,6 @@ fn content_duplicates_match_the_oracle() {
         return;
     };
 
-    // The capture is only meaningful against the same backend that produced it.
-    // Absent fpcalc this would compare chromaprint against the envelope
-    // fallback, which is worse than not running at all: skip, and say so.
-    if available_kind() != FingerprintKind::Chromaprint {
-        eprintln!(
-            "skipping: oracle/dupes-content.json was captured with fpcalc \n             installed, and it is not on PATH here"
-        );
-        return;
-    }
-
     let scratch = Scratch::new("oracle-dupes-content");
     let mut index = LibraryIndex::open(&scratch.join("index.db")).expect("an index");
     index
@@ -130,15 +121,4 @@ fn content_duplicates_match_the_oracle() {
         only_oracle.iter().take(5).collect::<Vec<_>>(),
         only_ours.iter().take(5).collect::<Vec<_>>()
     );
-}
-
-/// Which backend is used decides what a fingerprint even means, so the choice
-/// is worth pinning separately from the pairs it produces.
-#[test]
-fn the_chromaprint_backend_is_chosen_when_fpcalc_is_installed() {
-    if stk::audio::fingerprint::fpcalc_path().is_none() {
-        eprintln!("skipping: fpcalc is not on PATH");
-        return;
-    }
-    assert_eq!(available_kind(), FingerprintKind::Chromaprint);
 }

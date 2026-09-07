@@ -9,15 +9,6 @@ use stk::library::scan::{folder_artist, iter_audio_files, owning_root, Excludes}
 use stk::library::tags;
 use support::{encode, Encoded, Scratch};
 
-macro_rules! needs_ffmpeg {
-    () => {
-        if support::ffmpeg().is_none() {
-            eprintln!("skipping: ffmpeg is not on PATH");
-            return;
-        }
-    };
-}
-
 /// A small library laid out the way the real one is: `<root>/<artist>/...`.
 fn library_root(scratch: &Scratch) -> PathBuf {
     let root = scratch.join("Music");
@@ -74,7 +65,6 @@ fn refresh_roots(
 
 #[test]
 fn scan_walks_nested_album_folders() {
-    needs_ffmpeg!();
     let scratch = Scratch::new("index-walk");
     let root = library_root(&scratch);
 
@@ -86,7 +76,6 @@ fn scan_walks_nested_album_folders() {
 
 #[test]
 fn scan_honours_the_extension_filter() {
-    needs_ffmpeg!();
     let scratch = Scratch::new("index-filter");
     let root = library_root(&scratch);
 
@@ -98,7 +87,6 @@ fn scan_honours_the_extension_filter() {
 
 #[test]
 fn scan_ignores_non_audio_files() {
-    needs_ffmpeg!();
     let scratch = Scratch::new("index-non-audio");
     let root = library_root(&scratch);
     std::fs::write(root.join("DECO_27").join("cover.jpg"), b"not audio").expect("a written file");
@@ -110,7 +98,6 @@ fn scan_ignores_non_audio_files() {
 
 #[test]
 fn folder_artist_is_the_first_component_below_the_root() {
-    needs_ffmpeg!();
     let scratch = Scratch::new("index-folder-artist");
     let root = library_root(&scratch);
     let nested = root.join("ZUN").join("Nested").join("15 Heian Alien.flac");
@@ -134,7 +121,6 @@ fn a_path_outside_the_root_has_no_implied_artist() {
 
 #[test]
 fn describe_prefers_tags_over_the_folder_layout() {
-    needs_ffmpeg!();
     let scratch = Scratch::new("describe-tags");
     let root = library_root(&scratch);
 
@@ -148,7 +134,6 @@ fn describe_prefers_tags_over_the_folder_layout() {
 
 #[test]
 fn describe_falls_back_to_the_folder_and_filename_when_untagged() {
-    needs_ffmpeg!();
     let scratch = Scratch::new("describe-untagged");
     let root = library_root(&scratch);
 
@@ -161,7 +146,6 @@ fn describe_falls_back_to_the_folder_and_filename_when_untagged() {
 
 #[test]
 fn describe_strips_the_track_number_from_a_filename_derived_title() {
-    needs_ffmpeg!();
     let scratch = Scratch::new("describe-track-number");
     let root = library_root(&scratch);
 
@@ -176,21 +160,20 @@ fn describe_strips_the_track_number_from_a_filename_derived_title() {
 
 #[test]
 fn describe_records_size_duration_and_artwork() {
-    needs_ffmpeg!();
     let scratch = Scratch::new("describe-properties");
     let root = library_root(&scratch);
 
     let entry = describe(&root.join("DECO_27").join("01 - Roki.flac"), &root).expect("an entry");
 
     assert!(entry.size > 0);
-    assert!((entry.duration_seconds.expect("a duration") - 1.0).abs() < 0.15);
+    let expected = Encoded::default().seconds;
+    assert!((entry.duration_seconds.expect("a duration") - expected).abs() < 0.15);
     assert_eq!(entry.artwork_bytes, 0);
     assert!(!entry.has_artwork());
 }
 
 #[test]
 fn describe_precomputes_the_name_forms_used_for_matching() {
-    needs_ffmpeg!();
     let scratch = Scratch::new("describe-forms");
     let root = library_root(&scratch);
 
@@ -203,7 +186,6 @@ fn describe_precomputes_the_name_forms_used_for_matching() {
 /// New in schema v3 (#2): the same header read now also records the stream.
 #[test]
 fn describe_records_the_stream_properties_the_upgrade_flow_needs() {
-    needs_ffmpeg!();
     let scratch = Scratch::new("describe-stream");
     let root = library_root(&scratch);
 
@@ -216,7 +198,6 @@ fn describe_records_the_stream_properties_the_upgrade_flow_needs() {
 
 #[test]
 fn refresh_indexes_every_file() {
-    needs_ffmpeg!();
     let scratch = Scratch::new("index-refresh");
     let root = library_root(&scratch);
     let mut index = open(&scratch, "index.db");
@@ -230,7 +211,6 @@ fn refresh_indexes_every_file() {
 
 #[test]
 fn a_second_refresh_rereads_nothing() {
-    needs_ffmpeg!();
     let scratch = Scratch::new("index-incremental");
     let root = library_root(&scratch);
     let mut index = open(&scratch, "index.db");
@@ -245,7 +225,6 @@ fn a_second_refresh_rereads_nothing() {
 
 #[test]
 fn full_refresh_rereads_everything() {
-    needs_ffmpeg!();
     let scratch = Scratch::new("index-full");
     let root = library_root(&scratch);
     let mut index = open(&scratch, "index.db");
@@ -267,7 +246,6 @@ fn full_refresh_rereads_everything() {
 
 #[test]
 fn a_changed_file_is_reread() {
-    needs_ffmpeg!();
     let scratch = Scratch::new("index-changed");
     let root = library_root(&scratch);
     let track = root.join("DECO_27").join("01 - Roki.flac");
@@ -293,7 +271,6 @@ fn a_changed_file_is_reread() {
 
 #[test]
 fn a_deleted_file_is_dropped() {
-    needs_ffmpeg!();
     let scratch = Scratch::new("index-deleted");
     let root = library_root(&scratch);
     let track = root.join("beatMARIO").join("Night of Knights.m4a");
@@ -310,7 +287,6 @@ fn a_deleted_file_is_dropped() {
 
 #[test]
 fn entries_round_trip_through_sqlite() {
-    needs_ffmpeg!();
     let scratch = Scratch::new("index-round-trip");
     let root = library_root(&scratch);
     let track = root.join("DECO_27").join("01 - Roki.flac");
@@ -324,7 +300,6 @@ fn entries_round_trip_through_sqlite() {
 
 #[test]
 fn entries_are_returned_in_a_deterministic_order() {
-    needs_ffmpeg!();
     let scratch = Scratch::new("index-order");
     let root = library_root(&scratch);
     let mut index = open(&scratch, "index.db");
@@ -344,7 +319,6 @@ fn entries_are_returned_in_a_deterministic_order() {
 
 #[test]
 fn the_index_survives_being_reopened() {
-    needs_ffmpeg!();
     let scratch = Scratch::new("index-reopen");
     let root = library_root(&scratch);
     {
@@ -359,7 +333,6 @@ fn the_index_survives_being_reopened() {
 
 #[test]
 fn artist_counts_group_by_folder() {
-    needs_ffmpeg!();
     let scratch = Scratch::new("index-artists");
     let root = library_root(&scratch);
     let mut index = open(&scratch, "index.db");
@@ -377,7 +350,6 @@ fn artist_counts_group_by_folder() {
 
 #[test]
 fn refresh_reports_progress_per_file() {
-    needs_ffmpeg!();
     let scratch = Scratch::new("index-progress");
     let root = library_root(&scratch);
     let mut index = open(&scratch, "index.db");
@@ -399,7 +371,6 @@ fn refresh_reports_progress_per_file() {
 
 #[test]
 fn creates_the_database_directory() {
-    needs_ffmpeg!();
     let scratch = Scratch::new("index-nested-db");
     let root = library_root(&scratch);
     let mut index = LibraryIndex::open(&scratch.join("nested").join("deeper").join("index.db"))
@@ -410,7 +381,6 @@ fn creates_the_database_directory() {
 
 #[test]
 fn reindex_picks_up_a_tag_this_tool_just_wrote() {
-    needs_ffmpeg!();
     // Without this, a command that edits tags leaves the next command reporting
     // what was true before the edit.
     let scratch = Scratch::new("index-reindex");
@@ -445,7 +415,6 @@ fn reindex_picks_up_a_tag_this_tool_just_wrote() {
 
 #[test]
 fn reindexing_a_file_that_is_gone_does_nothing() {
-    needs_ffmpeg!();
     let scratch = Scratch::new("index-reindex-absent");
     let root = library_root(&scratch);
     let mut index = open(&scratch, "index.db");
@@ -545,7 +514,6 @@ fn a_v5_database_gains_the_loudness_columns_in_place() {
 /// scan records them without being asked (#7).
 #[test]
 fn a_scan_records_the_loudness_tags_a_file_carries() {
-    needs_ffmpeg!();
     let scratch = Scratch::new("index-loudness");
     let root = library_root(&scratch);
     let track = root.join("DECO_27").join("01 - Roki.flac");
@@ -572,7 +540,6 @@ fn a_scan_records_the_loudness_tags_a_file_carries() {
 
 #[test]
 fn a_file_nothing_has_scanned_is_indexed_as_not_level_matched() {
-    needs_ffmpeg!();
     let scratch = Scratch::new("index-loudness-absent");
     let root = library_root(&scratch);
     let mut index = open(&scratch, "index.db");
@@ -592,7 +559,6 @@ fn a_file_nothing_has_scanned_is_indexed_as_not_level_matched() {
 /// un-level-matched until something happened to touch it (#7).
 #[test]
 fn an_upgraded_database_fills_its_loudness_columns_at_the_next_scan() {
-    needs_ffmpeg!();
     let scratch = Scratch::new("index-backfill");
     let root = library_root(&scratch);
     let track = root.join("DECO_27").join("01 - Roki.flac");
@@ -641,7 +607,6 @@ fn an_upgraded_database_fills_its_loudness_columns_at_the_next_scan() {
 /// replaces a row whole and would throw away the verdict `stk verify` recorded.
 #[test]
 fn the_backfill_leaves_a_recorded_verdict_where_it_was() {
-    needs_ffmpeg!();
     let scratch = Scratch::new("index-backfill-verdict");
     let root = library_root(&scratch);
     let track = root.join("DECO_27").join("01 - Roki.flac");
@@ -671,7 +636,6 @@ fn the_backfill_leaves_a_recorded_verdict_where_it_was() {
 /// `verify` stops being a one-shot report once its verdict is persisted (#2).
 #[test]
 fn a_verdict_is_recorded_against_the_file() {
-    needs_ffmpeg!();
     let scratch = Scratch::new("index-verdict");
     let root = library_root(&scratch);
     let track = root.join("DECO_27").join("01 - Roki.flac");
@@ -693,7 +657,6 @@ fn a_verdict_is_recorded_against_the_file() {
 /// Multiple roots, from #2: a library spread across two drives.
 #[test]
 fn files_under_two_roots_land_in_one_index() {
-    needs_ffmpeg!();
     let scratch = Scratch::new("index-two-roots");
     let first = library_root(&scratch);
     let second = scratch.join("More");
@@ -722,7 +685,6 @@ fn files_under_two_roots_land_in_one_index() {
 /// root evict the other's rows.
 #[test]
 fn a_second_root_does_not_evict_the_first_roots_files() {
-    needs_ffmpeg!();
     let scratch = Scratch::new("index-no-evict");
     let first = library_root(&scratch);
     let second = scratch.join("More");
@@ -743,7 +705,6 @@ fn a_second_root_does_not_evict_the_first_roots_files() {
 /// Exclusions, from #2: audiobooks and sample packs stay out of the index.
 #[test]
 fn an_excluded_folder_stays_out_of_the_walk() {
-    needs_ffmpeg!();
     let scratch = Scratch::new("index-exclude");
     let root = library_root(&scratch);
     encode(
@@ -791,7 +752,6 @@ fn the_deepest_root_owns_a_file() {
 /// the judgement cannot outlive the audio it was made about.
 #[test]
 fn reindexing_a_file_clears_its_verdict() {
-    needs_ffmpeg!();
     let scratch = Scratch::new("index-verdict-cleared");
     let root = library_root(&scratch);
     let track = root.join("DECO_27").join("01 - Roki.flac");
@@ -810,7 +770,6 @@ fn reindexing_a_file_clears_its_verdict() {
 
 #[test]
 fn a_verdict_goes_stale_when_the_file_moves_under_it() {
-    needs_ffmpeg!();
     let scratch = Scratch::new("index-verdict-stale");
     let root = library_root(&scratch);
     let track = root.join("DECO_27").join("01 - Roki.flac");

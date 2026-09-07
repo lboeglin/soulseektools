@@ -22,6 +22,8 @@ csv = "1.4.0"
 ebur128 = "0.1.10"
 fancy-regex = "0.19.0"
 globset = "0.4.16"
+# Only PNG: the spectrogram is the one image this crate writes.
+image = { version = "0.25.9", default-features = false, features = ["png"] }
 kakasi = "0.1.0"
 lofty = "0.22.2"
 rapidfuzz = "0.5.0"
@@ -30,18 +32,40 @@ realfft = "3.5.0"
 regex = "1.13.1"
 reqwest = { version = "0.13.3", default-features = false, features = ["blocking", "json"] }
 rusqlite = { version = "0.40.2", features = ["bundled"] }
+rusty-chromaprint = "0.3.0"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = { version = "1.0.151", features = ["preserve_order"] }
 sha2 = "0.10.9"
+# Only the formats the extension lists declare; `all` would pull in decoders for
+# containers `library/scan.rs` does not recognise.
+symphonia = { version = "0.6.1", default-features = false, features = [
+    "opt-simd",
+    "all-meta",
+    "aac",
+    "aiff",
+    "alac",
+    "flac",
+    "isomp4",
+    "mp3",
+    "ogg",
+    "pcm",
+    "vorbis",
+    "wav",
+] }
+# The ALAC magic cookie, which symphonia's decoder reads and does not hand back.
+symphonia-common = "0.6.1"
 thiserror = "2.0.20"
 toml = "1.0.7"
 unicode-normalization = "0.1.25"
-which = "8.0.6"
 
 [lints]
 workspace = true
 
 [dev-dependencies]
+# Writing the audio fixtures this crate has no reason to encode itself.
+flacenc = { version = "0.5.1", default-features = false }
+hound = "3.5.1"
+image = { version = "0.25.9", default-features = false, features = ["png"] }
 # Reading a raw tag item a test wrote but this crate does not manage, the way
 # `rusqlite` here reads a row the index wrote.
 lofty = "0.22.2"
@@ -50,3 +74,4 @@ rand_distr = "0.5.1"
 realfft = "3.5.0"
 rusqlite = "0.40.2"
 toml = "1.0.7"
+which = "8.0.6"

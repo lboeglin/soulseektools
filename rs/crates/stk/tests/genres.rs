@@ -14,15 +14,6 @@ use stk::matching::NameForms;
 use stk::models::{LibraryEntry, ReplayGainTags, TrackTags};
 use support::{encode, Encoded, Scratch};
 
-macro_rules! needs_ffmpeg {
-    () => {
-        if support::ffmpeg().is_none() {
-            eprintln!("skipping: ffmpeg is not on PATH");
-            return;
-        }
-    };
-}
-
 fn example_map() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../data/genres.example.toml")
 }
@@ -234,7 +225,6 @@ fn the_largest_folders_come_first() {
 
 #[test]
 fn apply_change_writes_the_genre_to_disk() {
-    needs_ffmpeg!();
     let scratch = Scratch::new("genres-apply");
     let root = scratch.path();
     let track = encode(
@@ -256,7 +246,6 @@ fn apply_change_writes_the_genre_to_disk() {
 
 #[test]
 fn apply_change_writes_several_genres() {
-    needs_ffmpeg!();
     let scratch = Scratch::new("genres-apply-many");
     let root = scratch.path();
     let track = encode(

@@ -236,6 +236,17 @@ fn within_duration_tolerance(theirs: &str, ours: &str) -> bool {
     }
 }
 
+/// The one row the decoder cannot reproduce: a 32-bit FLAC.
+///
+/// symphonia accepts those and then decorrelates mid/side through an `i32` too
+/// narrow to hold `2*mid + side`, so `audio/decode.rs` refuses them rather than
+/// believe the noise it gets back. `oracle_verify.rs` carries the same
+/// exception and the same reason.
+fn undecodable(row: &str) -> bool {
+    let cells: Vec<&str> = row.split(',').collect();
+    cells.len() > 5 && cells[cells.len() - 6] == "flac" && cells[cells.len() - 4] == "32"
+}
+
 #[test]
 fn the_verify_report_matches_the_oracle_row_for_row() {
     let _guard = exclusive();
@@ -269,7 +280,7 @@ fn the_verify_report_matches_the_oracle_row_for_row() {
         .iter()
         .zip(&ours)
         .enumerate()
-        .filter(|(_, (theirs, ours))| theirs != ours)
+        .filter(|(_, (theirs, ours))| theirs != ours && !undecodable(theirs))
         .map(|(index, (theirs, ours))| (index, theirs, ours))
         .collect();
     assert!(

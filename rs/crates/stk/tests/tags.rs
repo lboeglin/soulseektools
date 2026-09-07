@@ -5,7 +5,7 @@ mod support;
 use lofty::prelude::{ItemKey, TaggedFileExt};
 use stk::library::tags::{self, TagField};
 use stk::models::{Artwork, ReplayGainTags, TrackTags};
-use support::{encode, Encoded, Scratch};
+use support::{committed, encode, Encoded, Scratch};
 
 const TAGGABLE: &[&str] = &["flac", "mp3", "m4a", "ogg", "opus"];
 
@@ -17,15 +17,6 @@ const PNG_PIXEL: &[u8] = &[
     0x00, 0x00, 0x00, 0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82,
 ];
 
-macro_rules! needs_ffmpeg {
-    () => {
-        if support::ffmpeg().is_none() {
-            eprintln!("skipping: ffmpeg is not on PATH");
-            return;
-        }
-    };
-}
-
 fn artwork(repeats: usize) -> Artwork {
     Artwork {
         data: PNG_PIXEL.repeat(repeats),
@@ -33,25 +24,15 @@ fn artwork(repeats: usize) -> Artwork {
     }
 }
 
+/// Against tags an independent writer produced.
+///
+/// The committed `tagged.*` fixtures carry what ffmpeg wrote into each
+/// container; a fixture this suite tagged itself would be checking `lofty`
+/// against `lofty` and would agree whatever either of them did.
 #[test]
 fn read_tags_returns_the_same_fields_for_every_container() {
-    needs_ffmpeg!();
-    let scratch = Scratch::new("tags-read");
-
     for suffix in TAGGABLE {
-        let path = encode(
-            &scratch.join(&format!("track.{suffix}")),
-            &Encoded {
-                metadata: &[
-                    ("artist", "DECO*27"),
-                    ("album", "Ghost"),
-                    ("title", "Roki"),
-                    ("genre", "Vocaloid"),
-                    ("track", "3"),
-                ],
-                ..Encoded::default()
-            },
-        );
+        let path = committed(&format!("tagged.{suffix}"));
 
         let read = tags::read_tags(&path).expect("readable tags");
         assert_eq!(read.artist, "DECO*27", "{suffix}");
@@ -64,7 +45,6 @@ fn read_tags_returns_the_same_fields_for_every_container() {
 
 #[test]
 fn read_tags_treats_an_untagged_file_as_empty_rather_than_an_error() {
-    needs_ffmpeg!();
     let scratch = Scratch::new("tags-untagged");
 
     for suffix in TAGGABLE.iter().chain(["wav"].iter()) {
@@ -82,7 +62,6 @@ fn read_tags_treats_an_untagged_file_as_empty_rather_than_an_error() {
 
 #[test]
 fn read_duration_comes_from_the_container_header() {
-    needs_ffmpeg!();
     let scratch = Scratch::new("tags-duration");
 
     for suffix in TAGGABLE.iter().chain(["wav"].iter()) {
@@ -103,7 +82,6 @@ fn read_duration_comes_from_the_container_header() {
 
 #[test]
 fn write_genres_round_trips() {
-    needs_ffmpeg!();
     let scratch = Scratch::new("tags-genres");
 
     for suffix in TAGGABLE {
@@ -124,7 +102,6 @@ fn write_genres_round_trips() {
 
 #[test]
 fn write_genres_replaces_rather_than_appends() {
-    needs_ffmpeg!();
     let scratch = Scratch::new("tags-genres-replace");
 
     for suffix in TAGGABLE {
@@ -147,7 +124,6 @@ fn write_genres_replaces_rather_than_appends() {
 
 #[test]
 fn artwork_round_trips() {
-    needs_ffmpeg!();
     let scratch = Scratch::new("tags-artwork");
     let cover = artwork(40);
 
@@ -175,7 +151,6 @@ fn artwork_round_trips() {
 
 #[test]
 fn write_artwork_replaces_the_existing_cover() {
-    needs_ffmpeg!();
     let scratch = Scratch::new("tags-artwork-replace");
     let cover = artwork(40);
     let replacement = artwork(80);
@@ -197,7 +172,6 @@ fn write_artwork_replaces_the_existing_cover() {
 
 #[test]
 fn artwork_size_reports_zero_when_there_is_no_cover() {
-    needs_ffmpeg!();
     let scratch = Scratch::new("tags-artwork-zero");
 
     for suffix in TAGGABLE {
@@ -211,7 +185,6 @@ fn artwork_size_reports_zero_when_there_is_no_cover() {
 
 #[test]
 fn artwork_size_matches_the_embedded_bytes() {
-    needs_ffmpeg!();
     let scratch = Scratch::new("tags-artwork-size");
     let cover = artwork(40);
 
@@ -232,7 +205,6 @@ fn artwork_size_matches_the_embedded_bytes() {
 
 #[test]
 fn artwork_size_is_zero_for_a_container_that_cannot_hold_a_cover() {
-    needs_ffmpeg!();
     // The original scripts raised or crashed here; callers only ever want a number.
     let scratch = Scratch::new("tags-artwork-wav");
     let path = encode(&scratch.join("track.wav"), &Encoded::default());
@@ -242,7 +214,6 @@ fn artwork_size_is_zero_for_a_container_that_cannot_hold_a_cover() {
 
 #[test]
 fn reading_artwork_from_an_unsupported_container_is_explicit() {
-    needs_ffmpeg!();
     let scratch = Scratch::new("tags-artwork-unsupported");
     let path = encode(&scratch.join("track.wav"), &Encoded::default());
 
@@ -292,7 +263,6 @@ fn full_tags() -> TrackTags {
 
 #[test]
 fn every_taggable_container_round_trips_written_tags() {
-    needs_ffmpeg!();
     let scratch = Scratch::new("tags-write-round-trip");
 
     for suffix in TAGGABLE {
@@ -309,7 +279,6 @@ fn every_taggable_container_round_trips_written_tags() {
 
 #[test]
 fn writing_one_field_leaves_the_others_where_they_were() {
-    needs_ffmpeg!();
     let scratch = Scratch::new("tags-write-one");
     let path = encode(&scratch.join("t.flac"), &Encoded::default());
     tags::write_tags(&path, &full_tags()).expect("written tags");
@@ -330,7 +299,6 @@ fn writing_one_field_leaves_the_others_where_they_were() {
 fn an_empty_value_removes_the_key_rather_than_writing_a_blank() {
     // A file whose title was cleared has to read back the way one that never
     // had a title does, or "is this tagged" gets two different answers.
-    needs_ffmpeg!();
     let scratch = Scratch::new("tags-write-clear");
     let path = encode(&scratch.join("t.flac"), &Encoded::default());
     tags::write_tags(&path, &full_tags()).expect("written tags");
@@ -345,7 +313,6 @@ fn an_empty_value_removes_the_key_rather_than_writing_a_blank() {
 
 #[test]
 fn writing_tags_creates_a_tag_block_in_a_file_that_has_none() {
-    needs_ffmpeg!();
     let scratch = Scratch::new("tags-write-untagged");
     let path = encode(&scratch.join("t.flac"), &Encoded::default());
 
@@ -356,7 +323,6 @@ fn writing_tags_creates_a_tag_block_in_a_file_that_has_none() {
 
 #[test]
 fn writing_tags_leaves_the_embedded_cover_alone() {
-    needs_ffmpeg!();
     let scratch = Scratch::new("tags-write-artwork");
     let path = encode(&scratch.join("t.flac"), &Encoded::default());
     tags::write_artwork(&path, &artwork(1)).expect("an embedded cover");
@@ -374,7 +340,6 @@ fn a_total_after_the_track_number_survives_a_write_that_keeps_the_number() {
     // `read_tags` keeps only the leading digits of "3/12", so a write that
     // rewrote the field regardless would drop the total across a whole album
     // for anyone editing only a title.
-    needs_ffmpeg!();
     let scratch = Scratch::new("tags-write-track");
     let path = encode(
         &scratch.join("t.flac"),
@@ -406,7 +371,6 @@ fn a_total_after_the_track_number_survives_a_write_that_keeps_the_number() {
 
 #[test]
 fn a_changed_track_number_leaves_the_total_where_it_was() {
-    needs_ffmpeg!();
     let scratch = Scratch::new("tags-write-track-changed");
     let path = encode(
         &scratch.join("t.flac"),
@@ -472,7 +436,6 @@ fn a_tag_this_project_does_not_manage_survives_a_write() {
     // carries four of these per file, and `write_tags` replaces six item keys
     // rather than the tag block, so everything else has to come through
     // untouched. Losing them would mean rescanning the whole library.
-    needs_ffmpeg!();
     let scratch = Scratch::new("tags-foreign");
     let path = encode(
         &scratch.join("t.flac"),
@@ -517,7 +480,6 @@ fn measurement() -> ReplayGainTags {
 
 #[test]
 fn a_loudness_measurement_round_trips_through_every_container() {
-    needs_ffmpeg!();
     let scratch = Scratch::new("tags-loudness");
     for extension in TAGGABLE {
         let path = encode(
@@ -542,7 +504,6 @@ fn a_loudness_measurement_round_trips_through_every_container() {
 
 #[test]
 fn a_file_nothing_has_scanned_carries_no_loudness_tags() {
-    needs_ffmpeg!();
     let scratch = Scratch::new("tags-loudness-absent");
     let path = encode(&scratch.join("t.flac"), &Encoded::default());
 
@@ -555,7 +516,6 @@ fn a_file_nothing_has_scanned_carries_no_loudness_tags() {
 /// Undoing a first-ever scan means removing the tags, not writing empty ones.
 #[test]
 fn clearing_a_measurement_leaves_the_file_the_way_it_started() {
-    needs_ffmpeg!();
     let scratch = Scratch::new("tags-loudness-clear");
     let path = encode(&scratch.join("t.flac"), &Encoded::default());
     tags::write_replay_gain(&path, &measurement()).expect("a loudness write");
@@ -571,7 +531,6 @@ fn clearing_a_measurement_leaves_the_file_the_way_it_started() {
 /// must not cost a file its artist, and a tag edit must not cost it its scan.
 #[test]
 fn a_scan_and_a_tag_edit_leave_each_other_alone() {
-    needs_ffmpeg!();
     let scratch = Scratch::new("tags-loudness-coexist");
     let path = encode(
         &scratch.join("t.flac"),
@@ -598,7 +557,6 @@ fn a_scan_and_a_tag_edit_leave_each_other_alone() {
 /// what players read there.
 #[test]
 fn an_opus_file_carries_r128_alongside_the_standard_tags() {
-    needs_ffmpeg!();
     let scratch = Scratch::new("tags-loudness-opus");
     let path = encode(&scratch.join("t.opus"), &Encoded::default());
     let mut written = measurement();
@@ -629,7 +587,6 @@ fn an_opus_file_carries_r128_alongside_the_standard_tags() {
 /// disagreeing would take an `R128_TRACK_GAIN` away without writing one back.
 #[test]
 fn an_r128_field_is_asked_of_opus_and_of_nothing_else() {
-    needs_ffmpeg!();
     let scratch = Scratch::new("tags-r128-container");
     for extension in TAGGABLE {
         let path = encode(

@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 
 use rusqlite::{params, params_from_iter, Connection, OptionalExtension};
 
-use crate::audio::fingerprint::{Fingerprint, FingerprintKind, Values};
+use crate::audio::fingerprint::{self, Fingerprint};
 use crate::errors::{Error, Result};
 use crate::library::changes::{Change, ChangeFilter, NewChange};
 use crate::library::scan::{
@@ -679,17 +679,14 @@ impl LibraryIndex {
         let Some((kind, values, duration_seconds)) = row else {
             return Ok(None);
         };
-        let values = match kind.parse::<FingerprintKind>() {
-            Ok(FingerprintKind::Chromaprint) => {
-                Values::Chromaprint(serde_json::from_str(&values).unwrap_or_default())
-            }
-            Ok(FingerprintKind::Envelope) => {
-                Values::Envelope(serde_json::from_str(&values).unwrap_or_default())
-            }
-            Err(_) => return Ok(None),
-        };
+        // A row written by something else -- the `fpcalc` backend #9 replaced,
+        // or a future one -- is a miss rather than a value, so it is recomputed
+        // instead of compared against a fingerprint it does not agree with.
+        if kind != fingerprint::KIND {
+            return Ok(None);
+        }
         Ok(Some(Fingerprint {
-            values,
+            values: serde_json::from_str(&values).unwrap_or_default(),
             duration_seconds,
         }))
     }
@@ -700,11 +697,7 @@ impl LibraryIndex {
         mtime: f64,
         value: &Fingerprint,
     ) -> Result<()> {
-        let values = match &value.values {
-            Values::Chromaprint(values) => serde_json::to_string(values),
-            Values::Envelope(values) => serde_json::to_string(values),
-        }
-        .unwrap_or_else(|_| "[]".to_owned());
+        let values = serde_json::to_string(&value.values).unwrap_or_else(|_| "[]".to_owned());
 
         self.connection
             .execute(
@@ -712,7 +705,7 @@ impl LibraryIndex {
                 params![
                     path.display().to_string(),
                     mtime,
-                    value.kind().as_str(),
+                    fingerprint::KIND,
                     values,
                     value.duration_seconds,
                 ],

@@ -8,10 +8,9 @@
 //! whatever they were mastered at.
 //!
 //! The measurement is the `ebur128` crate, a port of libebur128, rather than
-//! ffmpeg's filter of the same name: #9 is removing ffmpeg, and a scan built on
-//! a subprocess whose text output had to be parsed would be a line-for-line
-//! rewrite later. Only the decode is still ffmpeg's, and that is the one call
-//! #9 replaces wholesale.
+//! ffmpeg's filter of the same name: a scan built on a subprocess whose text
+//! output had to be parsed would have been a line-for-line rewrite when #9
+//! removed ffmpeg.
 //!
 //! Measuring a record is not averaging its tracks. The gate that decides which
 //! 400 ms blocks count is relative to the *programme* being measured, so an
@@ -24,10 +23,9 @@ use std::path::{Path, PathBuf};
 use ebur128::{EbuR128, Mode};
 use rayon::prelude::*;
 
-use crate::audio::ffmpeg;
+use crate::audio::decode::Audio;
 use crate::config::LoudnessSettings;
 use crate::errors::{Error, Result};
-use crate::library::tags;
 
 /// What a scan found in one file, or in one record.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -78,10 +76,10 @@ pub fn measure_file(path: &Path, settings: &LoudnessSettings) -> LoudnessResult 
 
 /// Measure every file in one record, and the record itself.
 ///
-/// The tracks are measured in parallel -- each is a full decode spent waiting
-/// on ffmpeg rather than computing -- and their analyser states are kept only
-/// as long as this call, which is what bounds the memory a library-wide scan
-/// holds: one album's worth at a time rather than every file's.
+/// The tracks are measured in parallel -- each is a full decode -- and their
+/// analyser states are kept only as long as this call, which is what bounds the
+/// memory a library-wide scan holds: one album's worth at a time rather than
+/// every file's.
 #[must_use]
 pub fn measure_album(paths: &[PathBuf], settings: &LoudnessSettings) -> AlbumScan {
     let analysed: Vec<(PathBuf, Result<EbuR128>)> = paths
@@ -125,23 +123,18 @@ pub fn measure_album(paths: &[PathBuf], settings: &LoudnessSettings) -> AlbumSca
 
 /// Run the analyser over a whole file.
 fn analyse(path: &Path, settings: &LoudnessSettings) -> Result<EbuR128> {
-    let stream = tags::read_stream_info(path)?;
-    let (Some(sample_rate), Some(channels)) = (stream.sample_rate, stream.channels) else {
-        return Err(Error::Tag(format!(
-            "{}: the header states no sample rate or channel count",
-            path.display()
-        )));
-    };
+    let mut audio = Audio::open(path)?;
+    let stream = audio.stream();
 
-    // Fed a block at a time as ffmpeg decodes it: the analyser only ever needs
-    // the last 400 ms, so holding a whole four-minute track -- 85 MB of `f32`,
-    // times every track of a record decoded at once -- would be memory spent on
-    // nothing.
-    let mut state = analyser(sample_rate, channels, settings.true_peak)?;
-    ffmpeg::decode_interleaved(path, sample_rate, channels, &mut |frames| {
+    // Fed a block at a time as the file is decoded: the analyser only ever
+    // needs the last 400 ms, so holding a whole four-minute track -- 85 MB of
+    // `f32`, times every track of a record decoded at once -- would be memory
+    // spent on nothing.
+    let mut state = analyser(stream.sample_rate, stream.channels, settings.true_peak)?;
+    audio.frames(&mut |frames| {
         state
             .add_frames_f32(frames)
-            .map_err(|error| Error::Tag(format!("loudness analyser: {error}")))
+            .map_err(|error| Error::Audio(format!("loudness analyser: {error}")))
     })?;
     Ok(state)
 }
@@ -155,13 +148,13 @@ pub fn analyser(sample_rate: u32, channels: u32, true_peak: bool) -> Result<EbuR
             Mode::SAMPLE_PEAK
         };
     EbuR128::new(channels, sample_rate, mode)
-        .map_err(|error| Error::Tag(format!("loudness analyser: {error}")))
+        .map_err(|error| Error::Audio(format!("loudness analyser: {error}")))
 }
 
 /// Measure interleaved samples that are already in memory.
 ///
-/// The whole of the analysis, with nothing to decode and nothing to spawn, so
-/// what a figure means is established directly.
+/// The whole of the analysis with nothing to decode, so what a figure means is
+/// established directly.
 pub fn measure_samples(
     samples: &[f32],
     sample_rate: u32,
@@ -171,7 +164,7 @@ pub fn measure_samples(
     let mut state = analyser(sample_rate, channels, true_peak)?;
     state
         .add_frames_f32(samples)
-        .map_err(|error| Error::Tag(format!("loudness analyser: {error}")))?;
+        .map_err(|error| Error::Audio(format!("loudness analyser: {error}")))?;
     Ok(state)
 }
 

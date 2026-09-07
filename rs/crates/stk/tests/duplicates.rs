@@ -3,16 +3,12 @@
 //! The Python monkeypatches `fingerprints.fingerprint` so no decoding happens;
 //! here the fingerprint source is a closure the caller supplies, so a table
 //! keyed by filename substitutes for it directly.
-// The test curve builds its shape from a 53-bit mantissa's worth of a `u64`,
-// which is exactly what the cast is for.
-#![allow(clippy::cast_precision_loss)]
-
 mod support;
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use stk::audio::fingerprint::{Fingerprint, Values};
+use stk::audio::fingerprint::Fingerprint;
 use stk::duplicates::{self, DuplicatePair};
 use stk::library::index::LibraryIndex;
 use stk::matching::{MatchThresholds, NameForms};
@@ -56,22 +52,23 @@ fn by_title(entries: &[LibraryEntry]) -> Vec<DuplicatePair> {
     duplicates::find_by_title(entries, &MatchThresholds::default())
 }
 
-/// A loudness curve with a shape unique to `seed`.
+/// A fingerprint whose words are unique to `seed`.
 ///
-/// Deliberately not a phase-shifted sine: a shifted sine is the same signal and
-/// the alignment search would rightly say so.
-fn curve(seed: u64, length: usize) -> Fingerprint {
+/// Deliberately not a shift of another one: the alignment search would rightly
+/// call a shifted fingerprint the same audio. Two of these agree on about half
+/// their bits, which is what unrelated tracks score.
+fn print(seed: u64, length: usize) -> Fingerprint {
     let mut state = seed.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1);
     let values = (0..length)
         .map(|_| {
             state = state
                 .wrapping_mul(6_364_136_223_846_793_005)
                 .wrapping_add(1);
-            10.0 * ((state >> 11) as f64 / (1_u64 << 53) as f64 * 2.0 - 1.0)
+            (state >> 32) as u32
         })
         .collect();
     Fingerprint {
-        values: Values::Envelope(values),
+        values,
         duration_seconds: None,
     }
 }
@@ -251,7 +248,7 @@ fn blocking_does_not_lose_a_match_hidden_in_a_larger_library() {
 
 #[test]
 fn identical_audio_is_paired_whatever_the_names_say() {
-    let shape = curve(0, 40);
+    let shape = print(0, 40);
     let entries = [
         entry("X/a.flac", "Unknown", "track01"),
         entry("Y/b.flac", "Some Other Artist", "18"),
@@ -281,7 +278,7 @@ fn different_audio_of_the_same_length_is_not_paired() {
         &entries,
         duplicates::DEFAULT_AUDIO_THRESHOLD,
         duplicates::DEFAULT_DURATION_TOLERANCE_SECONDS,
-        table(&[("a.flac", curve(0, 40)), ("b.flac", curve(3, 40))]),
+        table(&[("a.flac", print(0, 40)), ("b.flac", print(3, 40))]),
     )
     .is_empty());
 }
@@ -304,7 +301,7 @@ fn tracks_of_very_different_length_are_never_fingerprinted() {
 
 #[test]
 fn the_duration_tolerance_is_configurable() {
-    let shape = curve(0, 40);
+    let shape = print(0, 40);
     let entries = [
         entry_with("X/a.flac", "One", "Track", 1_000_000, Some(200.0)),
         entry_with("Y/b.flac", "Two", "Other", 1_000_000, Some(205.0)),
@@ -348,7 +345,7 @@ fn the_threshold_is_configurable() {
         &entries,
         0.1,
         duplicates::DEFAULT_DURATION_TOLERANCE_SECONDS,
-        table(&[("a.flac", curve(0, 40)), ("b.flac", curve(3, 40))]),
+        table(&[("a.flac", print(0, 40)), ("b.flac", print(3, 40))]),
     )
     .is_empty());
 }
@@ -361,9 +358,9 @@ fn an_undecodable_file_is_skipped_rather_than_aborting_the_run() {
         entry("Z/c.flac", "Three", "Third"),
     ];
 
-    // The source reports nothing for the broken file, exactly as an
-    // `ExternalToolError` does in the Python.
-    let shape = curve(0, 40);
+    // The source reports nothing for the broken file, which is what a decode
+    // failure looks like to `find_by_audio`.
+    let shape = print(0, 40);
     let mut source = |entry: &LibraryEntry| {
         let name = entry.path.file_name()?.to_string_lossy().into_owned();
         (name != "broken.flac").then(|| shape.clone())
@@ -397,7 +394,7 @@ fn fingerprints_are_cached_in_the_index() {
         entry("X/a.flac", "One", "Track"),
         entry("Y/b.flac", "Two", "Other"),
     ];
-    let shape = curve(0, 40);
+    let shape = print(0, 40);
 
     let mut index = LibraryIndex::open(&scratch.join("index.db")).expect("an index");
     let mut calls = 0;

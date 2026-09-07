@@ -10,7 +10,7 @@ use crate::audio::loudness::{measure_album, LoudnessResult};
 use crate::cli::context::{show, table, unix_now, AppContext};
 use crate::errors::{Error, Result};
 use crate::library::changes::ChangeLog;
-use crate::library::scan::{iter_audio_files, Excludes, TAGGABLE_EXTENSIONS};
+use crate::library::scan::{iter_audio_files, Excludes, MEASURABLE_EXTENSIONS};
 use crate::library::tags;
 use crate::replaygain::{self, GainChange, Scanned, Selection, Target};
 
@@ -186,7 +186,7 @@ fn apply(
     Ok(written)
 }
 
-/// Only the six taggable containers, since nothing else can hold the result.
+/// Only the containers a measurement can be both taken from and written to.
 fn targets(context: &AppContext, target: Option<&Path>) -> Result<Vec<PathBuf>> {
     match target {
         None => {
@@ -194,13 +194,13 @@ fn targets(context: &AppContext, target: Option<&Path>) -> Result<Vec<PathBuf>> 
             Ok(context
                 .require_library_roots()?
                 .iter()
-                .flat_map(|root| iter_audio_files(root, TAGGABLE_EXTENSIONS, &exclude))
+                .flat_map(|root| iter_audio_files(root, MEASURABLE_EXTENSIONS, &exclude))
                 .collect())
         }
         Some(path) if path.is_file() => Ok(vec![path.to_path_buf()]),
         Some(path) if path.is_dir() => Ok(iter_audio_files(
             path,
-            TAGGABLE_EXTENSIONS,
+            MEASURABLE_EXTENSIONS,
             &Excludes::default(),
         )),
         Some(path) => Err(Error::Config(format!(

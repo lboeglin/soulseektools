@@ -3,7 +3,6 @@
 use clap::Subcommand;
 use serde_json::json;
 
-use crate::audio::fingerprint::available_kind;
 use crate::cli::context::{human_size, show, table, AppContext};
 use crate::duplicates::{
     self, DuplicatePair, DEFAULT_AUDIO_THRESHOLD, DEFAULT_DURATION_TOLERANCE_SECONDS,
@@ -62,10 +61,6 @@ fn content(context: &AppContext, threshold: f64, tolerance: f64, limit: usize) -
         return Ok(0);
     }
 
-    context.say(&format!(
-        "Fingerprinting with the {} backend",
-        available_kind()
-    ));
     let mut source = duplicates::cached_fingerprints(&mut index);
     let pairs = duplicates::find_by_audio(&entries, threshold, tolerance, &mut source);
 

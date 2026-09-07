@@ -19,15 +19,6 @@ use stk::library::tags::{self, TagField};
 use stk::models::{Artwork, ReplayGainTags};
 use support::{encode, Encoded, Scratch};
 
-macro_rules! needs_ffmpeg {
-    () => {
-        if support::ffmpeg().is_none() {
-            eprintln!("skipping: ffmpeg is not on PATH");
-            return;
-        }
-    };
-}
-
 fn library(scratch: &Scratch) -> PathBuf {
     let root = scratch.join("Music");
     encode(
@@ -71,7 +62,6 @@ fn cover(byte: u8) -> Artwork {
 
 #[test]
 fn a_genre_write_is_logged_with_both_values() {
-    needs_ffmpeg!();
     let scratch = Scratch::new("changes-genre");
     let root = library(&scratch);
     let track = root.join("ZUN").join("Heian Alien.flac");
@@ -100,7 +90,6 @@ fn a_genre_write_is_logged_with_both_values() {
 
 #[test]
 fn undoing_a_genre_write_puts_the_old_tag_back() {
-    needs_ffmpeg!();
     let scratch = Scratch::new("changes-genre-undo");
     let root = library(&scratch);
     let track = root.join("ZUN").join("Heian Alien.flac");
@@ -134,7 +123,6 @@ fn undoing_a_genre_write_puts_the_old_tag_back() {
 /// is itself a change.
 #[test]
 fn an_undo_is_logged_like_any_other_write() {
-    needs_ffmpeg!();
     let scratch = Scratch::new("changes-undo-logged");
     let root = library(&scratch);
     let track = root.join("ZUN").join("Heian Alien.flac");
@@ -160,7 +148,6 @@ fn an_undo_is_logged_like_any_other_write() {
 
 #[test]
 fn a_file_edited_since_it_was_logged_blocks_its_undo() {
-    needs_ffmpeg!();
     let scratch = Scratch::new("changes-blocked");
     let root = library(&scratch);
     let track = root.join("ZUN").join("Heian Alien.flac");
@@ -186,7 +173,6 @@ fn a_file_edited_since_it_was_logged_blocks_its_undo() {
 /// album's tracks share one replaced cover, and so one sidecar.
 #[test]
 fn one_cover_replaced_across_two_files_is_stored_once() {
-    needs_ffmpeg!();
     let scratch = Scratch::new("changes-sidecar");
     let root = library(&scratch);
     let mut index = indexed(&scratch, &root);
@@ -215,7 +201,6 @@ fn one_cover_replaced_across_two_files_is_stored_once() {
 
 #[test]
 fn undoing_an_artwork_write_restores_the_previous_cover() {
-    needs_ffmpeg!();
     let scratch = Scratch::new("changes-art-undo");
     let root = library(&scratch);
     let track = root.join("ZUN").join("Heian Alien.flac");
@@ -243,7 +228,6 @@ fn undoing_an_artwork_write_restores_the_previous_cover() {
 /// Undoing a first embed means removing the cover, not restoring one.
 #[test]
 fn undoing_a_first_embed_leaves_the_file_with_no_cover() {
-    needs_ffmpeg!();
     let scratch = Scratch::new("changes-art-clear");
     let root = library(&scratch);
     let track = root.join("ZUN").join("Heian Alien.flac");
@@ -265,7 +249,6 @@ fn undoing_a_first_embed_leaves_the_file_with_no_cover() {
 
 #[test]
 fn a_change_whose_file_is_gone_cannot_be_undone_by_any_flag() {
-    needs_ffmpeg!();
     let scratch = Scratch::new("changes-file-gone");
     let root = library(&scratch);
     let track = root.join("ZUN").join("Heian Alien.flac");
@@ -286,7 +269,6 @@ fn a_change_whose_file_is_gone_cannot_be_undone_by_any_flag() {
 
 #[test]
 fn every_write_in_one_command_shares_a_run() {
-    needs_ffmpeg!();
     let scratch = Scratch::new("changes-run");
     let root = library(&scratch);
     let mut index = indexed(&scratch, &root);
@@ -361,7 +343,6 @@ fn write_field(
 fn a_tag_write_is_logged_once_per_field() {
     // One row per field, not one per file: an undo must never write wider than
     // the row it is undoing.
-    needs_ffmpeg!();
     let scratch = Scratch::new("changes-tag-rows");
     let root = library(&scratch);
     let track = root.join("ZUN").join("Heian Alien.flac");
@@ -388,7 +369,6 @@ fn a_tag_write_is_logged_once_per_field() {
 
 #[test]
 fn a_tag_write_records_the_value_it_replaced() {
-    needs_ffmpeg!();
     let scratch = Scratch::new("changes-tag-values");
     let root = library(&scratch);
     let track = root.join("ZUN").join("Heian Alien.flac");
@@ -406,7 +386,6 @@ fn a_tag_write_records_the_value_it_replaced() {
 
 #[test]
 fn undoing_a_title_write_puts_the_old_title_back() {
-    needs_ffmpeg!();
     let scratch = Scratch::new("changes-tag-undo");
     let root = library(&scratch);
     let track = root.join("ZUN").join("Heian Alien.flac");
@@ -438,7 +417,6 @@ fn undoing_a_title_write_puts_the_old_title_back() {
 
 #[test]
 fn undoing_a_first_ever_album_tag_clears_it() {
-    needs_ffmpeg!();
     let scratch = Scratch::new("changes-tag-undo-clear");
     let root = library(&scratch);
     let track = root.join("ZUN").join("Heian Alien.flac");
@@ -469,7 +447,6 @@ fn undoing_one_field_leaves_another_edited_since_alone() {
     // The reason the log keeps a row per field. A single row covering the whole
     // tag block would read the album edit as a reason to refuse -- and, forced,
     // would revert it.
-    needs_ffmpeg!();
     let scratch = Scratch::new("changes-tag-undo-narrow");
     let root = library(&scratch);
     let track = root.join("ZUN").join("Heian Alien.flac");
@@ -500,7 +477,6 @@ fn undoing_one_field_leaves_another_edited_since_alone() {
 
 #[test]
 fn a_title_edited_since_it_was_logged_blocks_its_own_undo() {
-    needs_ffmpeg!();
     let scratch = Scratch::new("changes-tag-undo-blocked");
     let root = library(&scratch);
     let track = root.join("ZUN").join("Heian Alien.flac");
@@ -528,7 +504,6 @@ fn a_title_edited_since_it_was_logged_blocks_its_own_undo() {
 
 #[test]
 fn an_undone_tag_write_is_logged_in_its_turn() {
-    needs_ffmpeg!();
     let scratch = Scratch::new("changes-tag-undo-logged");
     let root = library(&scratch);
     let track = root.join("ZUN").join("Heian Alien.flac");
@@ -556,7 +531,6 @@ fn an_undone_tag_write_is_logged_in_its_turn() {
 fn a_move_is_logged_against_the_files_new_home() {
     // Keyed on the destination, because `plan_undo` opens by asking whether the
     // file it is about to put back is still where the log left it.
-    needs_ffmpeg!();
     let scratch = Scratch::new("changes-move-row");
     let root = library(&scratch);
     let from = root.join("ZUN").join("Heian Alien.flac");
@@ -580,7 +554,6 @@ fn a_move_is_logged_against_the_files_new_home() {
 
 #[test]
 fn undoing_a_move_puts_the_file_back_where_it_came_from() {
-    needs_ffmpeg!();
     let scratch = Scratch::new("changes-move-undo");
     let root = library(&scratch);
     let from = root.join("ZUN").join("Heian Alien.flac");
@@ -614,7 +587,6 @@ fn undoing_a_move_puts_the_file_back_where_it_came_from() {
 fn undoing_a_move_is_blocked_when_something_took_the_old_place() {
     // Putting the file back would overwrite a different file, which is not
     // something --force should be able to buy.
-    needs_ffmpeg!();
     let scratch = Scratch::new("changes-move-taken");
     let root = library(&scratch);
     let from = root.join("ZUN").join("Heian Alien.flac");
@@ -647,7 +619,6 @@ fn undoing_a_move_is_blocked_when_something_took_the_old_place() {
 fn a_move_that_never_happened_cannot_be_undone() {
     // The row is written before the rename, so a rename that then failed leaves
     // a row for a file that is not there. Detectable and inert.
-    needs_ffmpeg!();
     let scratch = Scratch::new("changes-move-phantom");
     let root = library(&scratch);
     let from = root.join("ZUN").join("Heian Alien.flac");
@@ -682,7 +653,6 @@ fn measurement(track_gain: &str) -> ReplayGainTags {
 /// would let an undo restore a gain without the peak that bounds it (#7).
 #[test]
 fn a_loudness_write_is_logged_as_one_row_carrying_every_figure() {
-    needs_ffmpeg!();
     let scratch = Scratch::new("changes-loudness");
     let root = library(&scratch);
     let track = root.join("ZUN").join("Heian Alien.flac");
@@ -711,7 +681,6 @@ fn a_loudness_write_is_logged_as_one_row_carrying_every_figure() {
 /// replaces them. The undo has to give them back exactly as they were spelled.
 #[test]
 fn undoing_a_loudness_write_puts_the_previous_scan_back() {
-    needs_ffmpeg!();
     let scratch = Scratch::new("changes-loudness-undo");
     let root = library(&scratch);
     let track = root.join("ZUN").join("Heian Alien.flac");
@@ -741,7 +710,6 @@ fn undoing_a_loudness_write_puts_the_previous_scan_back() {
 
 #[test]
 fn undoing_a_first_scan_removes_the_loudness_tags() {
-    needs_ffmpeg!();
     let scratch = Scratch::new("changes-loudness-first");
     let root = library(&scratch);
     let track = root.join("ZUN").join("Heian Alien.flac");
@@ -767,7 +735,6 @@ fn undoing_a_first_scan_removes_the_loudness_tags() {
 /// rule every other field is undone under.
 #[test]
 fn a_scan_changed_since_it_was_logged_blocks_its_undo() {
-    needs_ffmpeg!();
     let scratch = Scratch::new("changes-loudness-blocked");
     let root = library(&scratch);
     let track = root.join("ZUN").join("Heian Alien.flac");

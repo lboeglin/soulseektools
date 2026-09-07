@@ -1,4 +1,7 @@
 //! `stk doctor` -- check that everything the CLI depends on is actually present.
+//!
+//! Since #9 that is configuration, the library and slskd: there is no audio
+//! tooling to look for, because the binary carries its own.
 
 use serde_json::json;
 
@@ -28,9 +31,6 @@ impl Check {
 fn checks(context: &AppContext) -> Vec<Check> {
     let settings = context.settings();
     let roots = context.library_roots();
-    let found = |tool: &str| which::which(tool).ok().map(|path| show(&path));
-
-    let (ffmpeg, ffprobe, fpcalc) = (found("ffmpeg"), found("ffprobe"), found("fpcalc"));
     let index_path = &settings.index.path;
 
     vec![
@@ -59,26 +59,6 @@ fn checks(context: &AppContext) -> Vec<Check> {
             ok: index_path.parent().is_some_and(std::path::Path::is_dir) || !index_path.exists(),
             detail: show(index_path),
             required: true,
-        },
-        Check {
-            name: "ffmpeg",
-            ok: ffmpeg.is_some(),
-            detail: ffmpeg.unwrap_or_else(|| "needed to verify lossless files".to_owned()),
-            required: true,
-        },
-        Check {
-            name: "ffprobe",
-            ok: ffprobe.is_some(),
-            detail: ffprobe.unwrap_or_else(|| "needed to verify lossless files".to_owned()),
-            required: true,
-        },
-        Check {
-            name: "fpcalc",
-            ok: fpcalc.is_some(),
-            detail: fpcalc.unwrap_or_else(|| {
-                "content duplicates fall back to a decoded-audio hash".to_owned()
-            }),
-            required: false,
         },
         Check {
             name: "slskd url",

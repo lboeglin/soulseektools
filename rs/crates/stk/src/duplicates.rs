@@ -135,7 +135,7 @@ pub fn find_by_audio(
         .filter_map(|(left_index, right_index)| {
             let left_print = computed.get(&left_index)?;
             let right_print = computed.get(&right_index)?;
-            let score = fingerprint::similarity(left_print, right_print).ok()?;
+            let score = fingerprint::similarity(left_print, right_print);
             if score < threshold {
                 return None;
             }
@@ -143,7 +143,7 @@ pub fn find_by_audio(
                 left: comparable[left_index].clone(),
                 right: comparable[right_index].clone(),
                 score,
-                evidence: format!("{} similarity {score:.2}", left_print.kind()),
+                evidence: format!("chromaprint similarity {score:.2}"),
             })
         })
         .collect();
@@ -208,7 +208,7 @@ pub fn cached_fingerprints(
         if let Ok(Some(cached)) = index.fingerprint(&entry.path, entry.mtime) {
             return Some(cached);
         }
-        let value = fingerprint::fingerprint(&entry.path, None).ok()?;
+        let value = fingerprint::fingerprint(&entry.path).ok()?;
         let _ = index.store_fingerprint(&entry.path, entry.mtime, &value);
         Some(value)
     }
