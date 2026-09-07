@@ -24,17 +24,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # The audio tests encode their fixtures with ffmpeg rather than committing
-      # binaries. The oracle-backed tests skip: oracle/ is not committed, since
-      # it names every file in a private library.
-      - name: Install ffmpeg (Linux)
-        if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y ffmpeg
-
-      - name: Install ffmpeg (Windows)
-        if: runner.os == 'Windows'
-        run: choco install ffmpeg --no-progress -y
-
+      # Nothing is installed here: `stk` carries its own decoder, and the audio
+      # fixtures are either generated in Rust or committed. The oracle-backed
+      # tests skip, since oracle/ names every file in a private library and is
+      # not committed.
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
