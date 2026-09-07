@@ -49,10 +49,8 @@ a set of ad-hoc scripts and a Nicotine+ plugin, and was then rewritten in Rust.
   positive gain has a clipping guard.
 
   It measures through the `ebur128` crate, a port of libebur128, rather than
-  ffmpeg's filter of the same name: #9 is removing ffmpeg, and a scan built on
-  parsing a subprocess's text output would have been a line-for-line rewrite
-  later. Only the decode is still ffmpeg's, and that is the single call #9
-  replaces. Checked against the filter on the same files, the two agree to
+  ffmpeg's filter of the same name: a scan built on parsing a subprocess's text
+  output would have been a line-for-line rewrite when #9 removed ffmpeg. Checked against the filter on the same files, the two agree to
   within 0.04 dB -- which is the rounding the filter's one-decimal output
   imposed, so the crate is the more precise of the pair.
 
@@ -190,8 +188,9 @@ a set of ad-hoc scripts and a Nicotine+ plugin, and was then rewritten in Rust.
   headers instead of an ffprobe subprocess per file.
 - SQLite review queue with an explicit state per track, plus `stk review import`
   for an existing `soulseek_review.csv`.
-- Acoustic fingerprinting for content duplicates: Chromaprint when `fpcalc` is
-  installed, otherwise a loudness-envelope curve needing only ffmpeg.
+- Acoustic fingerprinting for content duplicates, over Chromaprint -- the
+  fingerprint AcoustID uses -- compared locally by bit error rate, so no web
+  service and no API key are involved.
 - MusicBrainz and Cover Art Archive as a second artwork provider.
 - `stk get "Artist - Title"` for fetching a single track by name, with
   `--lossless`, `--min-bitrate`, `--yes` and `--queue-only`. The batch flow
@@ -206,6 +205,42 @@ a set of ad-hoc scripts and a Nicotine+ plugin, and was then rewritten in Rust.
 
 ### Changed
 
+- **`stk` needs nothing installed to run.** ffmpeg, ffprobe and fpcalc are gone
+  (#9), which was one of the three reasons for the Rust port and the last of
+  them still outstanding: the README claimed the binary was self-contained two
+  bullets above requiring two external programs. Audio is decoded by
+  `symphonia`, fingerprinted by `rusty-chromaprint`, measured by `ebur128` and
+  drawn by `realfft` and `image`, all compiled in the way `rusqlite` already
+  compiled SQLite. `cargo test` needs nothing installed either, and CI installs
+  no audio tooling.
+
+  `verify` used to spawn five processes per file -- one probe and one decode per
+  window. It now opens each file once and seeks within it, and the four windows
+  it reads come off that single parse. Every one of `oracle/verify.csv`'s 258
+  rows is unchanged except one, and the three pairs in
+  `oracle/dupes-content.json` are unchanged.
+
+  Two things were lost with the subprocesses. Monkey's Audio (`.ape`) and
+  WavPack (`.wv`) have no mature pure-Rust decoder, so they leave the extension
+  lists entirely -- a `.ape` upload also stops counting as a lossless upgrade;
+  the reference library contains none of either. Opus has no pure-Rust decoder
+  either but does have tags this project writes, so it stays taggable and is
+  skipped by `stk loudness` and `stk dupes content` rather than dropped. And
+  one file in the reference library is 32-bit FLAC, which symphonia accepts and
+  then decorrelates through an `i32` too narrow to hold `2*mid + side`: it is
+  refused with a reason rather than decoded into noise.
+
+  The spectrogram behind `verify --spectrograms` is drawn here now instead of by
+  ffmpeg's `showspectrumpic`. It is not pixel-identical and does not need to be
+  -- nothing compares these images to anything, a person looks at one and
+  decides whether to keep a file -- but it does carry a labelled frequency axis,
+  because a picture that shows content stopping without saying where is no use.
+- **A cached fingerprint from `fpcalc` is recomputed rather than reused.**
+  `rusty-chromaprint` agrees with `fpcalc` on about 98.5% of a fingerprint's
+  bits: far above the 0.9 that decides a duplicate, and far below the 1.0 two
+  reads of one file should score. The `fingerprints` table already recorded what
+  produced each row and treats a name it does not know as a miss, so an existing
+  `library.db` invalidates the old rows by itself.
 - **Search results are scored on their full remote path**, not just the
   filename. The original README named filename-only scoring as the root cause of
   most wrong downloads: a file named exactly right can still be a live recording
@@ -233,6 +268,12 @@ a set of ad-hoc scripts and a Nicotine+ plugin, and was then rewritten in Rust.
   `git checkout python-reference -- py/`.
 - The Textual review app, which went with it. `stk review list --candidates`,
   `stk review approve` and `stk review reject` cover the same workflow.
+- The loudness-envelope fingerprint, which existed only as the fallback for a
+  missing `fpcalc`. Chromaprint is compiled in and cannot be missing, so the
+  fallback had no way to be reached -- and it was the only thing in the crate
+  that needed to resample.
+- The `ffmpeg`, `ffprobe` and `fpcalc` checks from `stk doctor`, which now
+  reports on configuration, the library, the index and slskd.
 
 ### Fixed
 

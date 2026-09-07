@@ -8,8 +8,7 @@ cargo build
 cargo run -- --help
 ```
 
-ffmpeg and ffprobe need to be on `PATH`. Tests that need them say so and return
-rather than failing, but a large part of the suite does need them.
+Nothing else needs installing, for the build or for the tests.
 
 ## Checks
 
@@ -61,12 +60,17 @@ No change lands without tests for its behaviour.
   and the flows run against recorded responses. That boundary is what makes the
   search and download tests runnable with no daemon and no account -- it is not
   an implementation detail to be optimised away.
-- **Audio fixtures are generated, not committed.** `tests/support/mod.rs` encodes
-  short files with ffmpeg, so the suite exercises real containers written by an
-  independent encoder.
-- **Prefer a pure function you can test directly** over reaching into a
-  subprocess. The spectral classifier and the table rendering are both pure for
-  this reason.
+- **Audio fixtures are generated where they can be.** `tests/support/mod.rs`
+  writes FLAC and WAV from a signal it synthesises, so no tool has to be
+  installed to run the suite. What it cannot write is committed under
+  `tests/data/audio` instead: there is no pure-Rust encoder for MP3, AAC,
+  Vorbis or Opus, and the transcode check needs audio a real lossy encoder
+  produced, since the brickwall it recognises is LAME's and an authentic one
+  cannot be synthesised. `scripts/make-fixtures.sh` regenerates those files
+  with ffmpeg; no test runs it.
+- **Prefer a pure function you can test directly** over one that has to open a
+  file. The spectral classifier and the table rendering are both pure for this
+  reason.
 
 ## Commits
 
@@ -99,8 +103,9 @@ rs/crates/stk/src/
   text/             normalisation and romaji transliteration
   library/          scanning, tags, the SQLite index, the --apply write log,
                     and the per-scan measurements behind `library trend`
-  audio/            ffmpeg wrappers, spectral analysis, fingerprinting, and
-                    the EBU R 128 loudness scan behind `stk loudness`
+  audio/            decoding, spectral analysis, fingerprinting, the
+                    spectrogram behind `verify --spectrograms`, and the
+                    EBU R 128 loudness scan behind `stk loudness`
   artwork/          providers and the artist-verification guard
   soulseek/         the client trait, the slskd backend, ranking
   review/           the review queue, the album view over it, and the picker
@@ -118,9 +123,10 @@ test.
 
 Two rules keep this from drifting back into what it replaced:
 
-1. **One place per concern.** Container formats are handled in
-   `library/tags.rs` and nowhere else. Soulseek's wire format lives in
-   `soulseek/slskd.rs` and nowhere else. Subprocesses live in `audio/ffmpeg.rs`.
+1. **One place per concern.** Tags are handled in `library/tags.rs` and nowhere
+   else, audio is decoded in `audio/decode.rs` and nowhere else, and Soulseek's
+   wire format lives in `soulseek/slskd.rs` and nowhere else. Nothing spawns a
+   subprocess: `stk` is one binary and depends on none (#9).
 2. **No literals for things that vary.** Paths, thresholds and term lists are
    configuration. If you find yourself typing a path into a module, it belongs in
    `config.rs`.

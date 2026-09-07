@@ -31,15 +31,15 @@ $ stk get "DECO*27 - Roki"
 
 ## Requirements
 
-- A Rust toolchain, to build it. Nothing is needed to run the result.
-- [ffmpeg](https://ffmpeg.org/) and ffprobe on `PATH` — required for the
-  transcode check and for content-based duplicate detection
+- A Rust toolchain, to build it. Nothing is needed to run the result: the
+  decoder, the loudness meter and the acoustic fingerprint are all compiled in.
 - [slskd](https://github.com/slskd/slskd) — only for searching and downloading.
   See [docs/slskd-setup.md](docs/slskd-setup.md). Every library-maintenance
   command works without it.
-- [Chromaprint](https://acoustid.org/chromaprint) (`fpcalc`) — optional. Without
-  it, content duplicates fall back to a loudness-envelope fingerprint that needs
-  only ffmpeg.
+
+FLAC, WAV, AIFF, ALAC, MP3, AAC and Vorbis are read as audio. Opus is read and
+written as tags but not decoded, so `stk loudness` and `stk dupes content` pass
+over it. Monkey's Audio and WavPack are not handled at all.
 
 ## Install
 
