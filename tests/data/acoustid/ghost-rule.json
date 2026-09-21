@@ -1,0 +1,353 @@
+{
+  "results": [
+    {
+      "id": "f71ac32c-fec2-496a-9100-7b5d40dbd1ee",
+      "recordings": [
+        {
+          "artists": [
+            {
+              "id": "bd247ab3-c22d-4b5d-a6fd-437771cacbbe",
+              "name": "DECO*27"
+            }
+          ],
+          "duration": 210.0,
+          "id": "55246900-a2be-4751-82d1-50fbe9a72c30",
+          "releasegroups": [
+            {
+              "artists": [
+                {
+                  "id": "bd247ab3-c22d-4b5d-a6fd-437771cacbbe",
+                  "name": "DECO*27"
+                }
+              ],
+              "id": "10d26c02-3b98-4cfd-9ca0-7fdeff8a9a65",
+              "releases": [
+                {
+                  "country": "JP",
+                  "date": {
+                    "day": 28,
+                    "month": 9,
+                    "year": 2016
+                  },
+                  "id": "9fbdf576-872c-40f2-93a5-b3bb1345bbaf",
+                  "medium_count": 1,
+                  "mediums": [
+                    {
+                      "format": "Digital Media",
+                      "position": 1,
+                      "track_count": 13,
+                      "tracks": [
+                        {
+                          "id": "331902cc-20b4-4983-a7a7-291547fa2b95",
+                          "position": 1
+                        }
+                      ]
+                    }
+                  ],
+                  "releaseevents": [
+                    {
+                      "country": "JP",
+                      "date": {
+                        "day": 28,
+                        "month": 9,
+                        "year": 2016
+                      }
+                    }
+                  ],
+                  "track_count": 13
+                },
+                {
+                  "country": "JP",
+                  "date": {
+                    "day": 28,
+                    "month": 9,
+                    "year": 2016
+                  },
+                  "id": "3ab7f368-dc99-469b-8b54-bad992b48bf2",
+                  "medium_count": 1,
+                  "mediums": [
+                    {
+                      "format": "Digital Media",
+                      "position": 1,
+                      "track_count": 13,
+                      "tracks": [
+                        {
+                          "id": "148fb032-3d8b-41cf-8eed-563ed7677c87",
+                          "position": 1
+                        }
+                      ]
+                    }
+                  ],
+                  "releaseevents": [
+                    {
+                      "country": "JP",
+                      "date": {
+                        "day": 28,
+                        "month": 9,
+                        "year": 2016
+                      }
+                    }
+                  ],
+                  "track_count": 13
+                },
+                {
+                  "country": "JP",
+                  "date": {
+                    "day": 28,
+                    "month": 9,
+                    "year": 2016
+                  },
+                  "id": "3cda2c7f-3b3d-4ad7-b31b-dbdd85e05987",
+                  "medium_count": 2,
+                  "mediums": [
+                    {
+                      "format": "CD",
+                      "position": 1,
+                      "track_count": 13,
+                      "tracks": [
+                        {
+                          "id": "eeb648a4-be43-48f2-bc00-8160804ebc5b",
+                          "position": 1
+                        }
+                      ]
+                    }
+                  ],
+                  "releaseevents": [
+                    {
+                      "country": "JP",
+                      "date": {
+                        "day": 28,
+                        "month": 9,
+                        "year": 2016
+                      }
+                    }
+                  ],
+                  "track_count": 16
+                },
+                {
+                  "country": "XW",
+                  "date": {
+                    "day": 28,
+                    "month": 9,
+                    "year": 2016
+                  },
+                  "id": "c746b5ae-41f2-40b2-bf32-57da16d21d25",
+                  "medium_count": 1,
+                  "mediums": [
+                    {
+                      "format": "Digital Media",
+                      "position": 1,
+                      "track_count": 13,
+                      "tracks": [
+                        {
+                          "id": "29e5aa8c-4275-4b8e-bf59-2b20cc87993a",
+                          "position": 1,
+                          "title": "Ghost Rule"
+                        }
+                      ]
+                    }
+                  ],
+                  "releaseevents": [
+                    {
+                      "country": "XW",
+                      "date": {
+                        "day": 28,
+                        "month": 9,
+                        "year": 2016
+                      }
+                    }
+                  ],
+                  "track_count": 13
+                },
+                {
+                  "country": "JP",
+                  "date": {
+                    "day": 28,
+                    "month": 9,
+                    "year": 2016
+                  },
+                  "id": "dd611391-3ee1-4742-a7fc-dd39841da32d",
+                  "medium_count": 1,
+                  "mediums": [
+                    {
+                      "format": "CD",
+                      "position": 1,
+                      "track_count": 13,
+                      "tracks": [
+                        {
+                          "id": "1892d073-f370-4c2f-842d-69926d3d4d0c",
+                          "position": 1
+                        }
+                      ]
+                    }
+                  ],
+                  "releaseevents": [
+                    {
+                      "country": "JP",
+                      "date": {
+                        "day": 28,
+                        "month": 9,
+                        "year": 2016
+                      }
+                    }
+                  ],
+                  "track_count": 13
+                }
+              ],
+              "title": "GHOST",
+              "type": "Album"
+            },
+            {
+              "artists": [
+                {
+                  "id": "709c4174-db6c-4721-aab5-7db020dc88d7",
+                  "name": "あらき"
+                }
+              ],
+              "id": "1b719df2-e8e8-41a9-a3a8-23fd52153da9",
+              "releases": [
+                {
+                  "date": {
+                    "day": 28,
+                    "month": 9,
+                    "year": 2016
+                  },
+                  "id": "edd03455-7ad8-4bbc-beef-9f68e0a86115",
+                  "medium_count": 1,
+                  "mediums": [
+                    {
+                      "format": "CD",
+                      "position": 1,
+                      "track_count": 14,
+                      "tracks": [
+                        {
+                          "artists": [
+                            {
+                              "id": "bd247ab3-c22d-4b5d-a6fd-437771cacbbe",
+                              "name": "DECO*27"
+                            }
+                          ],
+                          "id": "0dc560cc-afc8-4a41-871d-bf53cdb3e28e",
+                          "position": 3
+                        }
+                      ]
+                    }
+                  ],
+                  "releaseevents": [
+                    {
+                      "date": {
+                        "day": 28,
+                        "month": 9,
+                        "year": 2016
+                      }
+                    }
+                  ],
+                  "track_count": 14
+                }
+              ],
+              "secondarytypes": [
+                "Compilation"
+              ],
+              "title": "THE SKY'S THE LIMIT",
+              "type": "Album"
+            },
+            {
+              "artists": [
+                {
+                  "id": "89ad4ac3-39f7-470e-963a-56509c546377",
+                  "name": "Various Artists"
+                }
+              ],
+              "id": "398aef34-c042-4be1-b590-6106aaca4692",
+              "releases": [
+                {
+                  "country": "JP",
+                  "date": {
+                    "day": 13,
+                    "month": 2,
+                    "year": 2020
+                  },
+                  "id": "4571e57c-4f6f-47e6-8b15-d41674931b3c",
+                  "medium_count": 6,
+                  "mediums": [
+                    {
+                      "format": "CD",
+                      "position": 5,
+                      "track_count": 20,
+                      "tracks": [
+                        {
+                          "artists": [
+                            {
+                              "id": "bd247ab3-c22d-4b5d-a6fd-437771cacbbe",
+                              "joinphrase": " feat. ",
+                              "name": "DECO*27"
+                            },
+                            {
+                              "id": "130d679a-9a92-4373-8348-0800b6b93a30",
+                              "name": "初音ミク"
+                            }
+                          ],
+                          "id": "7e85a92f-e84a-43f0-abbd-416e8127a367",
+                          "position": 11
+                        }
+                      ]
+                    }
+                  ],
+                  "releaseevents": [
+                    {
+                      "country": "JP",
+                      "date": {
+                        "day": 13,
+                        "month": 2,
+                        "year": 2020
+                      }
+                    }
+                  ],
+                  "track_count": 101
+                },
+                {
+                  "id": "301517ab-6b0f-491f-a1f1-d65f5d6fcd76",
+                  "medium_count": 6,
+                  "mediums": [
+                    {
+                      "position": 5,
+                      "track_count": 20,
+                      "tracks": [
+                        {
+                          "artists": [
+                            {
+                              "id": "bd247ab3-c22d-4b5d-a6fd-437771cacbbe",
+                              "joinphrase": " feat. ",
+                              "name": "DECO*27"
+                            },
+                            {
+                              "id": "130d679a-9a92-4373-8348-0800b6b93a30",
+                              "name": "Hatsune Miku"
+                            }
+                          ],
+                          "id": "ac686abb-d431-4288-aa79-f88ec105428c",
+                          "position": 11,
+                          "title": "Ghost Rule"
+                        }
+                      ]
+                    }
+                  ],
+                  "title": "HATSUNE MIKU PROJECT DIVA MEGA39'S 10TH ANNIVERSARY COLLECTION",
+                  "track_count": 101
+                }
+              ],
+              "secondarytypes": [
+                "Soundtrack"
+              ],
+              "title": "初音ミク Project DIVA MEGA39's 10th アニバーサリーコレクション",
+              "type": "Album"
+            }
+          ],
+          "title": "ゴーストルール"
+        }
+      ],
+      "score": 0.98183674
+    }
+  ],
+  "status": "ok"
+}

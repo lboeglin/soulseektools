@@ -384,6 +384,41 @@ impl Default for ArtworkSettings {
     }
 }
 
+/// Identifying a file from its audio through AcoustID (#12).
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, default)]
+pub struct IdentifySettings {
+    /// How sure AcoustID has to be before a match is proposed at all.
+    ///
+    /// The service scores a lookup on how much of the print it recognised.
+    /// A re-encode of the same recording scores near 1; a live take, a remix
+    /// or a different recording of the same song scores well under this and
+    /// is reported as no confident match rather than written, since a
+    /// wrongly tagged file is worse than an untagged one.
+    pub min_score: f64,
+
+    /// How alike two names must be to count as the same one: a release title
+    /// and the file's album tag or folder name, a recording's credit and the
+    /// artist the file is filed under.
+    ///
+    /// Above the score the matcher gives one name contained in another,
+    /// deliberately: a file filed under `Dave Rodgers` must not have every
+    /// release with his name in its title claimed as the album it came from.
+    pub name_match_threshold: f64,
+
+    pub request_timeout_seconds: f64,
+}
+
+impl Default for IdentifySettings {
+    fn default() -> Self {
+        Self {
+            min_score: 0.85,
+            name_match_threshold: 0.9,
+            request_timeout_seconds: 15.0,
+        }
+    }
+}
+
 /// How files are laid out on disk (#3).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, default)]
@@ -462,6 +497,7 @@ pub struct Settings {
     pub verify: VerifySettings,
     pub loudness: LoudnessSettings,
     pub artwork: ArtworkSettings,
+    pub identify: IdentifySettings,
     pub genres: GenreSettings,
     pub organise: OrganiseSettings,
 }
@@ -815,6 +851,11 @@ impl Settings {
                 "artwork.artist_match_threshold",
                 self.artwork.artist_match_threshold,
             ),
+            ("identify.min_score", self.identify.min_score),
+            (
+                "identify.name_match_threshold",
+                self.identify.name_match_threshold,
+            ),
         ] {
             if !(0.0..=1.0).contains(&value) {
                 return bad(field, "must be between 0 and 1");
@@ -844,6 +885,9 @@ impl Settings {
         }
         if self.slskd.request_timeout_seconds <= 0.0 {
             return bad("slskd.request_timeout_seconds", "must be greater than 0");
+        }
+        if self.identify.request_timeout_seconds <= 0.0 {
+            return bad("identify.request_timeout_seconds", "must be greater than 0");
         }
         if self.uploader.minimum_coverage < 2 {
             return bad("uploader.minimum_coverage", "must be at least 2");

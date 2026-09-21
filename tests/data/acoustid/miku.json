@@ -1,0 +1,543 @@
+{
+  "results": [
+    {
+      "id": "fee9c90b-7bb0-4330-bc0a-190533d77918",
+      "recordings": [
+        {
+          "artists": [
+            {
+              "id": "e4d7cfe5-0bed-46cf-acad-ab9a4dcb7aa6",
+              "joinphrase": " feat. ",
+              "name": "Anamanaguchi"
+            },
+            {
+              "id": "130d679a-9a92-4373-8348-0800b6b93a30",
+              "name": "初音ミク"
+            }
+          ],
+          "duration": 223.0,
+          "id": "3378f8ee-878a-4863-a987-da04437f05a9",
+          "releasegroups": [
+            {
+              "artists": [
+                {
+                  "id": "e4d7cfe5-0bed-46cf-acad-ab9a4dcb7aa6",
+                  "joinphrase": " feat. ",
+                  "name": "Anamanaguchi"
+                },
+                {
+                  "id": "130d679a-9a92-4373-8348-0800b6b93a30",
+                  "name": "Hatsune Miku"
+                }
+              ],
+              "id": "c5f87f3b-497e-4718-9193-7c292521d905",
+              "releases": [
+                {
+                  "country": "XW",
+                  "date": {
+                    "day": 24,
+                    "month": 5,
+                    "year": 2016
+                  },
+                  "id": "93b38be4-4d51-4119-826d-31ee9cdbbe9e",
+                  "medium_count": 1,
+                  "mediums": [
+                    {
+                      "format": "Digital Media",
+                      "position": 1,
+                      "track_count": 1,
+                      "tracks": [
+                        {
+                          "id": "c51205c4-e2b9-4010-bfa3-b9e02cbb4e38",
+                          "position": 1
+                        }
+                      ]
+                    }
+                  ],
+                  "releaseevents": [
+                    {
+                      "country": "XW",
+                      "date": {
+                        "day": 24,
+                        "month": 5,
+                        "year": 2016
+                      }
+                    }
+                  ],
+                  "track_count": 1
+                },
+                {
+                  "artists": [
+                    {
+                      "id": "e4d7cfe5-0bed-46cf-acad-ab9a4dcb7aa6",
+                      "joinphrase": " + ",
+                      "name": "Anamanaguchi"
+                    },
+                    {
+                      "id": "130d679a-9a92-4373-8348-0800b6b93a30",
+                      "name": "Miku"
+                    }
+                  ],
+                  "country": "XW",
+                  "date": {
+                    "day": 24,
+                    "month": 5,
+                    "year": 2016
+                  },
+                  "id": "03545b7d-c5c3-450a-8ea5-a96a4ed3ffa6",
+                  "medium_count": 1,
+                  "mediums": [
+                    {
+                      "format": "Digital Media",
+                      "position": 1,
+                      "track_count": 1,
+                      "tracks": [
+                        {
+                          "id": "48890ecf-b18d-4e67-b1a9-62a997cfe9c3",
+                          "position": 1
+                        }
+                      ]
+                    }
+                  ],
+                  "releaseevents": [
+                    {
+                      "country": "XW",
+                      "date": {
+                        "day": 24,
+                        "month": 5,
+                        "year": 2016
+                      }
+                    }
+                  ],
+                  "track_count": 1
+                }
+              ],
+              "title": "Miku",
+              "type": "Single"
+            },
+            {
+              "artists": [
+                {
+                  "id": "130d679a-9a92-4373-8348-0800b6b93a30",
+                  "name": "初音ミク"
+                }
+              ],
+              "id": "710d0ef2-cd0b-469c-b940-87cb56ec31af",
+              "releases": [
+                {
+                  "country": "JP",
+                  "date": {
+                    "day": 9,
+                    "month": 3,
+                    "year": 2016
+                  },
+                  "id": "cb3a030e-ccfd-4505-9302-35bef687ca6d",
+                  "medium_count": 1,
+                  "mediums": [
+                    {
+                      "format": "CD",
+                      "position": 1,
+                      "track_count": 13,
+                      "tracks": [
+                        {
+                          "artists": [
+                            {
+                              "id": "e4d7cfe5-0bed-46cf-acad-ab9a4dcb7aa6",
+                              "joinphrase": " feat. ",
+                              "name": "Anamanaguchi"
+                            },
+                            {
+                              "id": "130d679a-9a92-4373-8348-0800b6b93a30",
+                              "name": "初音ミク"
+                            }
+                          ],
+                          "id": "658e97a2-5552-437c-b9ce-aa83e7b84e90",
+                          "position": 11
+                        }
+                      ]
+                    }
+                  ],
+                  "releaseevents": [
+                    {
+                      "country": "JP",
+                      "date": {
+                        "day": 9,
+                        "month": 3,
+                        "year": 2016
+                      }
+                    }
+                  ],
+                  "track_count": 13
+                },
+                {
+                  "id": "cbef96f3-247e-4746-b894-6c09f55f2307",
+                  "medium_count": 1,
+                  "mediums": [
+                    {
+                      "format": "CD",
+                      "position": 1,
+                      "track_count": 13,
+                      "tracks": [
+                        {
+                          "artists": [
+                            {
+                              "id": "e4d7cfe5-0bed-46cf-acad-ab9a4dcb7aa6",
+                              "joinphrase": " feat. ",
+                              "name": "Anamanaguchi"
+                            },
+                            {
+                              "id": "130d679a-9a92-4373-8348-0800b6b93a30",
+                              "name": "初音ミク"
+                            }
+                          ],
+                          "id": "ee253305-77c2-4b93-8213-ec10565beef4",
+                          "position": 11
+                        }
+                      ]
+                    }
+                  ],
+                  "track_count": 13
+                }
+              ],
+              "title": "HATSUNE MIKU EXPO 2016 E.P.",
+              "type": "EP"
+            },
+            {
+              "artists": [
+                {
+                  "id": "e4d7cfe5-0bed-46cf-acad-ab9a4dcb7aa6",
+                  "name": "Anamanaguchi"
+                }
+              ],
+              "id": "bcbea61e-71ec-436c-b234-63bd0f1b0465",
+              "releases": [
+                {
+                  "country": "XW",
+                  "date": {
+                    "day": 12,
+                    "month": 4,
+                    "year": 2022
+                  },
+                  "id": "c6a65eaf-6b93-4be8-803a-14571da5b156",
+                  "medium_count": 1,
+                  "mediums": [
+                    {
+                      "format": "Digital Media",
+                      "position": 1,
+                      "track_count": 9,
+                      "tracks": [
+                        {
+                          "artists": [
+                            {
+                              "id": "e4d7cfe5-0bed-46cf-acad-ab9a4dcb7aa6",
+                              "joinphrase": " feat. ",
+                              "name": "Anamanaguchi"
+                            },
+                            {
+                              "id": "130d679a-9a92-4373-8348-0800b6b93a30",
+                              "name": "Hatsune Miku"
+                            }
+                          ],
+                          "id": "7aa6e0b3-83be-4e20-bece-1d2b91df75b9",
+                          "position": 1
+                        }
+                      ]
+                    }
+                  ],
+                  "releaseevents": [
+                    {
+                      "country": "XW",
+                      "date": {
+                        "day": 12,
+                        "month": 4,
+                        "year": 2022
+                      }
+                    }
+                  ],
+                  "track_count": 9
+                },
+                {
+                  "country": "XW",
+                  "date": {
+                    "day": 22,
+                    "month": 7,
+                    "year": 2022
+                  },
+                  "id": "bcac13a8-0065-4e73-941c-eaac230c41db",
+                  "medium_count": 1,
+                  "mediums": [
+                    {
+                      "format": "12\" Vinyl",
+                      "position": 1,
+                      "track_count": 9,
+                      "tracks": [
+                        {
+                          "artists": [
+                            {
+                              "id": "e4d7cfe5-0bed-46cf-acad-ab9a4dcb7aa6",
+                              "joinphrase": " feat. ",
+                              "name": "Anamanaguchi"
+                            },
+                            {
+                              "id": "130d679a-9a92-4373-8348-0800b6b93a30",
+                              "name": "Hatsune Miku"
+                            }
+                          ],
+                          "id": "33b32538-1560-4938-886f-953fe185635b",
+                          "position": 1
+                        }
+                      ]
+                    }
+                  ],
+                  "releaseevents": [
+                    {
+                      "country": "XW",
+                      "date": {
+                        "day": 22,
+                        "month": 7,
+                        "year": 2022
+                      }
+                    }
+                  ],
+                  "track_count": 9
+                }
+              ],
+              "secondarytypes": [
+                "Remix"
+              ],
+              "title": "Miku",
+              "type": "EP"
+            },
+            {
+              "artists": [
+                {
+                  "id": "e4d7cfe5-0bed-46cf-acad-ab9a4dcb7aa6",
+                  "joinphrase": " feat. ",
+                  "name": "Anamanaguchi"
+                },
+                {
+                  "id": "130d679a-9a92-4373-8348-0800b6b93a30",
+                  "name": "Hatsune Miku"
+                }
+              ],
+              "id": "ece11476-eaa2-48ca-b4ee-cda8672060ec",
+              "releases": [
+                {
+                  "country": "XW",
+                  "date": {
+                    "day": 24,
+                    "month": 3,
+                    "year": 2017
+                  },
+                  "id": "1db4fd2b-9441-4be4-bd02-959d5c007d9e",
+                  "medium_count": 1,
+                  "mediums": [
+                    {
+                      "format": "Digital Media",
+                      "position": 1,
+                      "track_count": 9,
+                      "tracks": [
+                        {
+                          "id": "7170abb4-f2e0-4416-a612-3d4d97588ac3",
+                          "position": 1
+                        }
+                      ]
+                    }
+                  ],
+                  "releaseevents": [
+                    {
+                      "country": "XW",
+                      "date": {
+                        "day": 24,
+                        "month": 3,
+                        "year": 2017
+                      }
+                    }
+                  ],
+                  "track_count": 9
+                }
+              ],
+              "secondarytypes": [
+                "Remix"
+              ],
+              "title": "S/S17",
+              "type": "EP"
+            }
+          ],
+          "title": "Miku"
+        },
+        {
+          "artists": [
+            {
+              "id": "e4d7cfe5-0bed-46cf-acad-ab9a4dcb7aa6",
+              "joinphrase": " feat. ",
+              "name": "Anamanaguchi"
+            },
+            {
+              "id": "130d679a-9a92-4373-8348-0800b6b93a30",
+              "name": "Hatsune Miku"
+            }
+          ],
+          "duration": 223.125,
+          "id": "bfca3862-d319-428c-b9af-9e0fa8e59f6f",
+          "releasegroups": [
+            {
+              "artists": [
+                {
+                  "id": "e4d7cfe5-0bed-46cf-acad-ab9a4dcb7aa6",
+                  "name": "Anamanaguchi"
+                }
+              ],
+              "id": "bcbea61e-71ec-436c-b234-63bd0f1b0465",
+              "releases": [
+                {
+                  "country": "XW",
+                  "date": {
+                    "day": 12,
+                    "month": 4,
+                    "year": 2022
+                  },
+                  "id": "c6a65eaf-6b93-4be8-803a-14571da5b156",
+                  "medium_count": 1,
+                  "mediums": [
+                    {
+                      "format": "Digital Media",
+                      "position": 1,
+                      "track_count": 9,
+                      "tracks": [
+                        {
+                          "artists": [
+                            {
+                              "id": "e4d7cfe5-0bed-46cf-acad-ab9a4dcb7aa6",
+                              "joinphrase": " feat. ",
+                              "name": "Anamanaguchi"
+                            },
+                            {
+                              "id": "130d679a-9a92-4373-8348-0800b6b93a30",
+                              "name": "Hatsune Miku"
+                            }
+                          ],
+                          "id": "b1159c3a-59ad-4b03-8ae6-b1e5f4c86cae",
+                          "position": 9
+                        }
+                      ]
+                    }
+                  ],
+                  "releaseevents": [
+                    {
+                      "country": "XW",
+                      "date": {
+                        "day": 12,
+                        "month": 4,
+                        "year": 2022
+                      }
+                    }
+                  ],
+                  "track_count": 9
+                },
+                {
+                  "country": "XW",
+                  "date": {
+                    "day": 22,
+                    "month": 7,
+                    "year": 2022
+                  },
+                  "id": "bcac13a8-0065-4e73-941c-eaac230c41db",
+                  "medium_count": 1,
+                  "mediums": [
+                    {
+                      "format": "12\" Vinyl",
+                      "position": 1,
+                      "track_count": 9,
+                      "tracks": [
+                        {
+                          "artists": [
+                            {
+                              "id": "e4d7cfe5-0bed-46cf-acad-ab9a4dcb7aa6",
+                              "joinphrase": " feat. ",
+                              "name": "Anamanaguchi"
+                            },
+                            {
+                              "id": "130d679a-9a92-4373-8348-0800b6b93a30",
+                              "name": "Hatsune Miku"
+                            }
+                          ],
+                          "id": "f6f22a92-2210-40a8-a82a-9beffc69672a",
+                          "position": 9
+                        }
+                      ]
+                    }
+                  ],
+                  "releaseevents": [
+                    {
+                      "country": "XW",
+                      "date": {
+                        "day": 22,
+                        "month": 7,
+                        "year": 2022
+                      }
+                    }
+                  ],
+                  "track_count": 9
+                }
+              ],
+              "secondarytypes": [
+                "Remix"
+              ],
+              "title": "Miku",
+              "type": "EP"
+            },
+            {
+              "id": "ece11476-eaa2-48ca-b4ee-cda8672060ec",
+              "releases": [
+                {
+                  "country": "XW",
+                  "date": {
+                    "day": 24,
+                    "month": 3,
+                    "year": 2017
+                  },
+                  "id": "1db4fd2b-9441-4be4-bd02-959d5c007d9e",
+                  "medium_count": 1,
+                  "mediums": [
+                    {
+                      "format": "Digital Media",
+                      "position": 1,
+                      "track_count": 9,
+                      "tracks": [
+                        {
+                          "id": "068cdd8b-08d2-4a25-a190-051b31a06fdd",
+                          "position": 9,
+                          "title": "Miku (Instrumental)"
+                        }
+                      ]
+                    }
+                  ],
+                  "releaseevents": [
+                    {
+                      "country": "XW",
+                      "date": {
+                        "day": 24,
+                        "month": 3,
+                        "year": 2017
+                      }
+                    }
+                  ],
+                  "track_count": 9
+                }
+              ],
+              "secondarytypes": [
+                "Remix"
+              ],
+              "title": "S/S17",
+              "type": "EP"
+            }
+          ],
+          "title": "Miku (instrumental)"
+        }
+      ],
+      "score": 0.98595726
+    }
+  ],
+  "status": "ok"
+}

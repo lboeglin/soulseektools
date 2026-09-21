@@ -13,6 +13,7 @@ pub mod duplicates;
 pub mod errors;
 pub mod fetch;
 pub mod genres;
+pub mod identify;
 pub mod library;
 pub mod matching;
 pub mod models;

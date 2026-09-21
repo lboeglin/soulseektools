@@ -1,0 +1,687 @@
+{
+  "results": [
+    {
+      "id": "0129a61b-3521-43bd-8f49-e7c8098cdcfe",
+      "recordings": [
+        {
+          "artists": [
+            {
+              "id": "9298d14c-ddf0-40b0-b6df-427e319524b3",
+              "name": "Dave Rodgers"
+            }
+          ],
+          "duration": 263.866,
+          "id": "3bc9e7e0-ca50-4727-b0e9-df5598570e88",
+          "releasegroups": [
+            {
+              "artists": [
+                {
+                  "id": "89ad4ac3-39f7-470e-963a-56509c546377",
+                  "name": "Various Artists"
+                }
+              ],
+              "id": "cd8a8e26-32a0-44d5-b5f1-bf5822516171",
+              "releases": [
+                {
+                  "country": "XW",
+                  "date": {
+                    "day": 18,
+                    "month": 10,
+                    "year": 2017
+                  },
+                  "id": "7b31ed21-978d-48e2-a676-81b85cb61613",
+                  "medium_count": 1,
+                  "mediums": [
+                    {
+                      "format": "CD",
+                      "position": 1,
+                      "track_count": 22,
+                      "tracks": [
+                        {
+                          "artists": [
+                            {
+                              "id": "9298d14c-ddf0-40b0-b6df-427e319524b3",
+                              "name": "Dave Rodgers"
+                            }
+                          ],
+                          "id": "d7aa6562-9ff7-4fbb-9980-9a3453061bb1",
+                          "position": 5
+                        }
+                      ]
+                    }
+                  ],
+                  "releaseevents": [
+                    {
+                      "country": "XW",
+                      "date": {
+                        "day": 18,
+                        "month": 10,
+                        "year": 2017
+                      }
+                    }
+                  ],
+                  "track_count": 22
+                }
+              ],
+              "secondarytypes": [
+                "Compilation",
+                "DJ-mix"
+              ],
+              "title": "SUPER EUROBEAT Mix for Lending Your Darling Your Car",
+              "type": "Album"
+            }
+          ],
+          "title": "Deja Vu"
+        },
+        {
+          "artists": [
+            {
+              "id": "88bef6f6-b20c-403e-93d9-f242a41995bc",
+              "name": "Tsuko G."
+            }
+          ],
+          "duration": 250.0,
+          "id": "6f6323f8-4eed-40a9-915f-6c11150a2988",
+          "releasegroups": [
+            {
+              "id": "6cdd230d-cdee-4713-8cfb-6b8dc8f7052b",
+              "releases": [
+                {
+                  "country": "XW",
+                  "date": {
+                    "day": 20,
+                    "month": 5,
+                    "year": 2017
+                  },
+                  "id": "96cb221d-9d93-4241-aa70-cd6a6390eca5",
+                  "medium_count": 1,
+                  "mediums": [
+                    {
+                      "format": "Digital Media",
+                      "position": 1,
+                      "track_count": 1,
+                      "tracks": [
+                        {
+                          "id": "556b4479-e9a5-4c63-891d-35c2a36ce2ec",
+                          "position": 1
+                        }
+                      ]
+                    }
+                  ],
+                  "releaseevents": [
+                    {
+                      "country": "XW",
+                      "date": {
+                        "day": 20,
+                        "month": 5,
+                        "year": 2017
+                      }
+                    }
+                  ],
+                  "track_count": 1
+                }
+              ],
+              "title": "Deja Vu (Initial D)",
+              "type": "Single"
+            }
+          ],
+          "title": "Deja Vu (Initial D)"
+        },
+        {
+          "artists": [
+            {
+              "id": "9298d14c-ddf0-40b0-b6df-427e319524b3",
+              "name": "Dave Rodgers"
+            }
+          ],
+          "duration": 262.385,
+          "id": "b5ccfa0f-4740-49a2-bdb1-5e6e0cd4e152",
+          "releasegroups": [
+            {
+              "artists": [
+                {
+                  "id": "89ad4ac3-39f7-470e-963a-56509c546377",
+                  "name": "Various Artists"
+                }
+              ],
+              "id": "31c5b60f-e521-41b8-92e5-565815e06802",
+              "releases": [
+                {
+                  "date": {
+                    "day": 1,
+                    "month": 7,
+                    "year": 2020
+                  },
+                  "id": "3c61e397-bb87-4a38-b010-2d57d0d9faee",
+                  "medium_count": 1,
+                  "mediums": [
+                    {
+                      "format": "Digital Media",
+                      "position": 1,
+                      "track_count": 13,
+                      "tracks": [
+                        {
+                          "artists": [
+                            {
+                              "id": "9298d14c-ddf0-40b0-b6df-427e319524b3",
+                              "name": "Dave Rodgers"
+                            }
+                          ],
+                          "id": "18a70edb-8081-4912-b43e-a60b6df37193",
+                          "position": 1,
+                          "title": "Deja Vu (extended mix)"
+                        }
+                      ]
+                    }
+                  ],
+                  "releaseevents": [
+                    {
+                      "date": {
+                        "day": 1,
+                        "month": 7,
+                        "year": 2020
+                      }
+                    }
+                  ],
+                  "track_count": 13
+                }
+              ],
+              "secondarytypes": [
+                "Compilation"
+              ],
+              "title": "Super Eurobeat Presents Initial D World Hits Selection 3",
+              "type": "Album"
+            },
+            {
+              "artists": [
+                {
+                  "id": "89ad4ac3-39f7-470e-963a-56509c546377",
+                  "name": "Various Artists"
+                }
+              ],
+              "id": "bedba051-5e7c-33b2-9217-caa032ff896d",
+              "releases": [
+                {
+                  "country": "JP",
+                  "date": {
+                    "day": 22,
+                    "month": 11,
+                    "year": 2000
+                  },
+                  "id": "94532064-1f9b-4c11-9b02-3b888149e29b",
+                  "medium_count": 1,
+                  "mediums": [
+                    {
+                      "format": "CD",
+                      "position": 1,
+                      "track_count": 14,
+                      "tracks": [
+                        {
+                          "artists": [
+                            {
+                              "id": "9298d14c-ddf0-40b0-b6df-427e319524b3",
+                              "name": "Dave Rodgers"
+                            }
+                          ],
+                          "id": "34bd2e7e-8c51-333e-95d0-9a5529d547a8",
+                          "position": 8
+                        }
+                      ]
+                    }
+                  ],
+                  "releaseevents": [
+                    {
+                      "country": "JP",
+                      "date": {
+                        "day": 22,
+                        "month": 11,
+                        "year": 2000
+                      }
+                    }
+                  ],
+                  "track_count": 14
+                }
+              ],
+              "secondarytypes": [
+                "Compilation",
+                "Soundtrack"
+              ],
+              "title": "Super Eurobeat Presents Initial D Super Euro-Best",
+              "type": "Album"
+            },
+            {
+              "artists": [
+                {
+                  "id": "9298d14c-ddf0-40b0-b6df-427e319524b3",
+                  "name": "Dave Rodgers"
+                }
+              ],
+              "id": "6c6875f3-13f2-4ec1-9995-682c123d1c5b",
+              "releases": [
+                {
+                  "country": "XW",
+                  "date": {
+                    "day": 26,
+                    "month": 11,
+                    "year": 2008
+                  },
+                  "id": "cb12fe02-ed80-419e-92f6-3accb1e7ce82",
+                  "medium_count": 1,
+                  "mediums": [
+                    {
+                      "format": "Digital Media",
+                      "position": 1,
+                      "track_count": 12,
+                      "tracks": [
+                        {
+                          "id": "351b29e2-4d0c-43ea-a335-4f546822ced9",
+                          "position": 5,
+                          "title": "Deja Vu (extended version)"
+                        }
+                      ]
+                    }
+                  ],
+                  "releaseevents": [
+                    {
+                      "country": "XW",
+                      "date": {
+                        "day": 26,
+                        "month": 11,
+                        "year": 2008
+                      }
+                    }
+                  ],
+                  "title": "Super Eurobeat Presents Dave Rodgers Special Collection Vol.2",
+                  "track_count": 12
+                }
+              ],
+              "secondarytypes": [
+                "Compilation"
+              ],
+              "title": "Super Eurobeat Presents Dave Rodgers Special Collection, Vol.2",
+              "type": "Album"
+            },
+            {
+              "artists": [
+                {
+                  "id": "89ad4ac3-39f7-470e-963a-56509c546377",
+                  "name": "SUPER EUROBEAT"
+                }
+              ],
+              "id": "580acf74-cdf5-4f09-871a-8a3866f8ad09",
+              "releases": [
+                {
+                  "country": "XW",
+                  "date": {
+                    "day": 11,
+                    "month": 9,
+                    "year": 2019
+                  },
+                  "id": "289be615-83be-48fa-b565-e9a1d8d1334e",
+                  "medium_count": 1,
+                  "mediums": [
+                    {
+                      "format": "Digital Media",
+                      "position": 1,
+                      "track_count": 15,
+                      "tracks": [
+                        {
+                          "artists": [
+                            {
+                              "id": "9298d14c-ddf0-40b0-b6df-427e319524b3",
+                              "name": "dave rodgers"
+                            }
+                          ],
+                          "id": "ac404e07-072a-46a7-80cf-6b7fc55503fd",
+                          "position": 1,
+                          "title": "DEJA VU"
+                        }
+                      ]
+                    }
+                  ],
+                  "releaseevents": [
+                    {
+                      "country": "XW",
+                      "date": {
+                        "day": 11,
+                        "month": 9,
+                        "year": 2019
+                      }
+                    }
+                  ],
+                  "track_count": 15
+                }
+              ],
+              "title": "SUPER EUROBEAT presents INITIAL D DAVE RODGERS SELECTION",
+              "type": "Album"
+            },
+            {
+              "id": "e0696583-7d9e-499c-84d1-4018b58954c8",
+              "releases": [
+                {
+                  "country": "XW",
+                  "date": {
+                    "day": 15,
+                    "month": 5,
+                    "year": 2019
+                  },
+                  "id": "e212a512-dd15-4aab-b6bc-744116fbc8ee",
+                  "medium_count": 1,
+                  "mediums": [
+                    {
+                      "format": "Digital Media",
+                      "position": 1,
+                      "track_count": 4,
+                      "tracks": [
+                        {
+                          "id": "adb2b8bb-f196-46a4-8bf0-09e03693d75b",
+                          "position": 1,
+                          "title": "Deja Vu (extended mix)"
+                        }
+                      ]
+                    }
+                  ],
+                  "releaseevents": [
+                    {
+                      "country": "XW",
+                      "date": {
+                        "day": 15,
+                        "month": 5,
+                        "year": 2019
+                      }
+                    }
+                  ],
+                  "track_count": 4
+                }
+              ],
+              "title": "Deja Vu",
+              "type": "Single"
+            }
+          ],
+          "title": "Deja Vu"
+        }
+      ],
+      "score": 0.94349945
+    },
+    {
+      "id": "e27f7e2b-0fbc-4e08-adce-83a14c192fe8",
+      "recordings": [
+        {
+          "artists": [
+            {
+              "id": "9298d14c-ddf0-40b0-b6df-427e319524b3",
+              "name": "Dave Rodgers"
+            }
+          ],
+          "duration": 262.385,
+          "id": "b5ccfa0f-4740-49a2-bdb1-5e6e0cd4e152",
+          "releasegroups": [
+            {
+              "artists": [
+                {
+                  "id": "89ad4ac3-39f7-470e-963a-56509c546377",
+                  "name": "Various Artists"
+                }
+              ],
+              "id": "31c5b60f-e521-41b8-92e5-565815e06802",
+              "releases": [
+                {
+                  "date": {
+                    "day": 1,
+                    "month": 7,
+                    "year": 2020
+                  },
+                  "id": "3c61e397-bb87-4a38-b010-2d57d0d9faee",
+                  "medium_count": 1,
+                  "mediums": [
+                    {
+                      "format": "Digital Media",
+                      "position": 1,
+                      "track_count": 13,
+                      "tracks": [
+                        {
+                          "artists": [
+                            {
+                              "id": "9298d14c-ddf0-40b0-b6df-427e319524b3",
+                              "name": "Dave Rodgers"
+                            }
+                          ],
+                          "id": "18a70edb-8081-4912-b43e-a60b6df37193",
+                          "position": 1,
+                          "title": "Deja Vu (extended mix)"
+                        }
+                      ]
+                    }
+                  ],
+                  "releaseevents": [
+                    {
+                      "date": {
+                        "day": 1,
+                        "month": 7,
+                        "year": 2020
+                      }
+                    }
+                  ],
+                  "track_count": 13
+                }
+              ],
+              "secondarytypes": [
+                "Compilation"
+              ],
+              "title": "Super Eurobeat Presents Initial D World Hits Selection 3",
+              "type": "Album"
+            },
+            {
+              "artists": [
+                {
+                  "id": "89ad4ac3-39f7-470e-963a-56509c546377",
+                  "name": "Various Artists"
+                }
+              ],
+              "id": "bedba051-5e7c-33b2-9217-caa032ff896d",
+              "releases": [
+                {
+                  "country": "JP",
+                  "date": {
+                    "day": 22,
+                    "month": 11,
+                    "year": 2000
+                  },
+                  "id": "94532064-1f9b-4c11-9b02-3b888149e29b",
+                  "medium_count": 1,
+                  "mediums": [
+                    {
+                      "format": "CD",
+                      "position": 1,
+                      "track_count": 14,
+                      "tracks": [
+                        {
+                          "artists": [
+                            {
+                              "id": "9298d14c-ddf0-40b0-b6df-427e319524b3",
+                              "name": "Dave Rodgers"
+                            }
+                          ],
+                          "id": "34bd2e7e-8c51-333e-95d0-9a5529d547a8",
+                          "position": 8
+                        }
+                      ]
+                    }
+                  ],
+                  "releaseevents": [
+                    {
+                      "country": "JP",
+                      "date": {
+                        "day": 22,
+                        "month": 11,
+                        "year": 2000
+                      }
+                    }
+                  ],
+                  "track_count": 14
+                }
+              ],
+              "secondarytypes": [
+                "Compilation",
+                "Soundtrack"
+              ],
+              "title": "Super Eurobeat Presents Initial D Super Euro-Best",
+              "type": "Album"
+            },
+            {
+              "artists": [
+                {
+                  "id": "9298d14c-ddf0-40b0-b6df-427e319524b3",
+                  "name": "Dave Rodgers"
+                }
+              ],
+              "id": "6c6875f3-13f2-4ec1-9995-682c123d1c5b",
+              "releases": [
+                {
+                  "country": "XW",
+                  "date": {
+                    "day": 26,
+                    "month": 11,
+                    "year": 2008
+                  },
+                  "id": "cb12fe02-ed80-419e-92f6-3accb1e7ce82",
+                  "medium_count": 1,
+                  "mediums": [
+                    {
+                      "format": "Digital Media",
+                      "position": 1,
+                      "track_count": 12,
+                      "tracks": [
+                        {
+                          "id": "351b29e2-4d0c-43ea-a335-4f546822ced9",
+                          "position": 5,
+                          "title": "Deja Vu (extended version)"
+                        }
+                      ]
+                    }
+                  ],
+                  "releaseevents": [
+                    {
+                      "country": "XW",
+                      "date": {
+                        "day": 26,
+                        "month": 11,
+                        "year": 2008
+                      }
+                    }
+                  ],
+                  "title": "Super Eurobeat Presents Dave Rodgers Special Collection Vol.2",
+                  "track_count": 12
+                }
+              ],
+              "secondarytypes": [
+                "Compilation"
+              ],
+              "title": "Super Eurobeat Presents Dave Rodgers Special Collection, Vol.2",
+              "type": "Album"
+            },
+            {
+              "artists": [
+                {
+                  "id": "89ad4ac3-39f7-470e-963a-56509c546377",
+                  "name": "SUPER EUROBEAT"
+                }
+              ],
+              "id": "580acf74-cdf5-4f09-871a-8a3866f8ad09",
+              "releases": [
+                {
+                  "country": "XW",
+                  "date": {
+                    "day": 11,
+                    "month": 9,
+                    "year": 2019
+                  },
+                  "id": "289be615-83be-48fa-b565-e9a1d8d1334e",
+                  "medium_count": 1,
+                  "mediums": [
+                    {
+                      "format": "Digital Media",
+                      "position": 1,
+                      "track_count": 15,
+                      "tracks": [
+                        {
+                          "artists": [
+                            {
+                              "id": "9298d14c-ddf0-40b0-b6df-427e319524b3",
+                              "name": "dave rodgers"
+                            }
+                          ],
+                          "id": "ac404e07-072a-46a7-80cf-6b7fc55503fd",
+                          "position": 1,
+                          "title": "DEJA VU"
+                        }
+                      ]
+                    }
+                  ],
+                  "releaseevents": [
+                    {
+                      "country": "XW",
+                      "date": {
+                        "day": 11,
+                        "month": 9,
+                        "year": 2019
+                      }
+                    }
+                  ],
+                  "track_count": 15
+                }
+              ],
+              "title": "SUPER EUROBEAT presents INITIAL D DAVE RODGERS SELECTION",
+              "type": "Album"
+            },
+            {
+              "id": "e0696583-7d9e-499c-84d1-4018b58954c8",
+              "releases": [
+                {
+                  "country": "XW",
+                  "date": {
+                    "day": 15,
+                    "month": 5,
+                    "year": 2019
+                  },
+                  "id": "e212a512-dd15-4aab-b6bc-744116fbc8ee",
+                  "medium_count": 1,
+                  "mediums": [
+                    {
+                      "format": "Digital Media",
+                      "position": 1,
+                      "track_count": 4,
+                      "tracks": [
+                        {
+                          "id": "adb2b8bb-f196-46a4-8bf0-09e03693d75b",
+                          "position": 1,
+                          "title": "Deja Vu (extended mix)"
+                        }
+                      ]
+                    }
+                  ],
+                  "releaseevents": [
+                    {
+                      "country": "XW",
+                      "date": {
+                        "day": 15,
+                        "month": 5,
+                        "year": 2019
+                      }
+                    }
+                  ],
+                  "track_count": 4
+                }
+              ],
+              "title": "Deja Vu",
+              "type": "Single"
+            }
+          ],
+          "title": "Deja Vu"
+        }
+      ],
+      "score": 0.74370384
+    }
+  ],
+  "status": "ok"
+}

@@ -235,6 +235,23 @@ fn an_album_of_one_track_is_rejected() {
     );
 }
 
+/// A score outside `[0, 1]` would silently accept everything or nothing (#12).
+#[test]
+fn an_identify_threshold_outside_the_unit_range_is_rejected() {
+    let _guard = exclusive();
+    let scratch = Scratch::new("config-identify-score");
+    let _environment = CleanEnvironment::enter(scratch.path());
+    let path = write_toml(
+        &scratch.join(CONFIG_FILENAME),
+        "[identify]
+min_score = 1.5
+",
+    );
+
+    let error = load_settings(Some(&path), &Overrides::default()).expect_err("a bad score");
+    assert!(error.to_string().contains("identify.min_score"), "{error}");
+}
+
 #[test]
 fn malformed_toml_is_reported_as_a_config_error() {
     let scratch = Scratch::new("config-malformed");
