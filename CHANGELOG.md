@@ -275,6 +275,11 @@ a set of ad-hoc scripts and a Nicotine+ plugin, and was then rewritten in Rust.
   `git checkout python-reference -- py/`.
 - The Textual review app, which went with it. `stk review list --candidates`,
   `stk review approve` and `stk review reject` cover the same workflow.
+- The `legacy/` directory: the original scripts and the Nicotine+ plugin, kept
+  so their output could be diffed against the CLI during the first migration.
+  The implementation they were to be compared with has itself been removed, so
+  the comparison is over. They remain at the `original-scripts` tag (#10).
+  `stk review import` still reads the plugin's `soulseek_review.csv`.
 - The loudness-envelope fingerprint, which existed only as the fallback for a
   missing `fpcalc`. Chromaprint is compiled in and cannot be missing, so the
   fallback had no way to be reached -- and it was the only thing in the crate

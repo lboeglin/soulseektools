@@ -43,7 +43,7 @@ over it. Monkey's Audio and WavPack are not handled at all.
 
 ## Install
 
-This is not published to PyPI. Install it from a clone:
+This is not published to crates.io. Install it from a clone:
 
 ```bash
 git clone git@github.com:lboeglin/soulseektools.git
@@ -234,6 +234,13 @@ project a second place where output is decided. So `stk review list
 --candidates`, `stk review approve <id> <rank>` and `stk review reject <id>`
 remain the scriptable form, and `pick` is the same decisions asked for out loud.
 It refuses to run under `--json`, rather than blocking a pipeline on a keystroke.
+
+A `soulseek_review.csv` left over from the Nicotine+ plugin this tool replaced
+carries over, tracks and approvals both:
+
+```bash
+stk review import soulseek_review.csv
+```
 
 Soulseek's real unit is the folder, though, and `stk review albums` says which
 of them one peer could supply several waiting tracks from:
@@ -554,46 +561,21 @@ rather than by a combined `"Artist/Album"` string, because an artist name may
 itself contain a slash. `stk genre check` still reports on artists alone: one
 album's worth of exception is not something to say about a roster.
 
-## Migrating from the old scripts
+## History
 
-This replaces a set of ad-hoc scripts and a Nicotine+ plugin. If you have a
-`soulseek_review.csv` from the plugin, its tracks and approvals carry over:
-
-```bash
-stk review import soulseek_review.csv
-```
-
-The original scripts are kept under [`legacy/`](legacy/README.md) so their
-output can be compared against the new commands. They are excluded from lint,
-type checks and coverage.
-
-Delete the directory once you have cross-checked — `git rm -r legacy`. They stay
-retrievable from the `original-scripts` tag:
+This replaced a set of ad-hoc scripts and a Nicotine+ plugin, and was then
+ported from Python to Rust against reference output captured from the Python
+build -- see [`oracle/`](oracle/README.md) and
+[issue #1](https://github.com/lboeglin/soulseektools/issues/1). Both earlier
+trees stay reachable by tag:
 
 ```bash
-git show original-scripts:check_fake_flac.py
-git checkout original-scripts -- .        # restore the whole original tree
+git checkout original-scripts -- .        # the scripts and the plugin
+git checkout python-reference -- py/      # the Python implementation
 ```
 
 Why the plugin was dropped, and the Nicotine+ behaviour that motivated it, is
 recorded in [docs/nicotine-quirks.md](docs/nicotine-quirks.md).
-
-## Written in Rust
-
-The tool was originally Python and was ported in phases against reference output
-captured from that build -- see
-[issue #1](https://github.com/lboeglin/soulseektools/issues/1). Every capture
-reproduces, so the two agreed on all 266 files of a real library before the
-Python was removed.
-
-That implementation is still reachable, tagged `python-reference`:
-
-```bash
-git checkout python-reference -- py/     # restores the whole tree
-```
-
-Its review app was Textual, and `stk review pick` is deliberately not a
-reimplementation of it: a prompt loop, not a full-screen one.
 
 ## Contributing
 
