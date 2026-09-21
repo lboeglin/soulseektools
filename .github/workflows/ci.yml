@@ -25,9 +25,9 @@ jobs:
       - uses: actions/checkout@v4
 
       # Nothing is installed here: `stk` carries its own decoder, and the audio
-      # fixtures are either generated in Rust or committed. The oracle-backed
-      # tests skip, since oracle/ names every file in a private library and is
-      # not committed.
+      # fixtures are either generated in Rust or committed. The oracle tests
+      # that need the library oracle/ was captured from skip; the name-form
+      # ones run from the capture alone.
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy

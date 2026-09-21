@@ -6,8 +6,8 @@
 //! facade, the scan, the index, the matcher, the duplicate pass and the genre
 //! map against 266 real files rather than fixtures.
 //!
-//! `oracle/` is not committed: it names every file in a private library. These
-//! skip when it is absent, which is what CI sees.
+//! These need the library `oracle/` was captured from, and skip when it is not
+//! where `tags.csv` says -- which is what CI sees.
 
 mod support;
 

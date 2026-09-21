@@ -1,0 +1,259 @@
+﻿path,verdict,detail,codec,sample_rate,bit_depth,cutoff_hz,nyquist_hz,steepness_db_per_khz
+E:\Music\25時、ナイトコードで。\1-01 - ロウワー.flac,FAKE,brickwall cutoff at 20400Hz (28dB/kHz) matches a ~256-320kbps source -- transcoded,flac,44100,16,20400,22050,27.9
+E:\Music\25時、ナイトコードで。\1-02 - バグ.flac,OK,"gradual roll-off from 17850Hz (3dB/kHz) -- consistent with mastering, not a transcode",flac,44100,16,17850,22050,2.7
+E:\Music\25時、ナイトコードで。\25時、ナイトコードで。 - エンパープル+化けの花 - 02 - 化けの花.flac,OK,"gradual roll-off from 16650Hz (5dB/kHz) -- consistent with mastering, not a transcode",flac,44100,16,16650,22050,5.1
+E:\Music\32ki\08. オブソミート.flac,OK,"gradual roll-off from 18000Hz (4dB/kHz) -- consistent with mastering, not a transcode",flac,44100,16,18000,22050,3.8
+"E:\Music\32ki\32ki, Hatsune Miku, 重音テト - メズマライザー (feat. 初音ミク&重音テト).flac",OK,"gradual roll-off from 18000Hz (2dB/kHz) -- consistent with mastering, not a transcode",flac,48000,24,18000,24000,1.9
+E:\Music\9Lana\チンチロリズム.flac,OK,"gradual roll-off from 16800Hz (5dB/kHz) -- consistent with mastering, not a transcode",flac,48000,24,16800,24000,4.6
+E:\Music\9Lana\プロポーズ.flac,OK,"gradual roll-off from 18150Hz (3dB/kHz) -- consistent with mastering, not a transcode",flac,48000,24,18150,24000,3.4
+E:\Music\Ace\01. Crazy on Emotion (Extended).flac,OK,content extends to near the Nyquist limit -- genuinely lossless,flac,44100,16,21150,22050,3.8
+E:\Music\Ace\03 - Adrenaline (Stage 2).flac,OK,"gradual roll-off from 15450Hz (4dB/kHz) -- consistent with mastering, not a transcode",flac,44100,24,15450,22050,3.9
+E:\Music\Ace\Rider Of The Sky.flac,OK,"gradual roll-off from 18300Hz (4dB/kHz) -- consistent with mastering, not a transcode",flac,44100,16,18300,22050,4.1
+E:\Music\Ado\20 - Sakura Biyori and Time Machine with Hatsune Miku.flac,OK,"gradual roll-off from 17400Hz (5dB/kHz) -- consistent with mastering, not a transcode",flac,48000,24,17400,24000,4.5
+E:\Music\Ado\4. ショコラカタブラ.flac,OK,"gradual roll-off from 18450Hz (4dB/kHz) -- consistent with mastering, not a transcode",flac,48000,24,18450,24000,3.9
+E:\Music\Ado\6. アタシは問題作.flac,OK,"gradual roll-off from 13200Hz (3dB/kHz) -- consistent with mastering, not a transcode",flac,48000,24,13200,24000,3.5
+E:\Music\Ado\7. リベリオン.flac,OK,"gradual roll-off from 18900Hz (7dB/kHz) -- consistent with mastering, not a transcode",flac,48000,24,18900,24000,7.2
+E:\Music\Ado\Ado - 0.flac,OK,"gradual roll-off from 17550Hz (4dB/kHz) -- consistent with mastering, not a transcode",flac,44100,16,17550,22050,4.5
+E:\Music\Ado\Ado - Aishite Aishite Aishite.flac,OK,"gradual roll-off from 16650Hz (3dB/kHz) -- consistent with mastering, not a transcode",flac,44100,16,16650,22050,3.4
+E:\Music\Ado\Ado - All Night Radio.flac,OK,"gradual roll-off from 13950Hz (5dB/kHz) -- consistent with mastering, not a transcode",flac,44100,16,13950,22050,5.1
+E:\Music\Ado\Ado - Ashura-chan.flac,OK,"gradual roll-off from 14700Hz (5dB/kHz) -- consistent with mastering, not a transcode",flac,44100,16,14700,22050,5.0
+E:\Music\Ado\Ado - Backlight.flac,OK,"gradual roll-off from 19500Hz (5dB/kHz) -- consistent with mastering, not a transcode",flac,44100,16,19500,22050,4.7
+E:\Music\Ado\Ado - Buriki No Dance.flac,OK,"gradual roll-off from 16350Hz (5dB/kHz) -- consistent with mastering, not a transcode",flac,44100,16,16350,22050,4.6
+E:\Music\Ado\Ado - Chocolat Cadabra.flac,OK,"gradual roll-off from 18450Hz (4dB/kHz) -- consistent with mastering, not a transcode",flac,44100,16,18450,22050,3.9
+E:\Music\Ado\Ado - Crime And Punishment.flac,OK,"gradual roll-off from 14550Hz (3dB/kHz) -- consistent with mastering, not a transcode",flac,44100,16,14550,22050,3.1
+E:\Music\Ado\Ado - Domestic De Violence.flac,OK,"gradual roll-off from 19350Hz (8dB/kHz) -- consistent with mastering, not a transcode",flac,44100,16,19350,22050,7.8
+E:\Music\Ado\Ado - Fleeting Lullaby.flac,OK,"gradual roll-off from 14250Hz (3dB/kHz) -- consistent with mastering, not a transcode",flac,44100,16,14250,22050,2.8
+E:\Music\Ado\Ado - Gira Gira.flac,OK,"gradual roll-off from 15750Hz (4dB/kHz) -- consistent with mastering, not a transcode",flac,44100,16,15750,22050,4.2
+E:\Music\Ado\Ado - God-ish.flac,OK,"gradual roll-off from 18000Hz (4dB/kHz) -- consistent with mastering, not a transcode",flac,44100,16,18000,22050,3.6
+E:\Music\Ado\Ado - I’m a Controversy.flac,OK,"gradual roll-off from 12900Hz (3dB/kHz) -- consistent with mastering, not a transcode",flac,44100,16,12900,22050,3.5
+E:\Music\Ado\Ado - I’m invincible.flac,OK,"gradual roll-off from 17850Hz (4dB/kHz) -- consistent with mastering, not a transcode",flac,44100,16,17850,22050,4.0
+E:\Music\Ado\Ado - Kawaikute Gomen.flac,OK,"gradual roll-off from 16650Hz (4dB/kHz) -- consistent with mastering, not a transcode",flac,44100,16,16650,22050,3.6
+E:\Music\Ado\Ado - KokoroToIuNaNoFukakai.flac,OK,"gradual roll-off from 17100Hz (3dB/kHz) -- consistent with mastering, not a transcode",flac,44100,16,17100,22050,3.1
+E:\Music\Ado\Ado - MIRROR.flac,OK,"gradual roll-off from 16050Hz (8dB/kHz) -- consistent with mastering, not a transcode",flac,44100,16,16050,22050,8.3
+E:\Music\Ado\Ado - Motherland.flac,OK,"gradual roll-off from 12900Hz (3dB/kHz) -- consistent with mastering, not a transcode",flac,44100,16,12900,22050,2.9
+E:\Music\Ado\Ado - New Genesis.flac,OK,"gradual roll-off from 18000Hz (3dB/kHz) -- consistent with mastering, not a transcode",flac,44100,16,18000,22050,3.2
+E:\Music\Ado\Ado - Odo.flac,OK,"gradual roll-off from 15450Hz (3dB/kHz) -- consistent with mastering, not a transcode",flac,44100,16,15450,22050,3.3
+E:\Music\Ado\Ado - Readymade.flac,OK,"gradual roll-off from 16200Hz (4dB/kHz) -- consistent with mastering, not a transcode",flac,44100,16,16200,22050,3.5
+E:\Music\Ado\Ado - ROCKSTAR.flac,OK,"gradual roll-off from 17400Hz (4dB/kHz) -- consistent with mastering, not a transcode",flac,44100,16,17400,22050,3.6
+E:\Music\Ado\Ado - RuLe.flac,OK,"gradual roll-off from 16200Hz (9dB/kHz) -- consistent with mastering, not a transcode",flac,44100,16,16200,22050,8.7
+E:\Music\Ado\Ado - Senbonzakura.flac,OK,"gradual roll-off from 11850Hz (7dB/kHz) -- consistent with mastering, not a transcode",flac,44100,16,11850,22050,7.1
+E:\Music\Ado\Ado - Shoka.flac,OK,"gradual roll-off from 17700Hz (4dB/kHz) -- consistent with mastering, not a transcode",flac,44100,16,17700,22050,3.5
+E:\Music\Ado\Ado - Show.flac,OK,"gradual roll-off from 18000Hz (5dB/kHz) -- consistent with mastering, not a transcode",flac,44100,16,18000,22050,5.0
+E:\Music\Ado\Ado - unravel.flac,OK,"gradual roll-off from 17850Hz (4dB/kHz) -- consistent with mastering, not a transcode",flac,44100,16,17850,22050,3.8
+E:\Music\Ado\Ado - Usseewa.flac,OK,"gradual roll-off from 15150Hz (5dB/kHz) -- consistent with mastering, not a transcode",flac,44100,16,15150,22050,4.7
+E:\Music\Ado\Tot Musica.flac,OK,"gradual roll-off from 12150Hz (3dB/kHz) -- consistent with mastering, not a transcode",flac,48000,24,12150,24000,3.4
+E:\Music\After the Rain\12 - Super Nuko World.flac,OK,"gradual roll-off from 16950Hz (4dB/kHz) -- consistent with mastering, not a transcode",flac,44100,16,16950,22050,4.4
+E:\Music\Aiobahn +81\1-07. side by side.flac,OK,"gradual roll-off from 18750Hz (4dB/kHz) -- consistent with mastering, not a transcode",flac,48000,24,18750,24000,4.4
+E:\Music\aki _3\teto territory (重音territory ～ ずっとテトのターン).flac,SUSPECT,"steep cutoff at 14850Hz (64dB/kHz) matches no standard bitrate, but the sharpness looks artificial -- inspect manually",flac,44100,16,14850,22050,63.9
+E:\Music\ALICESOFT\29 Rebirth the edge.flac,OK,"gradual roll-off from 20400Hz (6dB/kHz) -- consistent with mastering, not a transcode",flac,44100,16,20400,22050,6.0
+E:\Music\Anamanaguchi\Miku.flac,FAKE,"48000Hz container but content stops sharply at 19800Hz (40dB/kHz) -- upsampled, not hi-res",flac,48000,24,19800,24000,40.4
+E:\Music\Ayako Saso\08. Ayako Saso - Karakuri Spirits [MEIKAI ARRANGE VERSION].flac,OK,content extends to near the Nyquist limit -- genuinely lossless,flac,44100,16,21900,22050,2.8
+E:\Music\Azari\01 - D+N+A.flac,OK,"gradual roll-off from 15900Hz (3dB/kHz) -- consistent with mastering, not a transcode",flac,96000,24,15900,48000,3.5
+E:\Music\beatMARIO\15. ビートまりお - ナイト・オブ・ナイツ.flac,OK,content extends to near the Nyquist limit -- genuinely lossless,flac,44100,16,21900,22050,1.9
+E:\Music\Chinozo\Good-bye Declaration.flac,OK,"gradual roll-off from 17700Hz (7dB/kHz) -- consistent with mastering, not a transcode",flac,44100,16,17700,22050,7.0
+E:\Music\Chris Stanton\08. Chris Stanton - A Perfect Hero (Extended Mix).flac,OK,"gradual roll-off from 18900Hz (3dB/kHz) -- consistent with mastering, not a transcode",flac,44100,16,18900,22050,3.0
+E:\Music\COOL&CREATE\(01) [ビートまりお;あやぽんず＊] インターネットサバイバー.flac,OK,content extends to near the Nyquist limit -- genuinely lossless,flac,44100,16,21900,22050,4.3
+E:\Music\COOL&CREATE\(04) [ビートまりお，myu314] レイセン・オカルティア [東方深秘録 Re：Arrange].flac,OK,content extends to near the Nyquist limit -- genuinely lossless,flac,44100,16,21750,22050,1.9
+E:\Music\Crusher-P\00 - Crusher-P - Echo.flac,OK,content extends to near the Nyquist limit -- genuinely lossless,flac,44100,16,20550,22050,6.6
+E:\Music\D.Essex\10 - Max Power  (feat. D.Essex) (Extended mix).flac,OK,"gradual roll-off from 19200Hz (4dB/kHz) -- consistent with mastering, not a transcode",flac,44100,16,19200,22050,4.0
+E:\Music\Dave Mc Loud\1 - Mikado (Extended Version).flac,OK,"gradual roll-off from 17700Hz (5dB/kHz) -- consistent with mastering, not a transcode",flac,44100,16,17700,22050,4.5
+E:\Music\Dave Rodgers\1.01. DEJA VU.flac,OK,"gradual roll-off from 19800Hz (11dB/kHz) -- consistent with mastering, not a transcode",flac,48000,24,19800,24000,10.7
+E:\Music\Dave Rodgers\1.09. BEAT OF THE RISING SUN.flac,OK,"gradual roll-off from 19950Hz (11dB/kHz) -- consistent with mastering, not a transcode",flac,48000,24,19950,24000,11.4
+E:\Music\Dave Rodgers\1.12. BOOM BOOM JAPAN.flac,OK,"gradual roll-off from 20700Hz (14dB/kHz) -- consistent with mastering, not a transcode",flac,48000,24,20700,24000,14.2
+E:\Music\Dave Rodgers\1.15. THE RACE IS OVER.flac,OK,"gradual roll-off from 15750Hz (4dB/kHz) -- consistent with mastering, not a transcode",flac,48000,24,15750,24000,3.8
+E:\Music\Dave Rodgers\Dave Rodgers - Space Boy.flac,OK,"gradual roll-off from 19200Hz (5dB/kHz) -- consistent with mastering, not a transcode",flac,48000,24,19200,24000,4.8
+E:\Music\Dave Simon\A1. I Need Your Love (Original Extended Mix).flac,OK,"gradual roll-off from 18600Hz (4dB/kHz) -- consistent with mastering, not a transcode",flac,96000,24,18600,48000,4.0
+E:\Music\decaying\Decaying - Triple Baka (Remake).flac,OK,"gradual roll-off from 18450Hz (4dB/kHz) -- consistent with mastering, not a transcode",flac,44100,16,18450,22050,3.5
+E:\Music\DECO_27\00 - DECO_27 - Ghost Rule.flac,OK,"gradual roll-off from 18900Hz (4dB/kHz) -- consistent with mastering, not a transcode",flac,48000,24,18900,24000,3.6
+E:\Music\DECO_27\00 - DECO_27 - ヒバナ -Reloaded-.flac,OK,"gradual roll-off from 17550Hz (3dB/kHz) -- consistent with mastering, not a transcode",flac,44100,16,17550,22050,3.0
+E:\Music\DECO_27\01 - ネバーランド.flac,OK,"gradual roll-off from 19200Hz (4dB/kHz) -- consistent with mastering, not a transcode",flac,44100,16,19200,22050,4.4
+E:\Music\DECO_27\01 - モニタリング.flac,OK,"gradual roll-off from 17550Hz (4dB/kHz) -- consistent with mastering, not a transcode",flac,44100,16,17550,22050,3.7
+E:\Music\DECO_27\Animal.flac,OK,"gradual roll-off from 16200Hz (4dB/kHz) -- consistent with mastering, not a transcode",flac,44100,16,16200,22050,3.7
+E:\Music\DECO_27\サラマンダー.flac,OK,"gradual roll-off from 19050Hz (4dB/kHz) -- consistent with mastering, not a transcode",flac,44100,16,19050,22050,4.3
+E:\Music\DECO_27\テレパシ.flac,OK,"gradual roll-off from 17550Hz (3dB/kHz) -- consistent with mastering, not a transcode",flac,44100,16,17550,22050,3.4
+E:\Music\DECO_27\ラビットホール.flac,OK,"gradual roll-off from 20100Hz (15dB/kHz) -- consistent with mastering, not a transcode",flac,44100,16,20100,22050,14.5
+E:\Music\DECO_27\乙女解剖.flac,OK,"gradual roll-off from 13800Hz (3dB/kHz) -- consistent with mastering, not a transcode",flac,44100,16,13800,22050,3.4
+E:\Music\Dejo Bon Bratt Sinclaire\14 Wheelpower and Go! (extended mix) [Dejo & Bon].flac,OK,"gradual roll-off from 20100Hz (3dB/kHz) -- consistent with mastering, not a transcode",flac,44100,16,20100,22050,2.9
+E:\Music\Delta Queens\1.02. Dance Around the World.flac,OK,"gradual roll-off from 19800Hz (9dB/kHz) -- consistent with mastering, not a transcode",flac,44100,24,19800,22050,9.1
+E:\Music\Dr. Love\Don't Stand So Close.flac,OK,"gradual roll-off from 18000Hz (4dB/kHz) -- consistent with mastering, not a transcode",flac,44100,16,18000,22050,4.5
+E:\Music\Ducky Chix Bratt Sinclaire\15. Ducky Chix - Prayer (Extended mix).flac,OK,"gradual roll-off from 19650Hz (20dB/kHz) -- consistent with mastering, not a transcode",flac,44100,16,19650,22050,20.4
+E:\Music\Edo Boys\No One Sleep In Tokyo.flac,OK,content extends to near the Nyquist limit -- genuinely lossless,flac,44100,16,21000,22050,15.6
+E:\Music\Elisa\Lost Into The Night.flac,OK,"gradual roll-off from 19350Hz (7dB/kHz) -- consistent with mastering, not a transcode",flac,44100,16,19350,22050,7.0
+E:\Music\Eve\02. Nonsense Bungaku.flac,OK,"gradual roll-off from 16500Hz (4dB/kHz) -- consistent with mastering, not a transcode",flac,96000,24,16500,48000,3.9
+E:\Music\Eve\03. Dramaturgy.flac,OK,"gradual roll-off from 17850Hz (5dB/kHz) -- consistent with mastering, not a transcode",flac,96000,24,17850,48000,4.8
+E:\Music\Fahmi\01 Scarlet rose.flac,FAKE,brickwall cutoff at 16350Hz (39dB/kHz) matches a ~128kbps source -- transcoded,flac,44100,16,16350,22050,39.3
+E:\Music\Fastway\(29) [Fastway] Rockin Hardcore.flac,OK,content extends to near the Nyquist limit -- genuinely lossless,flac,44100,16,20550,22050,12.3
+E:\Music\Garrett Williamson\15 Garrett Williamson - The Girl Who Glitched (Ai.Mi's Theme).flac,OK,"gradual roll-off from 16650Hz (5dB/kHz) -- consistent with mastering, not a transcode",flac,48000,24,16650,24000,4.9
+E:\Music\Giga\＋♂ (Plus Boy) プラス男子 - Giga feat. Kagamine Len.flac,OK,content extends to near the Nyquist limit -- genuinely lossless,flac,44100,16,21450,22050,4.4
+E:\Music\GO2\07 Looka Bomba.flac,OK,"gradual roll-off from 15750Hz (6dB/kHz) -- consistent with mastering, not a transcode",flac,44100,16,15750,22050,5.5
+E:\Music\GO2\Spitfire.flac,OK,content extends to near the Nyquist limit -- genuinely lossless,flac,44100,16,21450,22050,13.1
+E:\Music\hachi\01 ドーナツホール.flac,OK,"gradual roll-off from 13200Hz (4dB/kHz) -- consistent with mastering, not a transcode",flac,44100,24,13200,22050,4.4
+E:\Music\hachi\01 パンダヒーロー.flac,OK,"gradual roll-off from 13800Hz (5dB/kHz) -- consistent with mastering, not a transcode",flac,44100,16,13800,22050,5.0
+E:\Music\hachi\05 結んで開いて羅刹と骸.flac,OK,"gradual roll-off from 16200Hz (3dB/kHz) -- consistent with mastering, not a transcode",flac,44100,16,16200,22050,3.0
+E:\Music\hachi\09 マトリョシカ.flac,OK,content extends to near the Nyquist limit -- genuinely lossless,flac,44100,16,21900,22050,3.6
+E:\Music\hachi\1-01 砂の惑星 feat.初音ミク.flac,OK,"gradual roll-off from 18750Hz (4dB/kHz) -- consistent with mastering, not a transcode",flac,44100,16,18750,22050,4.1
+E:\Music\HiiragiKirai\01 柊キライ - ヴィータ.flac,OK,"gradual roll-off from 14100Hz (6dB/kHz) -- consistent with mastering, not a transcode",flac,48000,16,14100,24000,5.7
+E:\Music\HiiragiKirai\Love ka.flac,OK,"gradual roll-off from 14100Hz (6dB/kHz) -- consistent with mastering, not a transcode",flac,44100,16,14100,22050,5.5
+E:\Music\Hoshimachi Suisei\00 - Hoshimachi Suisei - BIBBIDIBA.flac,OK,"gradual roll-off from 16200Hz (4dB/kHz) -- consistent with mastering, not a transcode",flac,48000,24,16200,24000,4.2
+E:\Music\Hoshimachi Suisei\00 - Hoshimachi Suisei - Caramel Pain.flac,OK,"gradual roll-off from 15600Hz (4dB/kHz) -- consistent with mastering, not a transcode",flac,48000,24,15600,24000,4.4
+E:\Music\Hoshimachi Suisei\00 - Hoshimachi Suisei - みちづれ.flac,OK,"gradual roll-off from 17400Hz (3dB/kHz) -- consistent with mastering, not a transcode",flac,48000,24,17400,24000,3.5
+E:\Music\Hoshimachi Suisei\00 - Hoshimachi Suisei - 灼熱にて純情(wii-wii-woo).flac,OK,"gradual roll-off from 19650Hz (4dB/kHz) -- consistent with mastering, not a transcode",flac,48000,24,19650,24000,3.6
+E:\Music\Hoshimachi Suisei\04. ビーナスバグ.flac,OK,"gradual roll-off from 14550Hz (4dB/kHz) -- consistent with mastering, not a transcode",flac,48000,24,14550,24000,4.0
+E:\Music\Hotblade\Power Two.flac,OK,content extends to near the Nyquist limit -- genuinely lossless,flac,44100,16,20550,22050,9.9
+E:\Music\Inabakumori\00 - Inaba Cumori - Lost Umbrella.flac,OK,"gradual roll-off from 15450Hz (22dB/kHz) -- consistent with mastering, not a transcode",flac,44100,16,15450,22050,21.8
+E:\Music\Inabakumori\00 - 稲葉曇 - リレイアウター.flac,OK,"gradual roll-off from 18750Hz (7dB/kHz) -- consistent with mastering, not a transcode",flac,48000,24,18750,24000,7.2
+E:\Music\Inabakumori\フロートプレイ.flac,OK,"gradual roll-off from 18900Hz (7dB/kHz) -- consistent with mastering, not a transcode",flac,48000,24,18900,24000,7.1
+E:\Music\IOSYS\(01) [miko] チルノのパーフェクトさんすう教室.flac,OK,"gradual roll-off from 16950Hz (3dB/kHz) -- consistent with mastering, not a transcode",flac,44100,16,16950,22050,2.7
+E:\Music\IOSYS\(02) [ARM  藤咲かりん] 魔理沙は大変なものを盗んでいきました.flac,OK,content extends to near the Nyquist limit -- genuinely lossless,flac,44100,16,20850,22050,11.9
+E:\Music\IOSYS\(02) [miko quim しゃちょう] 患部で止まってすぐ溶ける ～ 狂気の優曇華院.flac,OK,"gradual roll-off from 18150Hz (3dB/kHz) -- consistent with mastering, not a transcode",flac,44100,16,18150,22050,2.9
+E:\Music\IOSYS\(05) [山本 椛] メイドやめますか？人間やめますか？.flac,OK,content extends to near the Nyquist limit -- genuinely lossless,flac,44100,16,21900,22050,2.4
+E:\Music\iroha(sasaki)\01 炉心融解.flac,FAKE,brickwall cutoff at 15300Hz (31dB/kHz) matches a ~128kbps source -- transcoded,flac,44100,24,15300,22050,31.4
+E:\Music\Iyowa\22. Heat Abnormal.flac,OK,"gradual roll-off from 15150Hz (4dB/kHz) -- consistent with mastering, not a transcode",flac,96000,24,15150,48000,3.7
+E:\Music\Iyowa\kyu-kurarin.flac,OK,"gradual roll-off from 14850Hz (4dB/kHz) -- consistent with mastering, not a transcode",flac,44100,16,14850,22050,4.2
+E:\Music\Jager\01 - I Won't Fall Apart (Eurobeat Version).flac,OK,content extends to near the Nyquist limit -- genuinely lossless,flac,44100,16,21450,22050,16.5
+E:\Music\Jager\04 Because of You (Eurobeat Version).flac,OK,content extends to near the Nyquist limit -- genuinely lossless,flac,44100,16,21900,22050,3.9
+E:\Music\James Landino\02 - High Tea Hijinks (Lobby Theme).flac,OK,content extends to near the Nyquist limit -- genuinely lossless,flac,44100,16,21750,22050,3.6
+E:\Music\Jilly\3-19 Jilly - Be My Baby.flac,OK,"gradual roll-off from 16500Hz (4dB/kHz) -- consistent with mastering, not a transcode",flac,44100,16,16500,22050,4.0
+E:\Music\Jin\Kagerou Days - Jin.flac,OK,"gradual roll-off from 17250Hz (5dB/kHz) -- consistent with mastering, not a transcode",flac,44100,24,17250,22050,4.8
+E:\Music\jon-YAKITORY\Konton Boogie.flac,OK,"gradual roll-off from 19050Hz (3dB/kHz) -- consistent with mastering, not a transcode",flac,48000,24,19050,24000,2.7
+E:\Music\Kairiki Bear\00 - Kairiki bear - FAILURE GIRL.flac,OK,"gradual roll-off from 17400Hz (2dB/kHz) -- consistent with mastering, not a transcode",flac,44100,16,17400,22050,1.9
+E:\Music\Kairiki Bear\00 - Kairiki bear - ベノム.flac,OK,"gradual roll-off from 16350Hz (4dB/kHz) -- consistent with mastering, not a transcode",flac,44100,16,16350,22050,4.4
+E:\Music\Kairiki Bear\00 - かいりきベア - DARLING DANCE.flac,FAKE,brickwall cutoff at 19950Hz (34dB/kHz) matches a ~256-320kbps source -- transcoded,flac,44100,16,19950,22050,33.7
+E:\Music\Kairiki Bear\00 - かいりきベア - アンヘル.flac,OK,"gradual roll-off from 18000Hz (7dB/kHz) -- consistent with mastering, not a transcode",flac,44100,16,18000,22050,7.1
+E:\Music\Kanaria\00 - Kanaria - Dec..flac,OK,"gradual roll-off from 17700Hz (7dB/kHz) -- consistent with mastering, not a transcode",flac,96000,24,17700,48000,7.5
+E:\Music\Kanaria\00 - Kanaria - Demon Lord.flac,OK,"gradual roll-off from 14700Hz (5dB/kHz) -- consistent with mastering, not a transcode",flac,96000,24,14700,48000,5.5
+E:\Music\Kanaria\00 - Kanaria - Requiem (feat. Hoshimachi Suisei).flac,OK,"gradual roll-off from 16200Hz (4dB/kHz) -- consistent with mastering, not a transcode",flac,44100,16,16200,22050,3.8
+E:\Music\Kanaria\01 - Kanaria - KING (self cover).flac,OK,"gradual roll-off from 18000Hz (9dB/kHz) -- consistent with mastering, not a transcode",flac,96000,24,18000,48000,9.4
+E:\Music\Kanaria\ENVY BABY.flac,OK,"gradual roll-off from 16650Hz (5dB/kHz) -- consistent with mastering, not a transcode",flac,44100,16,16650,22050,4.8
+E:\Music\Kanaria\Queen - Kanaria.flac,OK,"gradual roll-off from 19350Hz (10dB/kHz) -- consistent with mastering, not a transcode",flac,48000,24,19350,24000,9.8
+E:\Music\Kanaria\Yoidoreshirazu.flac,OK,"gradual roll-off from 16950Hz (4dB/kHz) -- consistent with mastering, not a transcode",flac,44100,16,16950,22050,4.0
+E:\Music\kemu\Rokuchonen to ichiya monogatari (feat. IA).flac,OK,"gradual roll-off from 16650Hz (3dB/kHz) -- consistent with mastering, not a transcode",flac,44100,16,16650,22050,2.6
+E:\Music\Ken Blast\00 - Ken Blast - The Top (Extended).flac,OK,"gradual roll-off from 18600Hz (11dB/kHz) -- consistent with mastering, not a transcode",flac,44100,16,18600,22050,10.8
+E:\Music\Kevin & Cherry\(30) [Kevin & Cherry] Chemical Love.flac,OK,content extends to near the Nyquist limit -- genuinely lossless,flac,44100,16,20850,22050,17.7
+E:\Music\Kikuo\03. きくお 初音ミク - しかばねの踊り.flac,OK,"gradual roll-off from 19200Hz (6dB/kHz) -- consistent with mastering, not a transcode",flac,44100,24,19200,22050,6.1
+E:\Music\Kikuo\08. きくお 初音ミク - 君はできない子.flac,OK,"gradual roll-off from 15450Hz (4dB/kHz) -- consistent with mastering, not a transcode",flac,44100,24,15450,22050,3.5
+E:\Music\Kikuo\Kikuo - 愛して 愛して 愛して.flac,FAKE,brickwall cutoff at 16800Hz (68dB/kHz) matches a ~128kbps source -- transcoded,flac,44100,24,16800,22050,67.8
+E:\Music\Koa\01 - U.N. Owen Was Her  & Flowering Night (Koa Remix).flac,OK,"gradual roll-off from 17100Hz (8dB/kHz) -- consistent with mastering, not a transcode",flac,44100,16,17100,22050,8.3
+E:\Music\KOTOKO\01 SWEET×SWEET.flac,OK,content extends to near the Nyquist limit -- genuinely lossless,flac,44100,16,20550,22050,13.6
+E:\Music\KOTOKO\02 NEGAIGOTO.flac,OK,content extends to near the Nyquist limit -- genuinely lossless,flac,44100,16,20700,22050,12.1
+E:\Music\KOTOKO\25 ▲MEW▲△MEW△CAKE.flac,OK,"gradual roll-off from 18900Hz (7dB/kHz) -- consistent with mastering, not a transcode",flac,44100,16,18900,22050,6.5
+E:\Music\Leo_need\11 六兆年と一夜物語.flac,OK,"gradual roll-off from 14250Hz (5dB/kHz) -- consistent with mastering, not a transcode",flac,44100,16,14250,22050,5.3
+E:\Music\Leslie Parrish\Killing My Love.flac,OK,content extends to near the Nyquist limit -- genuinely lossless,flac,44100,16,20700,22050,9.6
+E:\Music\Leslie Parrish\Remember Me.flac,OK,content extends to near the Nyquist limit -- genuinely lossless,flac,44100,16,20550,22050,10.9
+E:\Music\Leslie Parrish\Save Me.flac,OK,"gradual roll-off from 20250Hz (10dB/kHz) -- consistent with mastering, not a transcode",flac,44100,16,20250,22050,9.8
+E:\Music\livetune\01_01_Catch the Wave (feat. 初音ミク).flac,OK,"gradual roll-off from 21150Hz (6dB/kHz) -- consistent with mastering, not a transcode",flac,48000,24,21150,24000,5.6
+E:\Music\Lou Grant\1 - Don't Stop The Music (Extended Mix).flac,OK,"gradual roll-off from 17550Hz (4dB/kHz) -- consistent with mastering, not a transcode",flac,96000,24,17550,48000,3.9
+E:\Music\m.o.v.e\Rage Your Dream.flac,OK,content extends to near the Nyquist limit -- genuinely lossless,flac,44100,16,20550,22050,13.7
+E:\Music\Mako & Sayuki\Mako & Sayuki - Wings Of Fire (Extended Mix).flac,OK,"gradual roll-off from 19350Hz (9dB/kHz) -- consistent with mastering, not a transcode",flac,44100,16,19350,22050,9.2
+E:\Music\Mamemi\02 - Mamemi - Love The Beat.flac,OK,"gradual roll-off from 19650Hz (11dB/kHz) -- consistent with mastering, not a transcode",flac,44100,16,19650,22050,11.1
+E:\Music\Manuel\(15) [Manuel] No Control.flac,OK,content extends to near the Nyquist limit -- genuinely lossless,flac,44100,16,20700,22050,22.2
+E:\Music\Manuel\Gas Gas Gas.flac,OK,"gradual roll-off from 19800Hz (5dB/kHz) -- consistent with mastering, not a transcode",flac,44100,16,19800,22050,4.8
+E:\Music\Marcin Przybyłowicz\29. Marcin Przybyłowicz & Mikolai Stroinski - A Story You Won't Believe.flac,OK,"gradual roll-off from 16800Hz (3dB/kHz) -- consistent with mastering, not a transcode",flac,48000,16,16800,24000,2.9
+E:\Music\Maretu\1. New Darling.flac,OK,"gradual roll-off from 18300Hz (3dB/kHz) -- consistent with mastering, not a transcode",flac,44100,24,18300,22050,3.4
+E:\Music\Maretu\1.06. Girl Eraser.flac,OK,"gradual roll-off from 16800Hz (4dB/kHz) -- consistent with mastering, not a transcode",flac,48000,24,16800,24000,3.9
+E:\Music\Maretu\12 - Umitagari.flac,OK,content extends to near the Nyquist limit -- genuinely lossless,flac,44100,24,21900,22050,2.9
+E:\Music\Maretu\13. Mind Brand.flac,OK,"gradual roll-off from 19200Hz (6dB/kHz) -- consistent with mastering, not a transcode",flac,44100,24,19200,22050,6.1
+E:\Music\Maretu\6. DARLING.flac,OK,content extends to near the Nyquist limit -- genuinely lossless,flac,44100,24,20700,22050,6.6
+E:\Music\Marko Polo\Speedy Speed Boy.flac,OK,content extends to near the Nyquist limit -- genuinely lossless,flac,44100,16,20850,22050,14.8
+E:\Music\Max Coveri\01. Max Coveri - Running In The 90's (Extended Mix).flac,OK,"gradual roll-off from 17100Hz (5dB/kHz) -- consistent with mastering, not a transcode",flac,96000,24,17100,48000,5.2
+E:\Music\Max Coveri\04. Max Coveri - Golden Age (Extended Mix).flac,OK,"gradual roll-off from 17100Hz (5dB/kHz) -- consistent with mastering, not a transcode",flac,96000,24,17100,48000,4.7
+E:\Music\Mega Nrg Man\Back On The Rocks.flac,OK,"gradual roll-off from 19350Hz (11dB/kHz) -- consistent with mastering, not a transcode",flac,44100,16,19350,22050,10.8
+E:\Music\Mega Nrg Man\Get Me Power.flac,OK,"gradual roll-off from 19800Hz (4dB/kHz) -- consistent with mastering, not a transcode",flac,44100,16,19800,22050,4.4
+E:\Music\Mega Nrg Man\Grand Prix.flac,OK,"gradual roll-off from 17100Hz (4dB/kHz) -- consistent with mastering, not a transcode",flac,44100,16,17100,22050,4.3
+E:\Music\Mikito P\39 Music!.flac,OK,"gradual roll-off from 20400Hz (9dB/kHz) -- consistent with mastering, not a transcode",flac,44100,16,20400,22050,9.5
+E:\Music\Mikito P\ロキ.flac,OK,"gradual roll-off from 15150Hz (3dB/kHz) -- consistent with mastering, not a transcode",flac,44100,16,15150,22050,3.4
+E:\Music\Move\04. Dogfight.flac,OK,content extends to near the Nyquist limit -- genuinely lossless,flac,44100,16,21300,22050,9.1
+E:\Music\Mr.Groove\Mr. Groove - 06 - Night and Day.flac,OK,content extends to near the Nyquist limit -- genuinely lossless,flac,44100,16,21150,22050,15.5
+E:\Music\Nando Bratt Sinclaire\01 Love Killer (extended mix) [Nando].flac,OK,content extends to near the Nyquist limit -- genuinely lossless,flac,44100,16,21150,22050,9.0
+E:\Music\Nashimoto Ui\AaAaAaAAaAaAAa (feat. HATSUNE MIKU).flac,OK,"gradual roll-off from 17400Hz (6dB/kHz) -- consistent with mastering, not a transcode",flac,44100,16,17400,22050,5.7
+E:\Music\Nathalie\Heartbeat.flac,OK,"gradual roll-off from 19500Hz (5dB/kHz) -- consistent with mastering, not a transcode",flac,44100,16,19500,22050,4.7
+E:\Music\natori\Overdose.flac,OK,"gradual roll-off from 16500Hz (5dB/kHz) -- consistent with mastering, not a transcode",flac,48000,24,16500,24000,5.5
+E:\Music\Nayutalien\Alien Alien.flac,OK,"gradual roll-off from 18000Hz (6dB/kHz) -- consistent with mastering, not a transcode",flac,44100,16,18000,22050,6.4
+E:\Music\NEEDY GIRL OVERDOSE\INTERNET YAMERO.flac,OK,"gradual roll-off from 18150Hz (4dB/kHz) -- consistent with mastering, not a transcode",flac,48000,24,18150,24000,3.5
+E:\Music\Neru\01. ロストワンの号哭.flac,OK,"gradual roll-off from 14550Hz (4dB/kHz) -- consistent with mastering, not a transcode",flac,48000,24,14550,24000,4.5
+E:\Music\Niko\00 - Niko - Night of Fire (Extended mix).flac,OK,"gradual roll-off from 19050Hz (4dB/kHz) -- consistent with mastering, not a transcode",flac,44100,16,19050,22050,4.3
+E:\Music\Norma Sheffield\05. Norma Sheffield - Maybe Tonight.flac,OK,"gradual roll-off from 20400Hz (7dB/kHz) -- consistent with mastering, not a transcode",flac,44100,16,20400,22050,6.7
+E:\Music\Nuage\Crazy Little Love.flac,OK,"gradual roll-off from 17100Hz (5dB/kHz) -- consistent with mastering, not a transcode",flac,44100,16,17100,22050,5.2
+E:\Music\Omaru Polka\1. Saikyou tic Polka.flac,OK,"gradual roll-off from 20850Hz (7dB/kHz) -- consistent with mastering, not a transcode",flac,48000,24,20850,24000,7.0
+E:\Music\OMGkawaiiAngel\1. Cubibibibism.flac,OK,"gradual roll-off from 22200Hz (2dB/kHz) -- consistent with mastering, not a transcode",flac,48000,24,22200,24000,2.1
+E:\Music\OMGkawaiiAngel\2. Cubism.flac,OK,"gradual roll-off from 21300Hz (5dB/kHz) -- consistent with mastering, not a transcode",flac,48000,24,21300,24000,4.8
+E:\Music\otetsu\01.飴と鎖.flac,OK,"gradual roll-off from 17850Hz (4dB/kHz) -- consistent with mastering, not a transcode",flac,44100,16,17850,22050,4.3
+E:\Music\otetsu\02.ブラックゴールド.flac,OK,"gradual roll-off from 17100Hz (5dB/kHz) -- consistent with mastering, not a transcode",flac,44100,16,17100,22050,4.5
+E:\Music\Overload\01-Black Out (Original Extended Mix).flac,OK,"gradual roll-off from 16650Hz (3dB/kHz) -- consistent with mastering, not a transcode",flac,96000,24,16650,48000,2.9
+E:\Music\PinocchioP\00 - PinocchioP - Anonymous M (feat. HATSUNE MIKU & ARuFa).flac,OK,"gradual roll-off from 17850Hz (4dB/kHz) -- consistent with mastering, not a transcode",flac,44100,16,17850,22050,4.3
+E:\Music\PinocchioP\00 - PinocchioP - God-ish.flac,OK,"gradual roll-off from 15900Hz (6dB/kHz) -- consistent with mastering, not a transcode",flac,44100,16,15900,22050,5.6
+E:\Music\PinocchioP\00 - PinocchioP - Nee Nee Nee..flac,OK,"gradual roll-off from 14700Hz (3dB/kHz) -- consistent with mastering, not a transcode",flac,44100,16,14700,22050,3.2
+E:\Music\PinocchioP\00 - PinocchioP - Reincarnation Apple.flac,OK,"gradual roll-off from 13950Hz (3dB/kHz) -- consistent with mastering, not a transcode",flac,44100,16,13950,22050,3.3
+E:\Music\PinocchioP\Love Attribute.flac,OK,"gradual roll-off from 16350Hz (5dB/kHz) -- consistent with mastering, not a transcode",flac,48000,24,16350,24000,4.8
+E:\Music\Priscilla\Love Is In Danger.flac,OK,content extends to near the Nyquist limit -- genuinely lossless,flac,44100,16,21450,22050,7.7
+E:\Music\Reol\4 - LUVORATORRRRRY!.flac,OK,content extends to near the Nyquist limit -- genuinely lossless,flac,48000,24,22650,24000,2.1
+E:\Music\Ryokuoushoku Shakai\16 - 花になって - Be a flower.flac,OK,"gradual roll-off from 15000Hz (3dB/kHz) -- consistent with mastering, not a transcode",flac,48000,24,15000,24000,3.3
+E:\Music\S3RL\S3RL - Bass Slut (Raw File).flac,OK,content extends to near the Nyquist limit -- genuinely lossless,flac,44100,16,21900,22050,2.9
+E:\Music\S3RL\S3RL - Catchit.flac,OK,"gradual roll-off from 14850Hz (5dB/kHz) -- consistent with mastering, not a transcode",flac,44100,16,14850,22050,5.4
+E:\Music\S3RL\S3RL - I Will Pick You up (feat. Tamika).flac,OK,"gradual roll-off from 15150Hz (3dB/kHz) -- consistent with mastering, not a transcode",flac,44100,16,15150,22050,3.5
+E:\Music\S3RL\S3RL - I'll See You Again (feat. Chi Chi).flac,OK,"gradual roll-off from 16950Hz (4dB/kHz) -- consistent with mastering, not a transcode",flac,44100,16,16950,22050,3.5
+E:\Music\S3RL\S3RL - Mtc.flac,OK,content extends to near the Nyquist limit -- genuinely lossless,flac,44100,16,21900,22050,1.3
+E:\Music\S3RL & Sara\S3RL & Sara - Trillium (feat. Sara).flac,OK,"gradual roll-off from 16650Hz (5dB/kHz) -- consistent with mastering, not a transcode",flac,44100,16,16650,22050,4.9
+E:\Music\samfree\12 - Luka Luka ★ Night Fever.flac,OK,content extends to near the Nyquist limit -- genuinely lossless,flac,44100,16,21300,22050,18.5
+E:\Music\Sara\02. Burning Up For You.flac,OK,content extends to near the Nyquist limit -- genuinely lossless,flac,44100,24,20850,22050,9.1
+E:\Music\Sasuke Haraguchi\Sasuke Haraguchi - イガク - Medicine.flac,OK,"gradual roll-off from 19050Hz (4dB/kHz) -- consistent with mastering, not a transcode",flac,48000,24,19050,24000,3.7
+E:\Music\SAWTOWNE\Confessions of a Rotten Girl.flac,OK,"gradual roll-off from 21450Hz (8dB/kHz) -- consistent with mastering, not a transcode",flac,48000,24,21450,24000,7.6
+E:\Music\SAWTOWNE\M@GICAL☆CURE! LOVE ♥ SHOT!.flac,OK,"gradual roll-off from 19200Hz (13dB/kHz) -- consistent with mastering, not a transcode",flac,48000,24,19200,24000,12.8
+E:\Music\Shihori\(07) [Shihori] Magic Girl !!.flac,OK,"gradual roll-off from 19500Hz (6dB/kHz) -- consistent with mastering, not a transcode",flac,44100,16,19500,22050,6.1
+E:\Music\Siinamota\09 - Young Girl A.flac,OK,"gradual roll-off from 21000Hz (18dB/kHz) -- consistent with mastering, not a transcode",flac,96000,24,21000,48000,18.4
+E:\Music\SLAVE.V-V-R\01 『めっっっ。』.flac,OK,"gradual roll-off from 16950Hz (6dB/kHz) -- consistent with mastering, not a transcode",flac,44100,16,16950,22050,5.5
+E:\Music\SLAVE.V-V-R\01 『んっあっあっ。』.flac,OK,"gradual roll-off from 16950Hz (5dB/kHz) -- consistent with mastering, not a transcode",flac,44100,16,16950,22050,4.7
+E:\Music\SLAVE.V-V-R\01. MAdEaR MAdEaR.flac,OK,"gradual roll-off from 13650Hz (5dB/kHz) -- consistent with mastering, not a transcode",flac,44100,16,13650,22050,5.2
+E:\Music\SLAVE.V-V-R\05. SLAVE.V-V-R feat. MEIKO - 私の恋はヘルファイア.flac,OK,"gradual roll-off from 17700Hz (4dB/kHz) -- consistent with mastering, not a transcode",flac,44100,16,17700,22050,3.5
+E:\Music\SLAVE.V-V-R\1.08. SLAVE.V-V-R - 『わっれっちゃう。』 ／ 'Warrecchau.'.flac,OK,"gradual roll-off from 15900Hz (4dB/kHz) -- consistent with mastering, not a transcode",flac,44100,16,15900,22050,3.5
+E:\Music\SOUND HOLIC\(05) PRESERVED VAMPIRE.flac,OK,content extends to near the Nyquist limit -- genuinely lossless,flac,44100,16,21900,22050,6.7
+E:\Music\Speedman\Speed Lover.flac,OK,content extends to near the Nyquist limit -- genuinely lossless,flac,44100,16,20550,22050,12.8
+"E:\Music\Suzumu\2-04 赤心性_カマトト荒療治 (feat. Orebanana, Kagamine Rin, Kagamine Len).flac",OK,"gradual roll-off from 19350Hz (17dB/kHz) -- consistent with mastering, not a transcode",flac,48000,16,19350,24000,16.8
+E:\Music\Symbol\(21) [Symbol] Forever Young.flac,OK,content extends to near the Nyquist limit -- genuinely lossless,flac,44100,16,20550,22050,19.3
+E:\Music\Syudou\00 - Syudou - Bakushou.flac,OK,"gradual roll-off from 14700Hz (5dB/kHz) -- consistent with mastering, not a transcode",flac,44100,16,14700,22050,5.2
+E:\Music\Syudou\00 - Syudou - Bitter Choco Decoration.flac,OK,"gradual roll-off from 17250Hz (3dB/kHz) -- consistent with mastering, not a transcode",flac,44100,16,17250,22050,3.1
+E:\Music\Syudou\00 - Syudou - In the Back Room.flac,OK,"gradual roll-off from 15750Hz (5dB/kHz) -- consistent with mastering, not a transcode",flac,44100,16,15750,22050,4.7
+E:\Music\Syudou\10. Gambling.flac,OK,"gradual roll-off from 14700Hz (7dB/kHz) -- consistent with mastering, not a transcode",flac,44100,16,14700,22050,7.1
+E:\Music\TAK\TAK - PPPP - 01 PPPP.flac,OK,"gradual roll-off from 16500Hz (3dB/kHz) -- consistent with mastering, not a transcode",flac,48000,32,16500,24000,3.0
+E:\Music\The Snake\Queen Of Mean.flac,OK,"gradual roll-off from 16950Hz (4dB/kHz) -- consistent with mastering, not a transcode",flac,44100,16,16950,22050,4.0
+E:\Music\THREEE\Lavie - THREEE.flac,OK,"gradual roll-off from 18150Hz (3dB/kHz) -- consistent with mastering, not a transcode",flac,44100,16,18150,22050,3.2
+E:\Music\THREEE\エゴロック - long ver - THREEE.flac,OK,"gradual roll-off from 15600Hz (5dB/kHz) -- consistent with mastering, not a transcode",flac,48000,24,15600,24000,4.6
+E:\Music\TOMATO GUMMY\1. FINE!! (feat. Fubuki Shirakami).flac,OK,"gradual roll-off from 19200Hz (9dB/kHz) -- consistent with mastering, not a transcode",flac,44100,16,19200,22050,9.3
+"E:\Music\TUYU\TUYU - Being low as dirt, taking what's important from me.flac",FAKE,"48000Hz container but content stops sharply at 19800Hz (32dB/kHz) -- upsampled, not hi-res",flac,48000,16,19800,24000,31.6
+"E:\Music\TUYU\TUYU - I'm getting on the bus to the other world, see ya!.flac",OK,"gradual roll-off from 18900Hz (5dB/kHz) -- consistent with mastering, not a transcode",flac,48000,16,18900,24000,4.7
+E:\Music\Vicky Vale\12 Dancing (extended mix) [Vicky Vale].flac,OK,"gradual roll-off from 19950Hz (6dB/kHz) -- consistent with mastering, not a transcode",flac,44100,16,19950,22050,5.6
+E:\Music\Victoria\01. Victoria - Stay (Extended Mix).flac,OK,"gradual roll-off from 18150Hz (3dB/kHz) -- consistent with mastering, not a transcode",flac,96000,24,18150,48000,3.5
+E:\Music\Wain L\Make Up Your Mind.flac,OK,content extends to near the Nyquist limit -- genuinely lossless,flac,44100,16,21900,22050,10.0
+E:\Music\Wonderful★opportunity!\1. リモコン -オリジナル ver.-.flac,OK,content extends to near the Nyquist limit -- genuinely lossless,flac,44100,16,21000,22050,75.1
+E:\Music\wowaka\Rollin' Girls.flac,OK,"gradual roll-off from 17100Hz (4dB/kHz) -- consistent with mastering, not a transcode",flac,44100,16,17100,22050,4.1
+E:\Music\wowaka\裏表ラバーズ.flac,OK,"gradual roll-off from 20100Hz (17dB/kHz) -- consistent with mastering, not a transcode",flac,44100,16,20100,22050,17.1
+E:\Music\YOASOBI\怪物.flac,OK,"gradual roll-off from 18750Hz (4dB/kHz) -- consistent with mastering, not a transcode",flac,192000,24,18750,96000,4.3
+E:\Music\Yoshida Yasei\Override.flac,OK,"gradual roll-off from 17100Hz (5dB/kHz) -- consistent with mastering, not a transcode",flac,44100,16,17100,22050,5.4
+E:\Music\Yuuyu\006 - Tengaku (Yuuyu ft. Kagamine Rin).flac,OK,"gradual roll-off from 15000Hz (7dB/kHz) -- consistent with mastering, not a transcode",flac,44100,16,15000,22050,7.1
+E:\Music\Za-Za\Za-Za - 09 - Love and Money.flac,OK,"gradual roll-off from 19950Hz (12dB/kHz) -- consistent with mastering, not a transcode",flac,44100,16,19950,22050,11.5
+"E:\Music\ZUN\(09) [あきやまうに, にいむ, 荒井英理也] 今宵は飄逸なエゴイスト ～ Egoistic Flowers..flac",OK,content extends to near the Nyquist limit -- genuinely lossless,flac,44100,16,21450,22050,6.7
+E:\Music\ぐちり\04 ぐちり - オルソドクシア.flac,FAKE,"48000Hz container but content stops sharply at 19800Hz (64dB/kHz) -- upsampled, not hi-res",flac,48000,16,19800,24000,64.3
+E:\Music\ぐちり\06 Schadenfreude.m4a,OK,"gradual roll-off from 19650Hz (12dB/kHz) -- consistent with mastering, not a transcode",alac,44100,16,19650,22050,11.9
+E:\Music\ぐちり\06 ぐちり - アブノーマリティ・ダンシンガール.flac,FAKE,"48000Hz container but content stops sharply at 19800Hz (63dB/kHz) -- upsampled, not hi-res",flac,48000,16,19800,24000,62.6
+E:\Music\ぐちり\ぐちり - 憂象夢象 - 02 - ニトロ.flac,OK,"gradual roll-off from 20400Hz (17dB/kHz) -- consistent with mastering, not a transcode",flac,44100,16,20400,22050,16.5
+E:\Music\ぐちり\ぐちり - 憂象夢象 - 03 - 雨路少女.flac,OK,content extends to near the Nyquist limit -- genuinely lossless,flac,44100,16,20850,22050,36.7
+E:\Music\さたぱんP\01 YABABAINA.flac,OK,content extends to near the Nyquist limit -- genuinely lossless,flac,48000,24,22950,24000,11.2
+E:\Music\ゆこぴ\Kyoufuu All Back.flac,OK,"gradual roll-off from 18300Hz (2dB/kHz) -- consistent with mastering, not a transcode",flac,44100,16,18300,22050,2.1
+E:\Music\ショコラ(CV_八木侑紀)\01 - Shiny Happy Days [16-44kHz].flac,OK,content extends to near the Nyquist limit -- genuinely lossless,flac,44100,16,21900,22050,5.5
+E:\Music\ファントムシータ\おともだち.flac,OK,"gradual roll-off from 17100Hz (4dB/kHz) -- consistent with mastering, not a transcode",flac,48000,24,17100,24000,4.3
+E:\Music\マサラダ\01. Liar Dancer.flac,OK,content extends to near the Nyquist limit -- genuinely lossless,flac,44100,16,21300,22050,3.9
+E:\Music\マサラダ\Ultra Trailer - マサラダ.flac,OK,content extends to near the Nyquist limit -- genuinely lossless,flac,44100,16,21900,22050,3.4
+E:\Music\上海アリス幻樂団\(03) [ZUN] 大吉キトゥン.flac,OK,content extends to near the Nyquist limit -- genuinely lossless,flac,44100,16,21150,22050,9.3
+E:\Music\上海アリス幻樂団\(09) [上海アリス幻樂団] ネクロファンタジア.flac,OK,content extends to near the Nyquist limit -- genuinely lossless,flac,44100,16,21900,22050,5.4
+E:\Music\上海アリス幻樂団\04. フラワリングナイト.flac,OK,"gradual roll-off from 16500Hz (4dB/kHz) -- consistent with mastering, not a transcode",flac,44100,16,16500,22050,3.6
+E:\Music\上海アリス幻樂団\15 平安のエイリアン.flac,OK,content extends to near the Nyquist limit -- genuinely lossless,flac,44100,16,21900,22050,7.3
+E:\Music\可不\05. フォニイ.flac,OK,"gradual roll-off from 18750Hz (5dB/kHz) -- consistent with mastering, not a transcode",flac,44100,16,18750,22050,4.7
+E:\Music\宝鐘マリン\Ahoy!! 我ら宝鐘海賊団☆.flac,OK,"gradual roll-off from 16050Hz (6dB/kHz) -- consistent with mastering, not a transcode",flac,48000,24,16050,24000,5.9
+E:\Music\柊マグネタイト\01 アンプランド・アポトーシス.flac,OK,"gradual roll-off from 18450Hz (6dB/kHz) -- consistent with mastering, not a transcode",flac,44100,16,18450,22050,6.1
+E:\Music\柊マグネタイト\Tetoris.flac,OK,"gradual roll-off from 20400Hz (5dB/kHz) -- consistent with mastering, not a transcode",flac,48000,24,20400,24000,5.1
+E:\Music\柊マグネタイト\Zako - 柊マグネタイト.flac,OK,"gradual roll-off from 17250Hz (3dB/kHz) -- consistent with mastering, not a transcode",flac,48000,24,17250,24000,3.4
+E:\Music\森羅万象\(01) [あやぽんず＊，あよ] 悪戯センセーション.flac,OK,content extends to near the Nyquist limit -- genuinely lossless,flac,44100,16,21900,22050,3.3
+E:\Music\森羅万象\(03) [あよ] MY Heart Rate.flac,OK,content extends to near the Nyquist limit -- genuinely lossless,flac,44100,16,20700,22050,13.2
+E:\Music\森羅万象\(04) [すばる] 無意識レクイエム.flac,OK,"gradual roll-off from 20100Hz (5dB/kHz) -- consistent with mastering, not a transcode",flac,44100,16,20100,22050,5.2
+E:\Music\白上フブキ\05 - Say!ファンファーレ!.flac,OK,"gradual roll-off from 20100Hz (3dB/kHz) -- consistent with mastering, not a transcode",flac,48000,24,20100,24000,3.4
+E:\Music\香椎モイミ\01. キャットラビング.flac,OK,"gradual roll-off from 16350Hz (4dB/kHz) -- consistent with mastering, not a transcode",flac,44100,16,16350,22050,4.5

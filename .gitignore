@@ -17,6 +17,4 @@ genres.toml
 *.log
 .DS_Store
 
-# Reference output from the Python build, captured from a private library (#1).
-oracle/
 rs/target/

@@ -1,0 +1,26 @@
+[
+  {
+    "score": 1.0,
+    "evidence": "chromaprint similarity 1.00",
+    "keep": "E:\\Music\\Ado\\4. ショコラカタブラ.flac",
+    "other": "E:\\Music\\Ado\\Ado - Chocolat Cadabra.flac",
+    "keep_bytes": 43294761,
+    "other_bytes": 24139857
+  },
+  {
+    "score": 1.0,
+    "evidence": "chromaprint similarity 1.00",
+    "keep": "E:\\Music\\Ado\\6. アタシは問題作.flac",
+    "other": "E:\\Music\\Ado\\Ado - I’m a Controversy.flac",
+    "keep_bytes": 44776076,
+    "other_bytes": 24607347
+  },
+  {
+    "score": 0.997,
+    "evidence": "chromaprint similarity 1.00",
+    "keep": "E:\\Music\\hachi\\09 マトリョシカ.flac",
+    "other": "E:\\Music\\hachi\\マトリョシカ - ORIGINAL.ogg",
+    "keep_bytes": 26882926,
+    "other_bytes": 8965864
+  }
+]

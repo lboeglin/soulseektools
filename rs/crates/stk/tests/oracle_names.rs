@@ -5,8 +5,8 @@
 //! and `romaji` is `to_romaji(normalize(raw))`, so both columns are reproducible
 //! from `raw` alone -- no index, no library, no ffmpeg.
 //!
-//! The file is not committed: it names artists and titles from a private library.
-//! These tests skip when it is absent, which is what CI sees.
+//! Nothing here needs the library the capture came from, so these run
+//! everywhere, CI included.
 
 use std::path::{Path, PathBuf};
 

@@ -205,6 +205,13 @@ a set of ad-hoc scripts and a Nicotine+ plugin, and was then rewritten in Rust.
 
 ### Changed
 
+- `oracle/` is committed. It is the reference output every step of the port was
+  checked against, and the Python build that produced it is gone, so the one
+  untracked copy on one machine was the only one there could ever be. The
+  filenames it carries come from a private library, which is what had kept it
+  out of the repository; the repository is private too (#10). Tests that need
+  only the capture, such as the 434 name forms, now run on CI as well; those
+  that also need the library still skip without it.
 - **`stk` needs nothing installed to run.** ffmpeg, ffprobe and fpcalc are gone
   (#9), which was one of the three reasons for the Rust port and the last of
   them still outstanding: the README claimed the binary was self-contained two

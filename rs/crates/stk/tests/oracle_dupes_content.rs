@@ -7,15 +7,8 @@
 //! library-wide run finds, which is the thing that has to hold, and not the
 //! fingerprints themselves, which cannot.
 //!
-//! To produce what this reads:
-//!
-//! ```console
-//! winget install AcoustID.Chromaprint
-//! export PYTHONIOENCODING=utf-8          # until #4 is fixed
-//! stk --json dupes content > oracle/dupes-content.json
-//! ```
-//!
-//! Skips while the capture is absent, which is what CI sees.
+//! This needs the library the capture names, and skips when it is not where
+//! `tags.csv` says -- which is what CI sees.
 
 mod support;
 
@@ -68,11 +61,7 @@ fn pairs_from(document: &Value) -> BTreeSet<Pair> {
 #[test]
 fn content_duplicates_match_the_oracle() {
     let (Some(capture), Some(root)) = (oracle("dupes-content.json"), library_root()) else {
-        eprintln!(
-            "skipping: capture Chromaprint fingerprints first --\n  \
-             winget install AcoustID.Chromaprint\n  \
-             stk --json dupes content > oracle/dupes-content.json"
-        );
+        eprintln!("skipping: no oracle or no library");
         return;
     };
 

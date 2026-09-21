@@ -7,8 +7,7 @@
 //! config loading nor a directory walk, only the library still being where it
 //! was.
 //!
-//! The file is not committed: it names every file in a private library. This
-//! skips when it, or the library it points at, is absent -- which is what CI
+//! This skips when the library the rows point at is absent -- which is what CI
 //! sees.
 //!
 //! `oracle/README.md` warns that these verdicts are a strong reference rather

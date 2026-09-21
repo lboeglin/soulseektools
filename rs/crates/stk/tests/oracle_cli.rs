@@ -5,7 +5,8 @@
 //! that covers the command layer itself -- the JSON shapes, the CSV encodings
 //! and the order rows come out in.
 //!
-//! `oracle/` is not committed, so these skip when it is absent.
+//! These need the library `oracle/` was captured from, and skip when it is not
+//! where `tags.csv` says -- which is what CI sees.
 
 mod support;
 

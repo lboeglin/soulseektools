@@ -1,0 +1,58 @@
+[
+  {
+    "score": 0.91,
+    "evidence": "artist 1.00, title 0.85",
+    "keep": "E:\\Music\\hachi\\09 マトリョシカ.flac",
+    "other": "E:\\Music\\hachi\\マトリョシカ - ORIGINAL.ogg",
+    "keep_bytes": 26882926,
+    "other_bytes": 8965864
+  },
+  {
+    "score": 0.91,
+    "evidence": "artist 1.00, title 0.85",
+    "keep": "E:\\Music\\Maretu\\6. DARLING.flac",
+    "other": "E:\\Music\\Maretu\\1. New Darling.flac",
+    "keep_bytes": 53643562,
+    "other_bytes": 36064875
+  },
+  {
+    "score": 0.87,
+    "evidence": "artist 1.00, title 0.78",
+    "keep": "E:\\Music\\SLAVE.V-V-R\\01 『んっあっあっ。』.flac",
+    "other": "E:\\Music\\SLAVE.V-V-R\\01 『めっっっ。』.flac",
+    "keep_bytes": 26892033,
+    "other_bytes": 19253398
+  },
+  {
+    "score": 0.8,
+    "evidence": "artist 1.00, title 0.67",
+    "keep": "E:\\Music\\Ado\\Ado - Shoka.flac",
+    "other": "E:\\Music\\Ado\\Ado - Show.flac",
+    "keep_bytes": 29529177,
+    "other_bytes": 25196803
+  },
+  {
+    "score": 0.8,
+    "evidence": "artist 1.00, title 0.67",
+    "keep": "E:\\Music\\OMGkawaiiAngel\\1. Cubibibibism.flac",
+    "other": "E:\\Music\\OMGkawaiiAngel\\2. Cubism.flac",
+    "keep_bytes": 50181504,
+    "other_bytes": 35012540
+  },
+  {
+    "score": 0.67,
+    "evidence": "artist 0.40, title 0.85",
+    "keep": "E:\\Music\\DECO_27\\00 - DECO_27 - Ghost Rule.flac",
+    "other": "E:\\Music\\Ado\\Ado - RuLe.flac",
+    "keep_bytes": 49648488,
+    "other_bytes": 26315871
+  },
+  {
+    "score": 0.66,
+    "evidence": "artist 0.38, title 0.85",
+    "keep": "E:\\Music\\Maretu\\6. DARLING.flac",
+    "other": "E:\\Music\\Kairiki Bear\\00 - かいりきベア - DARLING DANCE.flac",
+    "keep_bytes": 53643562,
+    "other_bytes": 28926191
+  }
+]
