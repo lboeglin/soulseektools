@@ -108,6 +108,7 @@ The settings worth knowing about:
 | `ranking.min_bitrate` | Discard lossy results below this. Lossless is never discarded. |
 | `review.album_minimum_tracks` | How many waiting tracks a peer's folder must hold to be offered as an album. |
 | `slskd.stall_after_seconds` | How long a download may sit queued before the next candidate is tried. |
+| `fetch.tags` | What a finished download is tagged with: `replace` (default), `fill` or `keep`. |
 | `uploader.prefer_one` | Take a batch from one peer where the per-track choice is close. On by default. |
 | `uploader.score_window` | How close "close" is. Wider than availability, narrower than any quality gap. |
 | `uploader.minimum_coverage` | How many of the batch's tracks a peer must hold to be preferred. |
@@ -275,8 +276,32 @@ stk fetch download
 ```
 
 Approved picks are queued through slskd into a folder named for the artist. Each
-completed lossless download is run through the transcode check automatically and
-the verdict recorded against the track.
+completed download is tagged from the row it was fetched for, and each lossless
+one is run through the transcode check, with the verdict recorded against the
+track.
+
+A file from Soulseek arrives with whatever its uploader left on it -- nothing,
+`Track 01` under `Unknown Artist`, or a URL in the album field and a `ripped by`
+comment -- and the row it was fetched for already says what it is. `fetch.tags`
+decides how the two meet:
+
+- **`replace`** (default): artist, title and album are written from the row, and
+  the rest of the peer's block -- comment, URL, lyrics -- is dropped. Track
+  number, disc number, album artist, genre, loudness tags and the embedded cover
+  are kept from the peer, being what the row cannot say or what another command
+  owns; a track number the export carries is written over the peer's.
+- **`fill`**: only fields the peer left empty are written, for when the peer's
+  tagging is trusted over the export's.
+- **`keep`**: the file stays as it arrived.
+
+A blank in the row never blanks the file, so a track fetched with `stk get` and
+no album keeps whatever album the peer gave it. Every write is logged, and
+`stk changes undo --last --apply` puts the peer's block back whole.
+
+The export's album is the streaming service's: sometimes a compilation or a
+"(Deluxe Edition)" that the peer's rip is not. `replace` writes it anyway -- the
+point is that the file says what was asked for -- and `stk tags apply` remains
+the way to correct it.
 
 ## Keeping the library clean
 

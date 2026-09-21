@@ -37,6 +37,24 @@ a set of ad-hoc scripts and a Nicotine+ plugin, and was then rewritten in Rust.
   candidate's `attempted` mark along with the approval, or the retry added in #2
   would fall past a candidate nothing had actually tried and the best copy would
   never be fetched.
+- `stk fetch download` tags each finished file from the review row it was
+  fetched for (#11). A download used to keep whatever its uploader left on it:
+  nothing, `Track 01` under `Unknown Artist`, or a full block with a URL in the
+  album field and a `ripped by` comment. The row carried the artist, title and
+  album that were asked for, and nothing wrote them, so `organise`, `genre
+  check`, `dupes titles` and `art fetch` were blind to the file until someone
+  went through `tags dump` and `tags apply` by hand.
+
+  `fetch.tags` decides how the two meet. `replace`, the default, writes the row
+  over the peer's fields and drops the rest of the block; `fill` writes only
+  what the peer left empty; `keep` leaves the file as it arrived. A blank in the
+  row never blanks the file, so an `stk get` row with no album leaves the
+  peer's. Album artist, genre, disc number, the loudness tags and the embedded
+  cover are the peer's to keep under every policy, being either what the row
+  cannot say or what another command owns; the track number comes from the
+  export when it carries one. Every write is logged under one `fetch download`
+  run, the dropped items as a single `extras` row, so `stk changes undo --last
+  --apply` puts the peer's block back whole.
 - `stk loudness`, which measures how loud every file actually is and writes the
   ReplayGain tags a player levels playback with. Albums are mastered at wildly
   different levels, so a shuffled library jumps in volume between tracks; the

@@ -104,6 +104,7 @@ src/
   organise.rs       the layout pattern, and moving files into it
   playlist.rs       rendering M3U, so an order can leave the library again
   replaygain.rs     loudness figures, album grouping, and the tags they become
+  retag.rs          what a fetched file is tagged with, from its review row
   tagsheet.rs       reading an edited `tags dump` back
   text/             normalisation and romaji transliteration
   library/          scanning, tags, the SQLite index, the --apply write log,
