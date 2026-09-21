@@ -24,7 +24,7 @@ use support::Scratch;
 
 fn oracle(name: &str) -> Option<PathBuf> {
     let path = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../../oracle")
+        .join("oracle")
         .join(name);
     if path.is_file() {
         Some(path)

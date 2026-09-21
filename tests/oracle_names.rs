@@ -21,7 +21,7 @@ struct Row {
 }
 
 fn oracle_path() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../oracle/romaji.csv")
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("oracle/romaji.csv")
 }
 
 fn rows() -> Option<Vec<Row>> {

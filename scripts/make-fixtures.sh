@@ -11,7 +11,7 @@
 set -euo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-out="$here/rs/crates/stk/tests/data/audio"
+out="$here/tests/data/audio"
 mkdir -p "$out"
 
 tone="sine=frequency=440:duration=2:sample_rate=44100"

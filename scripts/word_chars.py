@@ -17,7 +17,7 @@ against. ``assigned`` bounds the check: Rust's Unicode tables are newer than the
 running Python's, and codepoints Python does not know cannot appear in anything
 the oracle captured.
 
-Usage: ``python scripts/word_chars.py rs/crates/stk/tests/data``
+Usage: ``python scripts/word_chars.py tests/data``
 
 Run it under the Python whose answer the port was checked against; the header of
 each fixture records which version that was.

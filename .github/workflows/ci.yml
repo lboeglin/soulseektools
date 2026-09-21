@@ -12,7 +12,6 @@ concurrency:
 defaults:
   run:
     shell: bash
-    working-directory: rs
 
 jobs:
   check:
@@ -32,8 +31,6 @@ jobs:
         with:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: rs
 
       - run: cargo fmt --all -- --check
       - run: cargo clippy --all-targets -- -D warnings

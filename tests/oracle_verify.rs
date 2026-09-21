@@ -33,7 +33,7 @@ struct Row {
 }
 
 fn oracle_path() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../oracle/verify.csv")
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("oracle/verify.csv")
 }
 
 fn rows() -> Option<Vec<Row>> {

@@ -76,8 +76,8 @@ stk doctor
 
 These were taken from a running `slskd/slskd` container's own OpenAPI document
 and its bundled web UI, not from documentation. If a future slskd release
-changes them, `rs/crates/stk/src/soulseek/slskd.rs` is the only file that needs
-to change, and `rs/crates/stk/tests/slskd.rs` will fail first.
+changes them, `src/soulseek/slskd.rs` is the only file that needs
+to change, and `tests/slskd.rs` will fail first.
 
 To re-check them against a new release:
 

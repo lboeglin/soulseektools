@@ -3,7 +3,6 @@
 ## Getting set up
 
 ```bash
-cd rs
 cargo build
 cargo run -- --help
 ```
@@ -15,7 +14,6 @@ Nothing else needs installing, for the build or for the tests.
 Everything CI runs, locally:
 
 ```bash
-cd rs
 cargo fmt --all -- --check
 cargo clippy --all-targets -- -D warnings
 cargo test
@@ -99,7 +97,7 @@ solves. If a defect surfaced while writing tests, say what it was.
 ## Project shape
 
 ```
-rs/crates/stk/src/
+src/
   config.rs         layered settings; every tunable lives here
   models.rs         the domain types shared across layers
   matching.rs       fuzzy name matching, used by everything

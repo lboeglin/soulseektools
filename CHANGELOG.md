@@ -205,6 +205,12 @@ a set of ad-hoc scripts and a Nicotine+ plugin, and was then rewritten in Rust.
 
 ### Changed
 
+- The crate moved from `rs/crates/stk` to the repository root. `rs/` existed
+  to sit beside `py/` while both builds shared the tree; with the Python gone
+  the extra level only made every `cargo` command need a `--manifest-path`,
+  and the workspace around it had one member. `cargo build`, `cargo test` and
+  `cargo install --path .` now work from a fresh clone as they would in any
+  Rust repository.
 - `oracle/` is committed. It is the reference output every step of the port was
   checked against, and the Python build that produced it is gone, so the one
   untracked copy on one machine was the only one there could ever be. The

@@ -14,14 +14,14 @@ repos:
     hooks:
       - id: cargo-fmt
         name: cargo fmt
-        entry: cargo fmt --manifest-path rs/Cargo.toml --all -- --check
+        entry: cargo fmt --all -- --check
         language: system
         pass_filenames: false
         types: [rust]
 
       - id: cargo-clippy
         name: cargo clippy
-        entry: cargo clippy --manifest-path rs/Cargo.toml --all-targets -- -D warnings
+        entry: cargo clippy --all-targets -- -D warnings
         language: system
         pass_filenames: false
         types: [rust]

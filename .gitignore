@@ -4,4 +4,4 @@ genres.toml
 *.log
 .DS_Store
 
-rs/target/
+target/

@@ -15,7 +15,7 @@ use stk::models::{LibraryEntry, ReplayGainTags, TrackTags};
 use support::{encode, Encoded, Scratch};
 
 fn example_map() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../data/genres.example.toml")
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("data/genres.example.toml")
 }
 
 fn entry(folder_artist: &str, title: &str, genres: &[&str]) -> LibraryEntry {

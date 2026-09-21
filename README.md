@@ -49,9 +49,9 @@ This is not published to crates.io. Install it from a clone:
 git clone git@github.com:lboeglin/soulseektools.git
 cd soulseektools
 
-cargo install --path rs/crates/stk   # puts `stk` on your PATH
+cargo install --path .   # puts `stk` on your PATH
 # or, to work on it instead:
-cargo build --manifest-path rs/Cargo.toml   # then run target/debug/stk
+cargo build              # then run target/debug/stk
 ```
 
 Then set it up:
@@ -65,7 +65,7 @@ stk doctor               # check everything is reachable
 `stk doctor` reports what is present and what is missing, and exits non-zero if
 anything required is unavailable.
 
-`cargo install --path rs/crates/stk` builds from the clone, not from a registry.
+`cargo install --path .` builds from the clone, not from a registry.
 Re-run it after pulling changes; `cargo uninstall stk` removes it.
 
 ## Configuration
