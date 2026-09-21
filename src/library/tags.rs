@@ -18,7 +18,8 @@ use lofty::config::WriteOptions;
 use lofty::file::{AudioFile, TaggedFile, TaggedFileExt};
 use lofty::picture::{MimeType, Picture, PictureType};
 use lofty::prelude::{Accessor, ItemKey};
-use lofty::tag::{Tag, TagType};
+use lofty::tag::{ItemValue, Tag, TagItem, TagType};
+use serde::{Deserialize, Serialize};
 
 use crate::errors::{Error, Result};
 use crate::models::{Artwork, ReplayGainTags, TrackTags};
@@ -78,7 +79,8 @@ fn tags_of(file: &TaggedFile) -> TrackTags {
 ///
 /// Written as "3" or as "3/12"; the Python keeps the leading digits and ignores
 /// anything that is not a plain number.
-fn leading_number(value: &str) -> Option<i64> {
+#[must_use]
+pub fn leading_number(value: &str) -> Option<i64> {
     value
         .split('/')
         .next()
@@ -353,6 +355,106 @@ pub fn write_genres(path: &Path, genres: &[String]) -> Result<()> {
             ItemKey::Genre,
             lofty::tag::ItemValue::Text(value),
         ));
+    }
+
+    file.save_to_path(path, WriteOptions::default())
+        .map_err(|error| Error::Tag(format!("{}: {error}", path.display())))
+}
+
+/// A tag item outside the fields this project manages: a comment, an encoder
+/// name, a URL, lyrics -- whatever else a peer's tagger left in the block.
+///
+/// `key` is spelled the way the file's own tag format spells it (`COMM`,
+/// `ENCODER`, `©too`), which is what makes it possible to put one back into the
+/// same block by name. A `locator` is a URL item, which ID3v2 and APE keep as
+/// their own kind of frame.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Extra {
+    pub key: String,
+    pub value: String,
+    #[serde(default)]
+    pub locator: bool,
+}
+
+/// The keys an extra is never made of: what this module reads or writes on
+/// purpose, plus the encoder fields, which on Vorbis comments are the vendor
+/// string the container always carries and so could never be stripped.
+fn is_kept(key: &ItemKey) -> bool {
+    matches!(
+        key,
+        ItemKey::EncoderSoftware
+            | ItemKey::EncoderSettings
+            | ItemKey::TrackArtist
+            | ItemKey::AlbumArtist
+            | ItemKey::AlbumTitle
+            | ItemKey::TrackTitle
+            | ItemKey::TrackNumber
+            | ItemKey::TrackTotal
+            | ItemKey::DiscNumber
+            | ItemKey::DiscTotal
+            | ItemKey::Genre
+    ) || REPLAY_GAIN_KEYS.contains(key)
+        || *key == unknown_key(R128_TRACK_GAIN)
+        || *key == unknown_key(R128_ALBUM_GAIN)
+}
+
+/// Every text item a file carries that this project does not manage.
+///
+/// Binary items are not reported: they cannot be logged as text, and nothing
+/// a peer leaves in one is worth keeping. Embedded pictures are not items at
+/// all and are never touched by this or by [`write_extras`].
+pub fn read_extras(path: &Path) -> Result<Vec<Extra>> {
+    Ok(extras_of(&read_file(path)?))
+}
+
+fn extras_of(file: &TaggedFile) -> Vec<Extra> {
+    let Some(tag) = first_tag(file) else {
+        return Vec::new();
+    };
+    let tag_type = tag.tag_type();
+    tag.items()
+        .filter(|item| !is_kept(item.key()))
+        .filter_map(|item| {
+            let (value, locator) = match item.value() {
+                ItemValue::Text(text) => (text, false),
+                ItemValue::Locator(url) => (url, true),
+                ItemValue::Binary(_) => return None,
+            };
+            Some(Extra {
+                key: spell_key(item.key(), tag_type),
+                value: value.clone(),
+                locator,
+            })
+        })
+        .collect()
+}
+
+fn spell_key(key: &ItemKey, tag_type: TagType) -> String {
+    match key {
+        ItemKey::Unknown(name) => name.clone(),
+        mapped => mapped
+            .map_key(tag_type, true)
+            .map_or_else(|| format!("{mapped:?}"), str::to_owned),
+    }
+}
+
+/// Replace every unmanaged text item with `extras`, so an empty list strips a
+/// peer's comment, encoder and URL fields and leaves nothing else changed.
+///
+/// Total rather than a patch, for the same reason [`write_tags`] is: an undo
+/// has to put back exactly the set that was logged.
+pub fn write_extras(path: &Path, extras: &[Extra]) -> Result<()> {
+    let mut file = read_file(path)?;
+    let tag_type = existing_or_default_tag_type(&file);
+    let tag = tag_for_writing(&mut file, tag_type);
+    tag.retain(|item| is_kept(item.key()));
+    for extra in extras {
+        let value = if extra.locator {
+            ItemValue::Locator(extra.value.clone())
+        } else {
+            ItemValue::Text(extra.value.clone())
+        };
+        tag.push_unchecked(TagItem::new(ItemKey::from_key(tag_type, &extra.key), value));
     }
 
     file.save_to_path(path, WriteOptions::default())

@@ -2,7 +2,7 @@
 
 mod support;
 
-use lofty::prelude::{ItemKey, TaggedFileExt};
+use lofty::prelude::{AudioFile as _, ItemKey, TaggedFileExt};
 use stk::library::tags::{self, TagField};
 use stk::models::{Artwork, ReplayGainTags, TrackTags};
 use support::{committed, encode, Encoded, Scratch};
@@ -597,4 +597,153 @@ fn an_r128_field_is_asked_of_opus_and_of_nothing_else() {
 
         assert_eq!(described.r128, *extension == "opus", "{extension}");
     }
+}
+
+/// What a Soulseek peer's tagger typically leaves beside the fields that matter.
+fn peer_block() -> Encoded<'static> {
+    Encoded {
+        metadata: &[
+            ("artist", "Unknown Artist"),
+            ("title", "Track 01"),
+            ("genre", "Vocaloid"),
+            ("disc", "2"),
+            ("comment", "ripped by someone"),
+            ("REPLAYGAIN_TRACK_GAIN", "-7.29 dB"),
+        ],
+        ..Encoded::default()
+    }
+}
+
+/// The encoder is the exception among a peer's leftovers: on Vorbis comments
+/// it is the vendor string, which the container always carries, so it counts
+/// as kept everywhere or a round trip through `write_extras` could never be
+/// total.
+#[test]
+fn an_encoder_name_is_not_an_extra() {
+    let scratch = Scratch::new("tags-extras-encoder");
+    let path = encode(
+        &scratch.join("t.mp3"),
+        &Encoded {
+            metadata: &[("encoder", "LAME 3.100")],
+            ..Encoded::default()
+        },
+    );
+
+    assert!(tags::read_extras(&path)
+        .expect("readable extras")
+        .is_empty());
+}
+
+#[test]
+fn read_extras_reports_only_what_this_project_does_not_manage() {
+    let scratch = Scratch::new("tags-extras-read");
+    let path = encode(&scratch.join("t.flac"), &peer_block());
+
+    assert_eq!(
+        tags::read_extras(&path).expect("readable extras"),
+        vec![tags::Extra {
+            key: "COMMENT".to_owned(),
+            value: "ripped by someone".to_owned(),
+            locator: false,
+        },]
+    );
+}
+
+#[test]
+fn stripping_the_extras_keeps_every_managed_field_and_the_cover() {
+    let scratch = Scratch::new("tags-extras-strip");
+    let path = encode(&scratch.join("t.flac"), &peer_block());
+    tags::write_artwork(&path, &artwork(1)).expect("an embedded cover");
+
+    tags::write_extras(&path, &[]).expect("stripped extras");
+
+    assert!(tags::read_extras(&path)
+        .expect("readable extras")
+        .is_empty());
+    let read = tags::read_tags(&path).expect("readable tags");
+    assert_eq!(read.artist, "Unknown Artist");
+    assert_eq!(read.title, "Track 01");
+    assert_eq!(read.genres, vec!["Vocaloid".to_owned()]);
+    assert_eq!(
+        tags::read_replay_gain(&path)
+            .expect("readable loudness tags")
+            .track_gain
+            .as_deref(),
+        Some("-7.29 dB")
+    );
+    assert_eq!(
+        tags::read_artwork(&path).expect("readable artwork"),
+        Some(artwork(1))
+    );
+    let file = lofty::read_from_path(&path).expect("a readable file");
+    let tag = file.primary_tag().expect("a tag");
+    assert_eq!(tag.get_string(&ItemKey::DiscNumber), Some("2"));
+}
+
+#[test]
+fn extras_round_trip_through_every_container() {
+    let scratch = Scratch::new("tags-extras-round-trip");
+    for suffix in TAGGABLE {
+        let path = encode(
+            &scratch.join(&format!("t.{suffix}")),
+            &Encoded {
+                metadata: &[("title", "Roki"), ("comment", "ripped by someone")],
+                ..Encoded::default()
+            },
+        );
+        let before = tags::read_extras(&path).expect("readable extras");
+        assert_eq!(before.len(), 1, "{suffix}: {before:?}");
+
+        tags::write_extras(&path, &[]).expect("stripped extras");
+        assert!(
+            tags::read_extras(&path)
+                .expect("readable extras")
+                .is_empty(),
+            "{suffix}"
+        );
+
+        tags::write_extras(&path, &before).expect("restored extras");
+        assert_eq!(
+            tags::read_extras(&path).expect("readable extras"),
+            before,
+            "{suffix}"
+        );
+        assert_eq!(
+            tags::read_tags(&path).expect("readable tags").title,
+            "Roki",
+            "{suffix}"
+        );
+    }
+}
+
+/// ID3v2 keeps a URL as its own kind of frame, and putting one back as text
+/// would write a different frame from the one that was logged.
+#[test]
+fn a_url_item_comes_back_as_a_url() {
+    let scratch = Scratch::new("tags-extras-url");
+    let path = encode(&scratch.join("t.mp3"), &Encoded::default());
+    let mut file = lofty::read_from_path(&path).expect("a readable file");
+    let tag = file
+        .tag_mut(lofty::tag::TagType::Id3v2)
+        .expect("the tag the fixture carries");
+    tag.push_unchecked(lofty::tag::TagItem::new(
+        ItemKey::AudioFileUrl,
+        lofty::tag::ItemValue::Locator("https://example.invalid/roki".to_owned()),
+    ));
+    file.save_to_path(&path, lofty::config::WriteOptions::default())
+        .expect("a written url");
+
+    let extras = tags::read_extras(&path).expect("readable extras");
+    assert_eq!(
+        extras,
+        vec![tags::Extra {
+            key: "WOAF".to_owned(),
+            value: "https://example.invalid/roki".to_owned(),
+            locator: true,
+        }]
+    );
+
+    tags::write_extras(&path, &[]).expect("stripped extras");
+    tags::write_extras(&path, &extras).expect("restored extras");
+    assert_eq!(tags::read_extras(&path).expect("readable extras"), extras);
 }
