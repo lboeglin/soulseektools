@@ -23,7 +23,9 @@
 
 use std::path::Path;
 
-use rusty_chromaprint::{Configuration, Fingerprinter};
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use base64::Engine as _;
+use rusty_chromaprint::{Configuration, FingerprintCompressor, Fingerprinter};
 
 use crate::audio::decode::Audio;
 use crate::errors::{Error, Result};
@@ -69,6 +71,25 @@ impl Fingerprint {
     pub fn is_empty(&self) -> bool {
         self.values.is_empty()
     }
+
+    /// The form AcoustID takes, which is what `fpcalc` prints.
+    ///
+    /// The values are delta-coded and bit-packed, then written as URL-safe
+    /// base64 without padding. The first byte of the packed form names the
+    /// algorithm, so the configuration here has to be the one [`fingerprint`]
+    /// ran with: a print encoded under another preset would be looked up
+    /// against the wrong index and match nothing.
+    #[must_use]
+    pub fn compressed(&self) -> String {
+        let configuration = preset();
+        URL_SAFE_NO_PAD.encode(FingerprintCompressor::from(&configuration).compress(&self.values))
+    }
+}
+
+/// The preset AcoustID's index is built from, and therefore the only one a
+/// lookup can be made with.
+fn preset() -> Configuration {
+    Configuration::preset_test2()
 }
 
 /// Compute a track's fingerprint.
@@ -76,7 +97,7 @@ pub fn fingerprint(path: &Path) -> Result<Fingerprint> {
     let mut audio = Audio::open(path)?;
     let stream = audio.stream().clone();
 
-    let mut printer = Fingerprinter::new(&Configuration::preset_test2());
+    let mut printer = Fingerprinter::new(&preset());
     printer
         .start(stream.sample_rate, stream.channels)
         .map_err(|error| Error::Audio(format!("{}: {error}", path.display())))?;

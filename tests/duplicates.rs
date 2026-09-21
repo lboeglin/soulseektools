@@ -420,3 +420,58 @@ fn fingerprints_are_cached_in_the_index() {
     // Two files fingerprinted on the first pass, none on the second.
     assert_eq!(calls, 2);
 }
+
+#[test]
+fn the_index_answers_a_cached_print_without_opening_the_file() {
+    // The entries name files that do not exist: a hit that had to decode would
+    // fail, so a value coming back is proof the cache answered.
+    let scratch = Scratch::new("index-cached-prints");
+    let entries = [
+        entry("X/a.flac", "One", "Track"),
+        entry("Y/b.flac", "Two", "Other"),
+    ];
+    let shape = print(0, 40);
+
+    let mut index = LibraryIndex::open(&scratch.join("index.db")).expect("an index");
+    index
+        .store_fingerprint(&entries[0].path, entries[0].mtime, &shape)
+        .expect("a stored print");
+
+    let prints = index.fingerprints(&entries);
+
+    assert_eq!(prints[0].as_ref().expect("the cached print"), &shape);
+    assert!(prints[1].is_err());
+}
+
+#[test]
+fn a_print_the_index_had_to_compute_is_stored_for_the_next_run() {
+    let scratch = Scratch::new("index-stores-prints");
+    let track = support::encode(
+        &scratch.join("Music").join("a.flac"),
+        &support::Encoded {
+            seconds: 4.0,
+            modulation_hz: 0.7,
+            ..support::Encoded::default()
+        },
+    );
+    let described =
+        stk::library::index::describe(&track, &scratch.join("Music")).expect("an entry");
+
+    let mut index = LibraryIndex::open(&scratch.join("index.db")).expect("an index");
+    assert!(index
+        .fingerprint(&track, described.mtime)
+        .expect("a lookup")
+        .is_none());
+
+    let prints = index.fingerprints(std::slice::from_ref(&described));
+
+    let computed = prints[0].as_ref().expect("a computed print");
+    assert!(!computed.is_empty());
+    assert_eq!(
+        index
+            .fingerprint(&track, described.mtime)
+            .expect("a lookup")
+            .as_ref(),
+        Some(computed)
+    );
+}

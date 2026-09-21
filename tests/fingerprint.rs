@@ -150,3 +150,56 @@ fn a_container_with_no_decoder_says_so_rather_than_scoring_zero() {
     let error = fingerprint(&track).expect_err("no decoder");
     assert!(error.to_string().contains("no decoder"), "{error}");
 }
+
+#[test]
+fn the_compressed_form_names_the_algorithm_and_the_length() {
+    // AcoustID reads the first byte as the algorithm and the next three as the
+    // number of values, so a print encoded under any other preset than the one
+    // computed with would be looked up against the wrong index.
+    let values: Vec<u32> = (0..300_u32)
+        .map(|value| value.wrapping_mul(2_654_435_761))
+        .collect();
+    let encoded = print(values).compressed();
+
+    let header: Vec<u8> = decode_base64url(&encoded).into_iter().take(4).collect();
+    assert_eq!(header, [1, 0, 1, 44]);
+}
+
+#[test]
+fn the_compressed_form_is_url_safe_base64_without_padding() {
+    // fpcalc's spelling, and the only one AcoustID accepts in a query string.
+    for length in [1, 2, 3, 40, 41] {
+        let encoded = print((0..length).map(|value| value * 7).collect()).compressed();
+        assert!(
+            encoded
+                .chars()
+                .all(|character| character.is_ascii_alphanumeric() || "-_".contains(character)),
+            "{encoded}"
+        );
+    }
+}
+
+/// A decoder small enough to live here, so the test does not trust the
+/// encoder it is checking.
+fn decode_base64url(text: &str) -> Vec<u8> {
+    const ALPHABET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+    let mut bits: u32 = 0;
+    let mut count = 0;
+    let mut bytes = Vec::new();
+    for character in text.bytes() {
+        let value = u32::try_from(
+            ALPHABET
+                .iter()
+                .position(|candidate| *candidate == character)
+                .expect("a base64url character"),
+        )
+        .expect("an index below 64");
+        bits = (bits << 6) | value;
+        count += 6;
+        if count >= 8 {
+            count -= 8;
+            bytes.push(u8::try_from((bits >> count) & 0xFF).expect("a masked byte"));
+        }
+    }
+    bytes
+}

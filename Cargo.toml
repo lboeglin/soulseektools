@@ -17,6 +17,7 @@ name = "stk"
 path = "src/bin/stk.rs"
 
 [dependencies]
+base64 = "0.22.1"
 clap = { version = "4.5.61", features = ["derive", "env"] }
 csv = "1.4.0"
 ebur128 = "0.1.10"

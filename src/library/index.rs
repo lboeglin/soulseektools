@@ -9,6 +9,7 @@
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
+use rayon::prelude::*;
 use rusqlite::{params, params_from_iter, Connection, OptionalExtension};
 
 use crate::audio::fingerprint::{self, Fingerprint};
@@ -689,6 +690,48 @@ impl LibraryIndex {
             values: serde_json::from_str(&values).unwrap_or_default(),
             duration_seconds,
         }))
+    }
+
+    /// A fingerprint for each entry, computed only where the cache has none.
+    ///
+    /// The misses are decoded in parallel, the way `verify` fans out over its
+    /// files: a fingerprint reads two minutes of audio, and a library-wide run
+    /// is otherwise bounded by one core. What was computed is stored, so the
+    /// next command needing the same print pays nothing.
+    pub fn fingerprints(&mut self, entries: &[LibraryEntry]) -> Vec<Result<Fingerprint>> {
+        let cached: Vec<Option<Fingerprint>> = entries
+            .iter()
+            .map(|entry| self.fingerprint(&entry.path, entry.mtime).ok().flatten())
+            .collect();
+
+        let missing: Vec<&LibraryEntry> = entries
+            .iter()
+            .zip(&cached)
+            .filter(|(_, hit)| hit.is_none())
+            .map(|(entry, _)| entry)
+            .collect();
+        let mut computed = missing
+            .par_iter()
+            .map(|entry| fingerprint::fingerprint(&entry.path))
+            .collect::<Vec<_>>()
+            .into_iter();
+
+        entries
+            .iter()
+            .zip(cached)
+            .map(|(entry, hit)| {
+                if let Some(value) = hit {
+                    return Ok(value);
+                }
+                let value = computed
+                    .next()
+                    .unwrap_or_else(|| unreachable!("one computed print per miss"));
+                if let Ok(value) = &value {
+                    let _ = self.store_fingerprint(&entry.path, entry.mtime, value);
+                }
+                value
+            })
+            .collect()
     }
 
     pub fn store_fingerprint(
