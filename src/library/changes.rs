@@ -24,7 +24,7 @@ use sha2::{Digest, Sha256};
 
 use crate::errors::{Error, Result};
 use crate::library::index::LibraryIndex;
-use crate::library::tags::{self, TagField};
+use crate::library::tags::{self, Extra, TagField};
 use crate::models::{Artwork, ReplayGainTags, TrackTags};
 
 /// What a logged row changed about a file.
@@ -54,9 +54,28 @@ pub enum ChangeField {
     TrackNumber,
     /// Where the file is, rather than what it says.
     Move,
+    /// Every tag item outside the fields above, as one set (#11).
+    ///
+    /// A fetched file's comment, URL and lyrics are dropped together, and an
+    /// undo puts the whole set back: there is no field among them anyone edits
+    /// on its own, so nothing is gained by a row apiece.
+    Extras,
 }
 
 impl ChangeField {
+    pub const ALL: [Self; 10] = [
+        Self::Genre,
+        Self::Artwork,
+        Self::ReplayGain,
+        Self::Artist,
+        Self::AlbumArtist,
+        Self::Album,
+        Self::Title,
+        Self::TrackNumber,
+        Self::Move,
+        Self::Extras,
+    ];
+
     #[must_use]
     pub fn as_str(self) -> &'static str {
         match self {
@@ -69,6 +88,7 @@ impl ChangeField {
             Self::Title => "title",
             Self::TrackNumber => "track_number",
             Self::Move => "move",
+            Self::Extras => "extras",
         }
     }
 
@@ -96,20 +116,10 @@ impl FromStr for ChangeField {
     type Err = String;
 
     fn from_str(text: &str) -> std::result::Result<Self, Self::Err> {
-        [
-            Self::Genre,
-            Self::Artwork,
-            Self::ReplayGain,
-            Self::Artist,
-            Self::AlbumArtist,
-            Self::Album,
-            Self::Title,
-            Self::TrackNumber,
-            Self::Move,
-        ]
-        .into_iter()
-        .find(|field| field.as_str() == text)
-        .ok_or_else(|| format!("unknown change field: {text}"))
+        Self::ALL
+            .into_iter()
+            .find(|field| field.as_str() == text)
+            .ok_or_else(|| format!("unknown change field: {text}"))
     }
 }
 
@@ -258,6 +268,25 @@ impl ChangeLog {
             // scanned, so the comparison `plan_undo` makes stays total.
             old_value: Some(encode_replay_gain(old)),
             new_value: Some(encode_replay_gain(new)),
+        })
+    }
+
+    /// Log the unmanaged tag items as one set, as `fetch download` drops them.
+    pub fn extras(
+        &self,
+        index: &mut LibraryIndex,
+        path: &Path,
+        old: &[Extra],
+        new: &[Extra],
+    ) -> Result<i64> {
+        index.record_change(&NewChange {
+            run_id: self.run_id,
+            applied_at: self.applied_at,
+            command: self.command.clone(),
+            path: path.to_path_buf(),
+            field: ChangeField::Extras,
+            old_value: Some(encode_extras(old)),
+            new_value: Some(encode_extras(new)),
         })
     }
 
@@ -423,6 +452,17 @@ pub fn plan_undo(index: &LibraryIndex, change: Change) -> Result<UndoPlan> {
                 format!("move it back to {}", back.display()),
             )
         }
+        ChangeField::Extras => {
+            let restored = decode_extras(change.old_value.as_deref());
+            (
+                Some(encode_extras(&tags::read_extras(&change.path)?)),
+                if restored.is_empty() {
+                    "remove the extra tags".to_owned()
+                } else {
+                    format!("put back the {} dropped tag(s)", restored.len())
+                },
+            )
+        }
     };
 
     let blocked = if current == change.new_value {
@@ -509,6 +549,12 @@ pub fn apply_undo(
             )?;
             return Ok(());
         }
+        ChangeField::Extras => {
+            let current = tags::read_extras(&change.path)?;
+            let restored = decode_extras(change.old_value.as_deref());
+            tags::write_extras(&change.path, &restored)?;
+            log.extras(index, &change.path, &current, &restored)?;
+        }
     }
 
     index.reindex(&change.path, roots)?;
@@ -592,6 +638,19 @@ pub fn encode_genres(genres: &[String]) -> String {
 
 #[must_use]
 pub fn decode_genres(value: Option<&str>) -> Vec<String> {
+    value
+        .and_then(|text| serde_json::from_str(text).ok())
+        .unwrap_or_default()
+}
+
+/// How a set of extras is stored, so each item round-trips through the log.
+#[must_use]
+pub fn encode_extras(extras: &[Extra]) -> String {
+    serde_json::to_string(extras).unwrap_or_else(|_| "[]".to_owned())
+}
+
+#[must_use]
+pub fn decode_extras(value: Option<&str>) -> Vec<Extra> {
     value
         .and_then(|text| serde_json::from_str(text).ok())
         .unwrap_or_default()

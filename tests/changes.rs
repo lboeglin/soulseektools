@@ -10,8 +10,8 @@ mod support;
 use std::path::{Path, PathBuf};
 
 use stk::library::changes::{
-    apply_undo, decode_genres, decode_replay_gain, digest, plan_undo, Blocked, ChangeFilter,
-    ChangeLog,
+    apply_undo, decode_extras, decode_genres, decode_replay_gain, digest, plan_undo, Blocked,
+    ChangeFilter, ChangeLog,
 };
 use stk::library::index::{default_extensions, LibraryIndex};
 use stk::library::scan::Excludes;
@@ -753,4 +753,130 @@ fn a_scan_changed_since_it_was_logged_blocks_its_undo() {
 
     assert_eq!(plan.blocked, Some(Blocked::FileChanged));
     assert!(plan.allowed(true));
+}
+
+/// A file as a peer leaves it: a comment beside the fields that matter.
+fn commented(scratch: &Scratch) -> PathBuf {
+    let track = scratch.join("Music").join("ZUN").join("Commented.flac");
+    encode(
+        &track,
+        &Encoded {
+            metadata: &[
+                ("artist", "ZUN"),
+                ("title", "Heian Alien"),
+                ("comment", "ripped by someone"),
+            ],
+            ..Encoded::default()
+        },
+    );
+    track
+}
+
+fn strip_extras(index: &mut LibraryIndex, log: &ChangeLog, track: &Path) {
+    let before = tags::read_extras(track).expect("readable extras");
+    tags::write_extras(track, &[]).expect("stripped extras");
+    log.extras(index, track, &before, &[])
+        .expect("a logged change");
+}
+
+#[test]
+fn dropped_extras_are_logged_as_one_row_holding_every_item() {
+    let scratch = Scratch::new("changes-extras-row");
+    let root = library(&scratch);
+    let track = commented(&scratch);
+    let mut index = indexed(&scratch, &root);
+
+    let log = ChangeLog::open(&index, "fetch download", 100.0).expect("a run");
+    strip_extras(&mut index, &log, &track);
+
+    let changes = index
+        .changes(&ChangeFilter::default())
+        .expect("the logged rows");
+    assert_eq!(changes.len(), 1);
+    assert_eq!(changes[0].field, "extras");
+    assert_eq!(
+        decode_extras(changes[0].old_value.as_deref()),
+        vec![tags::Extra {
+            key: "COMMENT".to_owned(),
+            value: "ripped by someone".to_owned(),
+            locator: false,
+        }]
+    );
+    assert_eq!(changes[0].new_value.as_deref(), Some("[]"));
+}
+
+#[test]
+fn undoing_dropped_extras_puts_the_comment_back() {
+    let scratch = Scratch::new("changes-extras-undo");
+    let root = library(&scratch);
+    let track = commented(&scratch);
+    let mut index = indexed(&scratch, &root);
+
+    let log = ChangeLog::open(&index, "fetch download", 100.0).expect("a run");
+    strip_extras(&mut index, &log, &track);
+    assert!(tags::read_extras(&track)
+        .expect("readable extras")
+        .is_empty());
+
+    let change = index
+        .changes(&ChangeFilter::default())
+        .expect("the logged rows")
+        .remove(0);
+    let plan = plan_undo(&index, change).expect("a plan");
+    assert!(plan.ready(), "{:?}", plan.blocked);
+    assert_eq!(plan.description, "put back the 1 dropped tag(s)");
+
+    let undo = ChangeLog::open(&index, "changes undo", 200.0).expect("a run");
+    apply_undo(&mut index, &plan, &undo, std::slice::from_ref(&root)).expect("an undo");
+
+    let extras = tags::read_extras(&track).expect("readable extras");
+    assert_eq!(extras.len(), 1);
+    assert_eq!(extras[0].value, "ripped by someone");
+    assert_eq!(
+        tags::read_tags(&track).expect("readable tags").title,
+        "Heian Alien"
+    );
+    let undone = index
+        .changes(&ChangeFilter::default())
+        .expect("the logged rows")
+        .remove(0);
+    assert_eq!(undone.command, "changes undo");
+    assert_eq!(undone.old_value.as_deref(), Some("[]"));
+}
+
+#[test]
+fn an_extra_added_since_the_drop_blocks_its_undo() {
+    let scratch = Scratch::new("changes-extras-blocked");
+    let root = library(&scratch);
+    let track = commented(&scratch);
+    let mut index = indexed(&scratch, &root);
+
+    let log = ChangeLog::open(&index, "fetch download", 100.0).expect("a run");
+    strip_extras(&mut index, &log, &track);
+    tags::write_extras(
+        &track,
+        &[tags::Extra {
+            key: "COMMENT".to_owned(),
+            value: "edited by hand".to_owned(),
+            locator: false,
+        }],
+    )
+    .expect("a later edit");
+
+    let change = index
+        .changes(&ChangeFilter::default())
+        .expect("the logged rows")
+        .remove(0);
+    let plan = plan_undo(&index, change).expect("a plan");
+
+    assert_eq!(plan.blocked, Some(Blocked::FileChanged));
+}
+
+#[test]
+fn every_change_field_round_trips_through_its_spelling() {
+    use stk::library::changes::ChangeField;
+    for field in ChangeField::ALL {
+        assert_eq!(field.as_str().parse::<ChangeField>(), Ok(field));
+    }
+    assert!("extras".parse::<ChangeField>().is_ok());
 }
