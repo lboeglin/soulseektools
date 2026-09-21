@@ -818,6 +818,77 @@ fn tags_apply_reports_a_row_that_is_not_in_the_index() {
     drop(harness);
 }
 
+/// Every `tags identify` test here stays off the network: a file that names
+/// an artist and a title is not looked up, and an Opus file cannot be
+/// fingerprinted, so neither run ever reaches AcoustID. The lookup and the
+/// choice are covered against recorded responses in `tests/identify.rs`.
+#[test]
+fn tags_identify_looks_nothing_up_when_every_file_is_tagged() {
+    let _guard = exclusive();
+    let harness = Harness::new("cli-identify-tagged");
+    let root = library(&harness);
+    harness.with_config(&root);
+    run(&["library", "scan"]);
+
+    assert_eq!(run(&["tags", "identify", "--apply"]), 0);
+    assert!(logged(&harness).is_empty());
+    drop(harness);
+}
+
+#[test]
+fn tags_identify_reports_a_file_it_cannot_fingerprint() {
+    // Opus is taggable and undecodable: the one container that reaches the
+    // command and cannot be looked up. Reported, not fatal, and nothing is
+    // written for it.
+    let _guard = exclusive();
+    let harness = Harness::new("cli-identify-opus");
+    let root = library(&harness);
+    let track = encode(
+        &root.join("Unknown").join("01 track.opus"),
+        &Encoded::default(),
+    );
+    harness.with_config(&root);
+    run(&["library", "scan"]);
+
+    assert_eq!(run(&["tags", "identify", "--apply"]), 0);
+    assert_eq!(run(&["--json", "tags", "identify"]), 0);
+
+    assert_eq!(title_of(&track), "");
+    assert!(logged(&harness).is_empty());
+    drop(harness);
+}
+
+#[test]
+fn tags_identify_on_a_path_nothing_is_indexed_under_says_so() {
+    let _guard = exclusive();
+    let harness = Harness::new("cli-identify-elsewhere");
+    let root = library(&harness);
+    harness.with_config(&root);
+    run(&["library", "scan"]);
+
+    let elsewhere = harness.join("Elsewhere");
+    assert_eq!(
+        run(&[
+            "tags",
+            "identify",
+            &elsewhere.display().to_string(),
+            "--all"
+        ]),
+        0
+    );
+    drop(harness);
+}
+
+#[test]
+fn tags_identify_on_an_empty_index_says_so() {
+    let _guard = exclusive();
+    let harness = Harness::new("cli-identify-empty");
+    harness.with_config(&harness.join("Music"));
+
+    assert_eq!(run(&["tags", "identify"]), 0);
+    drop(harness);
+}
+
 #[test]
 fn tags_apply_rejects_a_sheet_with_no_path_column() {
     let _guard = exclusive();

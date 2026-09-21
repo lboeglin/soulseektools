@@ -1,4 +1,5 @@
-//! `stk tags` -- dump the library's metadata for eyeballing or grepping.
+//! `stk tags` -- dump the library's metadata, write an edited dump back, and
+//! identify what a dump cannot name.
 
 use std::path::{Path, PathBuf};
 
@@ -7,9 +8,13 @@ use serde_json::json;
 
 use crate::cli::context::{show, table, unix_now, AppContext};
 use crate::errors::{Error, Result};
+use crate::identify::acoustid::{self, AcoustId};
+use crate::identify::{self, Identification, Outcome};
 use crate::library::changes::ChangeLog;
+use crate::library::index::LibraryIndex;
 use crate::library::tags::TagField;
 use crate::models::LibraryEntry;
+use crate::services::HttpTransport;
 use crate::tagsheet::{self, Blanks, PlannedEdit, TagChange};
 
 /// The dump's columns, which `oracle/tags.csv` froze.
@@ -65,6 +70,20 @@ pub enum TagsCommand {
         #[arg(long)]
         clear_blanks: bool,
     },
+    /// Identify files from their audio through AcoustID, and tag them.
+    Identify {
+        /// File or folder to identify. Defaults to the whole library.
+        path: Option<PathBuf>,
+        /// Look up every file, not only those missing an artist or a title.
+        #[arg(long)]
+        all: bool,
+        /// Write the tags. Without this, nothing is modified.
+        #[arg(long)]
+        apply: bool,
+        /// Look up at most this many files.
+        #[arg(long)]
+        limit: Option<usize>,
+    },
 }
 
 #[allow(clippy::needless_pass_by_value)]
@@ -83,6 +102,12 @@ pub fn run(context: &AppContext, command: TagsCommand) -> Result<i32> {
             apply,
             clear_blanks,
         } => apply_sheet(context, &sheet, apply, clear_blanks),
+        TagsCommand::Identify {
+            path,
+            all,
+            apply,
+            limit,
+        } => identify_files(context, path.as_deref(), all, apply, limit),
     }
 }
 
@@ -216,18 +241,7 @@ fn apply_sheet(context: &AppContext, sheet: &Path, apply: bool, clear_blanks: bo
     let mut failures: Vec<(String, String)> = Vec::new();
     if apply {
         let log = ChangeLog::open(&index, "tags apply", unix_now())?;
-        for change in &changes {
-            let path = &change.edit.path;
-            match tagsheet::apply_change(change) {
-                Ok(before) => {
-                    for field in &change.fields {
-                        log.tag(&mut index, path, *field, &before, &change.proposed)?;
-                    }
-                    index.reindex(path, &roots)?;
-                }
-                Err(error) => failures.push((show(path), error.to_string())),
-            }
-        }
+        failures = write_changes(&mut index, &roots, &log, &changes)?;
     }
 
     if context.as_json {
@@ -245,6 +259,33 @@ fn apply_sheet(context: &AppContext, sheet: &Path, apply: bool, clear_blanks: bo
 
     report(context, &planned, &changes, &failures, apply);
     Ok(0)
+}
+
+/// Write each planned change, log it, and re-read the file into the index.
+///
+/// A file that refuses the write is reported rather than aborting the run;
+/// one whose tags moved since the plan is among those, since `apply_change`
+/// refuses it.
+fn write_changes(
+    index: &mut LibraryIndex,
+    roots: &[PathBuf],
+    log: &ChangeLog,
+    changes: &[&TagChange],
+) -> Result<Vec<(String, String)>> {
+    let mut failures = Vec::new();
+    for change in changes {
+        let path = &change.edit.path;
+        match tagsheet::apply_change(change) {
+            Ok(before) => {
+                for field in &change.fields {
+                    log.tag(index, path, *field, &before, &change.proposed)?;
+                }
+                index.reindex(path, roots)?;
+            }
+            Err(error) => failures.push((show(path), error.to_string())),
+        }
+    }
+    Ok(failures)
 }
 
 fn planned_row(change: &TagChange) -> serde_json::Value {
@@ -334,4 +375,191 @@ fn report(
             changes.len()
         ));
     }
+}
+
+/// Look files up on AcoustID and show, or write, what they turn out to be.
+///
+/// Only files missing an artist or a title are looked up unless `--all` says
+/// otherwise: a lookup decodes two minutes of audio and costs a request, and
+/// a tagged file is usually right. What comes back is a plan in the same
+/// shape as `tags apply`'s, written through the same log, so an undo takes
+/// the run back the same way.
+fn identify_files(
+    context: &AppContext,
+    path: Option<&Path>,
+    all: bool,
+    apply: bool,
+    limit: Option<usize>,
+) -> Result<i32> {
+    let roots = context.library_roots();
+    let mut index = context.open_index()?;
+    let entries = index.entries()?;
+    if entries.is_empty() {
+        context.say("Index is empty. Run stk library scan first.");
+        return Ok(0);
+    }
+
+    // The index keys files by absolute path, so a folder named from the shell
+    // has to be made absolute before it can select any of them.
+    let path = path.map(|path| std::path::absolute(path).unwrap_or_else(|_| path.to_path_buf()));
+    let under = |entry: &LibraryEntry| {
+        path.as_ref()
+            .is_none_or(|path| entry.path.starts_with(path))
+    };
+    let mut targets: Vec<LibraryEntry> = entries
+        .iter()
+        .filter(|entry| under(entry))
+        .filter(|entry| tagsheet::taggable(&entry.path))
+        .filter(|entry| all || entry.tags.artist.is_empty() || entry.tags.title.is_empty())
+        .cloned()
+        .collect();
+    if let Some(limit) = limit {
+        targets.truncate(limit);
+    }
+    if targets.is_empty() {
+        context.say(&match &path {
+            Some(path) if !entries.iter().any(under) => {
+                format!(
+                    "Nothing indexed under {}. Run stk library scan first.",
+                    show(path)
+                )
+            }
+            _ if all => "Nothing to identify: no taggable file is indexed there.".to_owned(),
+            _ => "Nothing to identify: every indexed file names an artist and a title. \
+                  Pass --all to look them up anyway."
+                .to_owned(),
+        });
+        return Ok(0);
+    }
+
+    let settings = &context.settings().identify;
+    let http = HttpTransport::new(
+        settings.request_timeout_seconds,
+        &context.settings().artwork.contact,
+    )?;
+    let client = AcoustId::new(acoustid::MIN_INTERVAL_SECONDS);
+    let prints = index.fingerprints(&targets);
+    let identifications = identify::identify(&http, &client, &targets, prints, settings);
+
+    let planned = tagsheet::plan_changes(&identify::edits(&identifications), &entries);
+    let changes: Vec<&TagChange> = planned
+        .iter()
+        .filter_map(|edit| match edit {
+            PlannedEdit::Change(change) => Some(change.as_ref()),
+            PlannedEdit::Skip { .. } => None,
+        })
+        .collect();
+
+    let mut failures: Vec<(String, String)> = identifications
+        .iter()
+        .filter_map(|identification| match &identification.outcome {
+            Outcome::Failed(error) => Some((show(&identification.entry.path), error.clone())),
+            Outcome::Match(_) | Outcome::NoMatch(_) => None,
+        })
+        .collect();
+    if apply {
+        let log = ChangeLog::open(&index, "tags identify", unix_now())?;
+        failures.extend(write_changes(&mut index, &roots, &log, &changes)?);
+        keep_prints(&mut index, &changes, &targets);
+    }
+
+    if context.as_json {
+        context.emit(&json!({
+            "identified": identifications.iter().filter_map(identified_row).collect::<Vec<_>>(),
+            "unmatched": identifications.iter().filter_map(unmatched_row).collect::<Vec<_>>(),
+            "planned": changes.iter().copied().map(planned_row).collect::<Vec<_>>(),
+            "skipped": planned.iter().filter_map(skipped_row).collect::<Vec<_>>(),
+            "applied": apply,
+            "failed": failures
+                .iter()
+                .map(|(path, error)| json!({"path": path, "error": error}))
+                .collect::<Vec<_>>(),
+        }));
+        return Ok(0);
+    }
+
+    report_identifications(context, &identifications);
+    report(context, &planned, &changes, &failures, apply);
+    Ok(0)
+}
+
+/// Re-file each written file's print under its new mtime.
+///
+/// The cache is keyed on the file's mtime, and writing tags moves it, so the
+/// print that was just paid for would otherwise be a miss on the next run.
+/// The audio did not change because the tags did.
+fn keep_prints(index: &mut LibraryIndex, changes: &[&TagChange], targets: &[LibraryEntry]) {
+    for change in changes {
+        let path = &change.edit.path;
+        let Some(before) = targets.iter().find(|entry| &entry.path == path) else {
+            continue;
+        };
+        let Ok(Some(print)) = index.fingerprint(path, before.mtime) else {
+            continue;
+        };
+        if let Ok(Some(after)) = index.entry(path) {
+            let _ = index.store_fingerprint(path, after.mtime, &print);
+        }
+    }
+}
+
+fn identified_row(identification: &Identification) -> Option<serde_json::Value> {
+    let Outcome::Match(found) = &identification.outcome else {
+        return None;
+    };
+    Some(json!({
+        "path": show(&identification.entry.path),
+        "score": found.score,
+        "recording_id": found.recording_id,
+        "release_id": found.release_id,
+        "year": found.year,
+        "reason": found.reason,
+        "proposed": {
+            "artist": found.proposed.artist,
+            "album_artist": found.proposed.album_artist,
+            "album": found.proposed.album,
+            "title": found.proposed.title,
+            "track_number": found.proposed.track_number,
+        },
+    }))
+}
+
+fn unmatched_row(identification: &Identification) -> Option<serde_json::Value> {
+    let Outcome::NoMatch(reason) = &identification.outcome else {
+        return None;
+    };
+    Some(json!({
+        "path": show(&identification.entry.path),
+        "reason": reason,
+    }))
+}
+
+/// One line per file: what it was taken for, and why that release.
+fn report_identifications(context: &AppContext, identifications: &[Identification]) {
+    let rows: Vec<Vec<String>> = identifications
+        .iter()
+        .map(|identification| {
+            let name = identification
+                .entry
+                .path
+                .file_name()
+                .map(|name| name.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            match &identification.outcome {
+                Outcome::Match(found) => vec![
+                    format!("{:.2}", found.score),
+                    name,
+                    format!("{} - {}", found.proposed.artist, found.proposed.title),
+                    match found.year {
+                        Some(year) => format!("{} ({year})", found.proposed.album),
+                        None => found.proposed.album.clone(),
+                    },
+                    found.reason.clone(),
+                ],
+                Outcome::NoMatch(reason) => vec!["--".to_owned(), name, reason.clone()],
+                Outcome::Failed(error) => vec!["!!".to_owned(), name, error.clone()],
+            }
+        })
+        .collect();
+    context.say(&table(&["Score", "File", "Track", "Release", "Why"], &rows));
 }

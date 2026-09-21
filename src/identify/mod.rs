@@ -136,9 +136,10 @@ pub fn choose(hits: &[Hit], entry: &LibraryEntry, settings: &IdentifySettings) -
     );
     // Said out loud rather than refused: one print linked only to a cover is
     // usually the cover, and the file's own tag is what was wrong. The plan is
-    // where that is decided.
-    if chosen.rank.artist == Fit::Differs && !entry.artist.raw.is_empty() {
-        let _ = write!(reason, "; not credited to {}", entry.artist.raw);
+    // where that is decided. Only a tag is worth contradicting; the folder an
+    // untagged file sits in is what the lookup exists to replace.
+    if chosen.rank.artist == Fit::Differs && !entry.tags.artist.is_empty() {
+        let _ = write!(reason, "; not credited to {}", entry.tags.artist);
     }
 
     let (recording, release) = (chosen.recording, chosen.release);

@@ -435,17 +435,26 @@ fn the_reason_names_the_compilation_rule_when_that_is_what_decided() {
 fn a_match_credited_to_someone_else_says_so() {
     // With --all a tagged file is looked up too, and one print linked only to
     // a cover is usually the cover; the plan says so rather than refusing.
-    let found = matched(choose(
-        &lookup("deja-vu.json"),
-        &entry("Music/Someone Else/Deja Vu.flac", ""),
-        &settings(),
-    ));
+    let mut tagged = entry("Music/Someone Else/Deja Vu.flac", "");
+    tagged.tags.artist = "Someone Else".to_owned();
+    let found = matched(choose(&lookup("deja-vu.json"), &tagged, &settings()));
 
     assert!(
         found.reason.ends_with("; not credited to Someone Else"),
         "{}",
         found.reason
     );
+}
+
+#[test]
+fn an_untagged_files_folder_is_not_worth_contradicting() {
+    let found = matched(choose(
+        &lookup("deja-vu.json"),
+        &entry("Music/Unknown/01 track.flac", ""),
+        &settings(),
+    ));
+
+    assert!(!found.reason.contains("not credited"), "{}", found.reason);
 }
 
 #[test]

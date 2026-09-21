@@ -219,7 +219,9 @@ pub fn plan_changes(edits: &[TagEdit], entries: &[LibraryEntry]) -> Vec<PlannedE
         .collect()
 }
 
-fn taggable(path: &Path) -> bool {
+/// Whether tags can be written to a file's container.
+#[must_use]
+pub fn taggable(path: &Path) -> bool {
     path.extension()
         .and_then(|extension| extension.to_str())
         .is_some_and(|extension| {
