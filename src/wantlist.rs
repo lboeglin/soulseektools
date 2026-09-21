@@ -30,6 +30,9 @@ pub const DURATION_COLUMNS: &[&str] = &[
     "track duration (ms)",
     "length",
 ];
+/// Not read into a [`Track`] field: it stays in `source_row` and is looked up
+/// when a download is tagged (#11).
+pub const TRACK_NUMBER_COLUMNS: &[&str] = &["track number", "track_number", "track no", "track"];
 
 /// A wanted track matched to a file already in the library.
 #[derive(Debug, Clone, PartialEq)]

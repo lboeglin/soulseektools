@@ -144,6 +144,20 @@ impl Track {
     pub fn query(&self) -> String {
         format!("{} - {}", self.artist, self.title)
     }
+
+    /// The export's value under the first of `columns` its header carries,
+    /// matched the way `wantlist::read_export` matches a header: trimmed and
+    /// case-insensitive. Empty when the row has the column but nothing in it.
+    #[must_use]
+    pub fn source_value(&self, columns: &[&str]) -> Option<&str> {
+        columns.iter().find_map(|wanted| {
+            self.source_row
+                .iter()
+                .find(|(header, _)| header.trim().eq_ignore_ascii_case(wanted))
+                .map(|(_, value)| value.trim())
+                .filter(|value| !value.is_empty())
+        })
+    }
 }
 
 /// One file offered by a Soulseek peer, as the search results describe it.

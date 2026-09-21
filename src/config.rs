@@ -14,6 +14,7 @@ use crate::errors::{Error, Result};
 
 use crate::audio::spectral;
 use crate::matching::MatchThresholds;
+use crate::retag::TagPolicy;
 
 /// Thresholds deciding when two names describe the same track.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -418,6 +419,16 @@ impl Default for OrganiseSettings {
     }
 }
 
+/// What happens to a download's tags once it has arrived (#11).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, default)]
+pub struct FetchSettings {
+    /// `replace` writes the review row over the peer's tags and drops the
+    /// rest of the block, `fill` writes only what the peer left empty, `keep`
+    /// leaves the file as it arrived. Embedded artwork survives all three.
+    pub tags: TagPolicy,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, default)]
 pub struct GenreSettings {
@@ -444,6 +455,7 @@ pub struct Settings {
     pub review: ReviewSettings,
     pub matching: MatchingSettings,
     pub slskd: SlskdSettings,
+    pub fetch: FetchSettings,
     pub ranking: RankingSettings,
     pub uploader: UploaderSettings,
     pub verify: VerifySettings,

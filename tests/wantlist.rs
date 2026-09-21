@@ -224,3 +224,35 @@ fn blocking_finds_a_match_inside_a_large_library() {
 
     assert!(result.missing.is_empty());
 }
+
+/// The track number stays in the raw row and is read back by header, with the
+/// same tolerance the export was read with (#11).
+#[test]
+fn a_track_number_is_found_whatever_its_header_spelling() {
+    let scratch = Scratch::new("wantlist-track-number");
+    let path = write_csv(
+        &scratch,
+        "Track Name,Artist Name(s),TRACK NUMBER \nRoki,DECO*27,3\n",
+    );
+
+    let track = &read_export(&path).expect("an export")[0];
+    assert_eq!(
+        track.source_value(stk::wantlist::TRACK_NUMBER_COLUMNS),
+        Some("3")
+    );
+}
+
+#[test]
+fn an_empty_cell_reads_as_no_value() {
+    let scratch = Scratch::new("wantlist-track-number-empty");
+    let path = write_csv(
+        &scratch,
+        "Track Name,Artist Name(s),Track Number\nRoki,DECO*27,\n",
+    );
+
+    let track = &read_export(&path).expect("an export")[0];
+    assert_eq!(
+        track.source_value(stk::wantlist::TRACK_NUMBER_COLUMNS),
+        None
+    );
+}

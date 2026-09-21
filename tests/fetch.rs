@@ -13,7 +13,11 @@ use std::sync::Mutex;
 use stk::config::Settings;
 use stk::errors::{Error, Result};
 use stk::fetch::{self, downloaded_path};
+use stk::library::changes::{apply_undo, plan_undo, ChangeFilter, ChangeLog};
+use stk::library::index::LibraryIndex;
+use stk::library::tags::{self, TagField};
 use stk::models::{Candidate, ScoredCandidate, Track, TrackStatus, Verdict};
+use stk::retag::TagPolicy;
 use stk::review::albums;
 use stk::review::store::ReviewStore;
 use stk::soulseek::base::{SoulseekClient, Transfer, TransferState};
@@ -124,12 +128,44 @@ fn settings(scratch: &Scratch) -> Settings {
             download_directory: Some(scratch.join("downloads")),
             ..stk::config::SlskdSettings::default()
         },
+        index: stk::config::IndexSettings {
+            path: scratch.join("library.db"),
+        },
+        library: stk::config::LibrarySettings {
+            root: scratch.join("Music"),
+            ..stk::config::LibrarySettings::default()
+        },
         ..Settings::default()
     }
 }
 
 fn store(scratch: &Scratch) -> ReviewStore {
     ReviewStore::open(&scratch.join("review.db")).expect("a store")
+}
+
+/// The index a collect logs its tag writes against, beside the review store.
+fn index(settings: &Settings) -> LibraryIndex {
+    LibraryIndex::open(&settings.index.path).expect("an index")
+}
+
+/// `fetch::collect` with the library it needs opened from `settings`, so a
+/// test about transfers does not have to spell the tag step out.
+fn collect(
+    store: &mut ReviewStore,
+    client: &dyn SoulseekClient,
+    settings: &Settings,
+    verify: bool,
+) -> Result<Vec<fetch::CollectOutcome>> {
+    let mut index = index(settings);
+    fetch::collect(
+        store,
+        client,
+        settings,
+        &mut index,
+        &settings.library.all_roots(),
+        2000.0,
+        verify,
+    )
 }
 
 fn roki() -> Track {
@@ -382,7 +418,7 @@ fn nothing_is_recorded_while_a_transfer_is_still_running() {
         "",
     )]);
 
-    assert!(fetch::collect(&mut store, &client, &settings, true)
+    assert!(collect(&mut store, &client, &settings, true)
         .expect("a collect")
         .is_empty());
 }
@@ -399,7 +435,7 @@ fn a_completed_transfer_is_recorded() {
         TransferState::Completed,
         "",
     )]);
-    let outcomes = fetch::collect(&mut store, &client, &settings, true).expect("a collect");
+    let outcomes = collect(&mut store, &client, &settings, true).expect("a collect");
 
     assert_eq!(outcomes.len(), 1);
     assert_eq!(
@@ -424,7 +460,7 @@ fn a_failed_transfer_is_recorded_as_a_failure() {
         TransferState::Failed,
         "peer gone",
     )]);
-    let outcomes = fetch::collect(&mut store, &client, &settings, true).expect("a collect");
+    let outcomes = collect(&mut store, &client, &settings, true).expect("a collect");
 
     assert_eq!(outcomes[0].state, TransferState::Failed);
     // One candidate was found, so there is nothing left to promote and the track
@@ -457,7 +493,7 @@ fn a_failed_transfer_promotes_the_next_candidate_when_there_is_one() {
         TransferState::Failed,
         "peer gone",
     )]);
-    let outcomes = fetch::collect(&mut store, &failing, &settings, true).expect("a collect");
+    let outcomes = collect(&mut store, &failing, &settings, true).expect("a collect");
 
     assert_eq!(outcomes[0].retried_with_rank, Some(2));
     let entry = store.track(track_id).expect("a lookup").expect("the track");
@@ -479,7 +515,7 @@ fn a_transfer_for_another_track_is_ignored() {
         "",
     )]);
 
-    assert!(fetch::collect(&mut store, &client, &settings, true)
+    assert!(collect(&mut store, &client, &settings, true)
         .expect("a collect")
         .is_empty());
 }
@@ -496,7 +532,7 @@ fn the_local_path_is_rebuilt_from_the_destination() {
         TransferState::Completed,
         "",
     )]);
-    let outcome = &fetch::collect(&mut store, &client, &settings, false).expect("a collect")[0];
+    let outcome = &collect(&mut store, &client, &settings, false).expect("a collect")[0];
 
     assert_eq!(
         outcome.local_path,
@@ -507,7 +543,8 @@ fn the_local_path_is_rebuilt_from_the_destination() {
 #[test]
 fn no_local_path_is_guessed_without_a_configured_download_directory() {
     let scratch = Scratch::new("fetch-no-download-dir");
-    let settings = Settings::default();
+    let mut settings = settings(&scratch);
+    settings.slskd.download_directory = None;
     let mut store = store(&scratch);
     queued(&mut store, &settings);
 
@@ -516,7 +553,7 @@ fn no_local_path_is_guessed_without_a_configured_download_directory() {
         TransferState::Completed,
         "",
     )]);
-    let outcome = &fetch::collect(&mut store, &client, &settings, false).expect("a collect")[0];
+    let outcome = &collect(&mut store, &client, &settings, false).expect("a collect")[0];
 
     assert_eq!(outcome.local_path, None);
 }
@@ -539,7 +576,7 @@ fn a_downloaded_lossless_file_is_verified() {
         TransferState::Completed,
         "",
     )]);
-    let outcome = &fetch::collect(&mut store, &client, &settings, true).expect("a collect")[0];
+    let outcome = &collect(&mut store, &client, &settings, true).expect("a collect")[0];
 
     assert_eq!(
         outcome.verdict.as_ref().expect("a verdict").verdict,
@@ -564,7 +601,7 @@ fn a_downloaded_transcode_is_recorded_against_the_track() {
         TransferState::Completed,
         "",
     )]);
-    let outcome = &fetch::collect(&mut store, &client, &settings, true).expect("a collect")[0];
+    let outcome = &collect(&mut store, &client, &settings, true).expect("a collect")[0];
 
     assert_eq!(
         outcome.verdict.as_ref().expect("a verdict").verdict,
@@ -586,7 +623,7 @@ fn a_missing_file_is_recorded_without_a_verdict() {
         TransferState::Completed,
         "",
     )]);
-    let outcome = &fetch::collect(&mut store, &client, &settings, true).expect("a collect")[0];
+    let outcome = &collect(&mut store, &client, &settings, true).expect("a collect")[0];
 
     assert!(outcome.verdict.is_none());
 }
@@ -609,7 +646,7 @@ fn verification_can_be_skipped() {
         TransferState::Completed,
         "",
     )]);
-    let outcome = &fetch::collect(&mut store, &client, &settings, false).expect("a collect")[0];
+    let outcome = &collect(&mut store, &client, &settings, false).expect("a collect")[0];
 
     assert!(outcome.verdict.is_none());
 }
@@ -636,7 +673,7 @@ fn a_lossy_download_is_not_put_through_the_lossless_check() {
         TransferState::Completed,
         "",
     )]);
-    let outcome = &fetch::collect(&mut store, &finished, &settings, true).expect("a collect")[0];
+    let outcome = &collect(&mut store, &finished, &settings, true).expect("a collect")[0];
 
     assert!(outcome.verdict.is_none());
 }
@@ -648,11 +685,9 @@ fn no_transfers_at_all_does_nothing() {
     let mut store = store(&scratch);
     queued(&mut store, &settings);
 
-    assert!(
-        fetch::collect(&mut store, &FakeClient::default(), &settings, true)
-            .expect("a collect")
-            .is_empty()
-    );
+    assert!(collect(&mut store, &FakeClient::default(), &settings, true)
+        .expect("a collect")
+        .is_empty());
 }
 
 #[test]
@@ -1190,7 +1225,7 @@ fn an_album_approval_queues_and_collects_each_track_on_its_own() {
             "peer gone",
         ),
     ]);
-    let outcomes = fetch::collect(&mut store, &client, &settings, false).expect("a collect");
+    let outcomes = collect(&mut store, &client, &settings, false).expect("a collect");
 
     assert_eq!(outcomes.len(), 2);
     // Still `<download dir>/<artist>/<filename>`: the album changed which files
@@ -1212,4 +1247,330 @@ fn an_album_approval_queues_and_collects_each_track_on_its_own() {
             .username,
         "solo"
     );
+}
+
+/// The file as a peer typically leaves it: junk in the fields that matter,
+/// a comment beside them, and a cover (#11).
+fn peer_tagged(path: &std::path::Path) {
+    encode(
+        path,
+        &Encoded {
+            metadata: &[
+                ("artist", "Unknown Artist"),
+                ("title", "Track 01"),
+                ("album", "www.something.ru"),
+                ("albumartist", "Various"),
+                ("track", "7"),
+                ("genre", "Vocaloid"),
+                ("comment", "ripped by someone"),
+            ],
+            ..Encoded::default()
+        },
+    );
+    tags::write_artwork(
+        path,
+        &stk::models::Artwork {
+            data: vec![0xAB; 512],
+            mime: "image/jpeg".to_owned(),
+        },
+    )
+    .expect("an embedded cover");
+}
+
+fn roki_with_album() -> Track {
+    Track {
+        album: "Ghost".to_owned(),
+        ..roki()
+    }
+}
+
+/// Roki searched, approved and queued, with the file already on disk as the
+/// peer tagged it.
+fn arrived(store: &mut ReviewStore, settings: &Settings, track: &Track) -> (i64, PathBuf) {
+    store
+        .add(std::slice::from_ref(track))
+        .expect("an added track");
+    let client = FakeClient::with_candidates(vec![candidate("@@peerA\\Music\\Roki.flac")]);
+    fetch::search_pending(store, &client, settings, None).expect("a search");
+    let track_id = store.tracks(&[], None).expect("tracks")[0].id;
+    store.approve(track_id, 1).expect("an approval");
+    fetch::enqueue_approved(store, &FakeClient::default(), None, 1000.0).expect("an enqueue");
+
+    let path = scratch_download(settings);
+    peer_tagged(&path);
+    (track_id, path)
+}
+
+fn scratch_download(settings: &Settings) -> PathBuf {
+    settings
+        .slskd
+        .download_directory
+        .clone()
+        .expect("a download directory")
+        .join("DECO_27")
+        .join("Roki.flac")
+}
+
+fn completed() -> FakeClient {
+    FakeClient::with_transfers(vec![transfer(
+        "@@peerA\\Music\\Roki.flac",
+        TransferState::Completed,
+        "",
+    )])
+}
+
+#[test]
+fn a_completed_download_is_tagged_from_its_review_row() {
+    let scratch = Scratch::new("fetch-tag-replace");
+    let settings = settings(&scratch);
+    let mut store = store(&scratch);
+    let (_, path) = arrived(&mut store, &settings, &roki_with_album());
+
+    let outcome = &collect(&mut store, &completed(), &settings, false).expect("a collect")[0];
+
+    let read = tags::read_tags(&path).expect("readable tags");
+    assert_eq!(read.artist, "DECO*27");
+    assert_eq!(read.title, "Roki");
+    assert_eq!(read.album, "Ghost");
+    let retagged = outcome.tags.as_ref().expect("a tag outcome");
+    assert_eq!(retagged.policy, TagPolicy::Replace);
+    assert_eq!(
+        retagged.fields,
+        vec![TagField::Artist, TagField::Album, TagField::Title]
+    );
+    assert_eq!(retagged.before.artist, "Unknown Artist");
+    assert!(retagged.error.is_empty(), "{}", retagged.error);
+}
+
+#[test]
+fn replace_keeps_what_the_row_cannot_say_and_drops_the_rest() {
+    let scratch = Scratch::new("fetch-tag-kept");
+    let settings = settings(&scratch);
+    let mut store = store(&scratch);
+    let (_, path) = arrived(&mut store, &settings, &roki_with_album());
+
+    let outcome = &collect(&mut store, &completed(), &settings, false).expect("a collect")[0];
+
+    let read = tags::read_tags(&path).expect("readable tags");
+    assert_eq!(read.album_artist, "Various");
+    assert_eq!(read.track_number, Some(7));
+    assert_eq!(read.genres, vec!["Vocaloid".to_owned()]);
+    assert_eq!(tags::artwork_size(&path), 512);
+    assert!(tags::read_extras(&path)
+        .expect("readable extras")
+        .is_empty());
+    assert_eq!(outcome.tags.as_ref().expect("a tag outcome").dropped, 1);
+}
+
+/// An `stk get` row has no album, and a title-only query no artist: a blank
+/// in the row must not blank a field the peer filled.
+#[test]
+fn a_blank_in_the_row_never_blanks_the_file() {
+    let scratch = Scratch::new("fetch-tag-blank");
+    let settings = settings(&scratch);
+    let mut store = store(&scratch);
+    let (_, path) = arrived(&mut store, &settings, &roki());
+
+    collect(&mut store, &completed(), &settings, false).expect("a collect");
+
+    let read = tags::read_tags(&path).expect("readable tags");
+    assert_eq!(read.album, "www.something.ru");
+    assert_eq!(read.artist, "DECO*27");
+}
+
+#[test]
+fn a_track_number_in_the_export_row_is_written_over_the_peers() {
+    let scratch = Scratch::new("fetch-tag-track-number");
+    let settings = settings(&scratch);
+    let mut store = store(&scratch);
+    let track = Track {
+        source_row: vec![
+            ("Track Name".to_owned(), "Roki".to_owned()),
+            ("Track Number".to_owned(), "3".to_owned()),
+        ],
+        ..roki_with_album()
+    };
+    let (_, path) = arrived(&mut store, &settings, &track);
+
+    let outcome = &collect(&mut store, &completed(), &settings, false).expect("a collect")[0];
+
+    assert_eq!(
+        tags::read_tags(&path).expect("readable tags").track_number,
+        Some(3)
+    );
+    assert!(outcome
+        .tags
+        .as_ref()
+        .expect("a tag outcome")
+        .fields
+        .contains(&TagField::TrackNumber));
+}
+
+#[test]
+fn every_tag_written_at_collect_is_logged_under_one_run() {
+    let scratch = Scratch::new("fetch-tag-logged");
+    let settings = settings(&scratch);
+    let mut store = store(&scratch);
+    let (_, path) = arrived(&mut store, &settings, &roki_with_album());
+
+    collect(&mut store, &completed(), &settings, false).expect("a collect");
+
+    let changes = index(&settings)
+        .changes(&ChangeFilter::default())
+        .expect("the logged rows");
+    let mut fields: Vec<&str> = changes.iter().map(|row| row.field.as_str()).collect();
+    fields.sort_unstable();
+    assert_eq!(fields, vec!["album", "artist", "extras", "title"]);
+    assert!(changes.iter().all(|row| row.command == "fetch download"));
+    assert!(changes.iter().all(|row| row.run_id == changes[0].run_id));
+    assert!(changes.iter().all(|row| row.path == path));
+    let artist = changes
+        .iter()
+        .find(|row| row.field == "artist")
+        .expect("the artist row");
+    assert_eq!(artist.old_value.as_deref(), Some("Unknown Artist"));
+    assert_eq!(artist.new_value.as_deref(), Some("DECO*27"));
+}
+
+#[test]
+fn undoing_the_collect_restores_the_peers_block() {
+    let scratch = Scratch::new("fetch-tag-undo");
+    let settings = settings(&scratch);
+    let mut store = store(&scratch);
+    let (_, path) = arrived(&mut store, &settings, &roki_with_album());
+    collect(&mut store, &completed(), &settings, false).expect("a collect");
+
+    let mut index = index(&settings);
+    let roots = settings.library.all_roots();
+    let undo = ChangeLog::open(&index, "changes undo", 3000.0).expect("a run");
+    for change in index
+        .changes(&ChangeFilter::default())
+        .expect("the logged rows")
+    {
+        let plan = plan_undo(&index, change).expect("a plan");
+        assert!(plan.ready(), "{:?}", plan.blocked);
+        apply_undo(&mut index, &plan, &undo, &roots).expect("an undo");
+    }
+
+    let read = tags::read_tags(&path).expect("readable tags");
+    assert_eq!(read.artist, "Unknown Artist");
+    assert_eq!(read.title, "Track 01");
+    assert_eq!(read.album, "www.something.ru");
+    let extras = tags::read_extras(&path).expect("readable extras");
+    assert_eq!(extras.len(), 1);
+    assert_eq!(extras[0].value, "ripped by someone");
+}
+
+#[test]
+fn fill_writes_only_what_the_peer_left_empty() {
+    let scratch = Scratch::new("fetch-tag-fill");
+    let mut settings = settings(&scratch);
+    settings.fetch.tags = TagPolicy::Fill;
+    let mut store = store(&scratch);
+    let (_, path) = arrived(&mut store, &settings, &roki_with_album());
+    let mut cleared = tags::read_tags(&path).expect("readable tags");
+    cleared.title = String::new();
+    tags::write_tags(&path, &cleared).expect("a cleared title");
+
+    let outcome = &collect(&mut store, &completed(), &settings, false).expect("a collect")[0];
+
+    let read = tags::read_tags(&path).expect("readable tags");
+    assert_eq!(read.title, "Roki");
+    assert_eq!(read.artist, "Unknown Artist");
+    assert_eq!(read.album, "www.something.ru");
+    assert_eq!(tags::read_extras(&path).expect("readable extras").len(), 1);
+    let retagged = outcome.tags.as_ref().expect("a tag outcome");
+    assert_eq!(retagged.fields, vec![TagField::Title]);
+    assert_eq!(retagged.dropped, 0);
+}
+
+#[test]
+fn keep_leaves_the_file_and_the_log_alone() {
+    let scratch = Scratch::new("fetch-tag-keep");
+    let mut settings = settings(&scratch);
+    settings.fetch.tags = TagPolicy::Keep;
+    let mut store = store(&scratch);
+    let (track_id, path) = arrived(&mut store, &settings, &roki_with_album());
+
+    let outcome = &collect(&mut store, &completed(), &settings, false).expect("a collect")[0];
+
+    assert_eq!(outcome.tags, None);
+    assert_eq!(
+        tags::read_tags(&path).expect("readable tags").artist,
+        "Unknown Artist"
+    );
+    assert!(index(&settings)
+        .changes(&ChangeFilter::default())
+        .expect("the logged rows")
+        .is_empty());
+    assert_eq!(
+        store
+            .track(track_id)
+            .expect("a lookup")
+            .expect("the track")
+            .status,
+        TrackStatus::Downloaded
+    );
+}
+
+#[test]
+fn a_download_that_never_arrived_is_not_tagged() {
+    let scratch = Scratch::new("fetch-tag-missing");
+    let settings = settings(&scratch);
+    let mut store = store(&scratch);
+    queued(&mut store, &settings);
+
+    let outcome = &collect(&mut store, &completed(), &settings, false).expect("a collect")[0];
+
+    assert_eq!(outcome.tags, None);
+}
+
+#[test]
+fn a_file_that_cannot_be_tagged_is_reported_rather_than_failing_the_collect() {
+    let scratch = Scratch::new("fetch-tag-unreadable");
+    let settings = settings(&scratch);
+    let mut store = store(&scratch);
+    queued(&mut store, &settings);
+    let path = scratch_download(&settings);
+    std::fs::create_dir_all(path.parent().expect("a parent")).expect("a directory");
+    std::fs::write(&path, b"not audio at all").expect("a written file");
+
+    let outcome = &collect(&mut store, &completed(), &settings, false).expect("a collect")[0];
+
+    let retagged = outcome.tags.as_ref().expect("a tag outcome");
+    assert!(!retagged.error.is_empty());
+    assert!(retagged.fields.is_empty());
+    assert_eq!(outcome.state, TransferState::Completed);
+}
+
+/// A download directory outside every library root has no index row to bring
+/// up to date, and must not gain one the next scan would only delete.
+#[test]
+fn a_download_outside_the_library_is_not_added_to_the_index() {
+    let scratch = Scratch::new("fetch-tag-outside");
+    let settings = settings(&scratch);
+    let mut store = store(&scratch);
+    let (_, path) = arrived(&mut store, &settings, &roki_with_album());
+
+    collect(&mut store, &completed(), &settings, false).expect("a collect");
+
+    assert_eq!(index(&settings).entry(&path).expect("a lookup"), None);
+}
+
+#[test]
+fn a_download_inside_the_library_is_reindexed_after_the_write() {
+    let scratch = Scratch::new("fetch-tag-inside");
+    let mut settings = settings(&scratch);
+    settings.slskd.download_directory = Some(settings.library.root.clone());
+    let mut store = store(&scratch);
+    let (_, path) = arrived(&mut store, &settings, &roki_with_album());
+
+    collect(&mut store, &completed(), &settings, false).expect("a collect");
+
+    let entry = index(&settings)
+        .entry(&path)
+        .expect("a lookup")
+        .expect("an index row");
+    assert_eq!(entry.tags.artist, "DECO*27");
+    assert_eq!(entry.tags.title, "Roki");
 }

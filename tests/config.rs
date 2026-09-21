@@ -489,3 +489,50 @@ fn preferring_one_uploader_is_on_by_default() {
     assert_eq!(settings.uploader.score_window, 2000);
     assert!(settings.uploader.score_window < settings.ranking.penalty_per_term);
 }
+
+#[test]
+fn the_tag_policy_is_read_from_the_fetch_section() {
+    let _guard = exclusive();
+    let scratch = Scratch::new("config-fetch-tags");
+    let path = write_toml(&scratch.join("stk.toml"), "[fetch]\ntags = \"fill\"\n");
+
+    assert_eq!(
+        load(Some(&path)).settings.fetch.tags,
+        stk::retag::TagPolicy::Fill
+    );
+}
+
+#[test]
+fn an_unknown_tag_policy_is_a_configuration_error() {
+    let _guard = exclusive();
+    let scratch = Scratch::new("config-fetch-tags-unknown");
+    let path = write_toml(&scratch.join("stk.toml"), "[fetch]\ntags = \"overwrite\"\n");
+
+    let error = load_settings(Some(&path), &Overrides::default()).expect_err("a rejected config");
+    assert!(error.to_string().contains("overwrite"), "{error}");
+}
+
+#[test]
+fn the_tag_policy_can_be_set_from_the_environment() {
+    let _guard = exclusive();
+    let scratch = Scratch::new("config-fetch-tags-env");
+    let environment = CleanEnvironment::enter(scratch.path());
+    environment.set("STK_FETCH__TAGS", "keep");
+
+    assert_eq!(load(None).settings.fetch.tags, stk::retag::TagPolicy::Keep);
+}
+
+#[test]
+fn a_download_is_retagged_unless_the_config_says_otherwise() {
+    let _guard = exclusive();
+    let scratch = Scratch::new("config-fetch-tags-default");
+    let _environment = CleanEnvironment::enter(scratch.path());
+
+    let settings = load(None).settings;
+    assert_eq!(settings.fetch.tags, stk::retag::TagPolicy::Replace);
+    let rendered = render_toml(&settings).expect("rendered config");
+    assert!(
+        rendered.contains("[fetch]\ntags = \"replace\""),
+        "{rendered}"
+    );
+}

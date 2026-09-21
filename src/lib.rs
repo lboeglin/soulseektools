@@ -19,6 +19,7 @@ pub mod models;
 pub mod organise;
 pub mod playlist;
 pub mod replaygain;
+pub mod retag;
 pub mod review;
 pub mod soulseek;
 pub mod tagsheet;

@@ -6,7 +6,8 @@
 //! is recorded in the review queue rather than typed into a spreadsheet column.
 //!
 //! Completed downloads are run through the spectral check in-process, rather
-//! than by shelling out to a script at a hardcoded path as the plugin did.
+//! than by shelling out to a script at a hardcoded path as the plugin did, and
+//! tagged from the review row they were fetched for (#11).
 
 use std::collections::HashMap;
 
@@ -15,8 +16,11 @@ use std::path::{Path, PathBuf};
 
 use crate::audio::verify::verify_file;
 use crate::config::Settings;
+use crate::library::changes::ChangeLog;
+use crate::library::index::LibraryIndex;
 use crate::library::scan::LOSSLESS_EXTENSIONS;
 use crate::models::{ScoredCandidate, TrackStatus, Verdict, VerifyResult};
+use crate::retag::{self, Retagged};
 use crate::review::store::ReviewStore;
 use crate::soulseek::base::{SoulseekClient, Transfer, TransferState};
 use crate::soulseek::ranking;
@@ -51,6 +55,9 @@ pub struct CollectOutcome {
     pub state: TransferState,
     pub local_path: Option<PathBuf>,
     pub verdict: Option<VerifyResult>,
+    /// What the file was tagged with from its review row; absent under the
+    /// `keep` policy, or when the file was never found (#11).
+    pub tags: Option<Retagged>,
     pub error: String,
     /// Set when a failure promoted the next candidate rather than giving up (#2).
     pub retried_with_rank: Option<i64>,
@@ -310,15 +317,23 @@ pub fn enqueue_approved(
     Ok(outcomes)
 }
 
-/// Update queued tracks from the backend's transfer list, verifying what arrived.
+/// Update queued tracks from the backend's transfer list, tagging and
+/// verifying what arrived.
 ///
 /// A failure promotes the next unused candidate rather than ending the track,
 /// which is the retry path #2 asked for: rank 2 was always sitting in the
 /// database, and nothing ever reached for it.
+///
+/// A completed file is tagged from its review row under `fetch.tags` before it
+/// is verified, and every tag written is logged against `index` under one
+/// `fetch download` run, so the whole collect can be undone at once (#11).
 pub fn collect(
     store: &mut ReviewStore,
     client: &dyn SoulseekClient,
     settings: &Settings,
+    index: &mut LibraryIndex,
+    roots: &[PathBuf],
+    now: f64,
     verify: bool,
 ) -> crate::errors::Result<Vec<CollectOutcome>> {
     let finished: HashMap<String, Transfer> = client
@@ -332,6 +347,7 @@ pub fn collect(
     }
 
     let queued = store.tracks(&[TrackStatus::Queued], None)?;
+    let log = ChangeLog::open(index, "fetch download", now)?;
     let mut outcomes = Vec::new();
 
     for entry in queued {
@@ -358,6 +374,7 @@ pub fn collect(
                 state: transfer.state,
                 local_path: None,
                 verdict: None,
+                tags: None,
                 error: transfer.error.clone(),
                 retried_with_rank: retried,
             });
@@ -365,6 +382,12 @@ pub fn collect(
         }
 
         let local_path = downloaded_path(settings, &entry.track.artist, transfer);
+        let tags = match local_path.as_deref().filter(|path| path.is_file()) {
+            Some(path) => {
+                retag::apply(path, settings.fetch.tags, &entry.track, &log, index, roots)?
+            }
+            None => None,
+        };
         let verdict = if verify {
             verify_downloaded(local_path.as_deref(), settings)
         } else {
@@ -381,6 +404,7 @@ pub fn collect(
             state: transfer.state,
             local_path,
             verdict,
+            tags,
             error: String::new(),
             retried_with_rank: None,
         });

@@ -1,5 +1,7 @@
 //! `stk fetch` -- search Soulseek, queue approved picks, and check what arrives.
 
+use std::fmt::Write as _;
+
 use clap::Subcommand;
 use serde_json::json;
 
@@ -8,6 +10,7 @@ use crate::config::SlskdSettings;
 use crate::errors::Result;
 use crate::fetch;
 use crate::models::TrackStatus;
+use crate::retag::Retagged;
 
 use crate::soulseek::slskd::{HttpTransport, SlskdClient};
 
@@ -98,6 +101,8 @@ fn search(context: &AppContext, limit: Option<usize>) -> Result<i32> {
 fn download(context: &AppContext, limit: Option<usize>, collect_only: bool) -> Result<i32> {
     let client = client(&context.settings().slskd)?;
     let mut store = context.open_review()?;
+    let roots = context.library_roots();
+    let mut index = context.open_index()?;
     let now = unix_now();
 
     // Before queueing, so a promoted candidate goes out in this same run.
@@ -110,7 +115,15 @@ fn download(context: &AppContext, limit: Option<usize>, collect_only: bool) -> R
             fetch::enqueue_approved(&mut store, &client, limit, now)?,
         )
     };
-    let collected = fetch::collect(&mut store, &client, context.settings(), true)?;
+    let collected = fetch::collect(
+        &mut store,
+        &client,
+        context.settings(),
+        &mut index,
+        &roots,
+        now,
+        true,
+    )?;
 
     if context.as_json {
         context.emit(&json!({
@@ -164,9 +177,47 @@ fn collect_row(outcome: &fetch::CollectOutcome) -> serde_json::Value {
             .verdict
             .as_ref()
             .map(|verdict| verdict.verdict.to_string()),
+        "tags": outcome.tags.as_ref().map(tags_row),
         "error": outcome.error,
         "retried_with_rank": outcome.retried_with_rank,
     })
+}
+
+/// The same field triple `tags apply` reports, so a script reads both alike.
+fn tags_row(retagged: &Retagged) -> serde_json::Value {
+    json!({
+        "policy": retagged.policy.as_str(),
+        "fields": retagged
+            .fields
+            .iter()
+            .map(|field| json!({
+                "field": field.as_str(),
+                "from": field.value(&retagged.before),
+                "to": field.value(&retagged.after),
+            }))
+            .collect::<Vec<_>>(),
+        "dropped": retagged.dropped,
+        "error": retagged.error,
+    })
+}
+
+fn describe_tags(retagged: &Retagged) -> String {
+    if !retagged.error.is_empty() {
+        return format!("tags: {}", retagged.error);
+    }
+    if !retagged.changed() {
+        return String::new();
+    }
+    let names: Vec<&str> = retagged.fields.iter().map(|field| field.as_str()).collect();
+    let mut note = if names.is_empty() {
+        "tags kept".to_owned()
+    } else {
+        format!("tagged {}", names.join(", "))
+    };
+    if retagged.dropped > 0 {
+        let _ = write!(note, " (+{} dropped)", retagged.dropped);
+    }
+    note
 }
 
 fn report_stalled(context: &AppContext, stalled: &[fetch::StallOutcome]) {
@@ -222,8 +273,10 @@ fn report_collected(context: &AppContext, collected: &[fetch::CollectOutcome]) {
                 .map_or_else(String::new, |verdict| verdict.verdict.to_string());
             let note = if let Some(rank) = outcome.retried_with_rank {
                 format!("retrying with candidate {rank}")
-            } else {
+            } else if !outcome.error.is_empty() {
                 outcome.error.clone()
+            } else {
+                outcome.tags.as_ref().map(describe_tags).unwrap_or_default()
             };
             vec![
                 outcome.state.to_string(),
