@@ -494,7 +494,8 @@ fn a_v2_database_keeps_its_candidates_when_the_retry_column_arrives() {
     assert_eq!(store.next_candidate(track_id).expect("a retry"), Some(1));
 }
 
-/// Both builds have to open the same file while `py/` still exists (#1).
+/// A queue the Python build wrote is upgraded in place, so a review session
+/// begun before the port carries on after it.
 #[test]
 fn a_v1_database_is_upgraded_in_place_rather_than_rewritten() {
     let scratch = Scratch::new("review-v1");

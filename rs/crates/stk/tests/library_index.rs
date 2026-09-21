@@ -425,7 +425,8 @@ fn reindexing_a_file_that_is_gone_does_nothing() {
         .is_none());
 }
 
-/// Both builds have to open the same file while `py/` still exists (#1).
+/// An index the Python build wrote is upgraded in place, so a library scanned
+/// before the port needs no rescan after it.
 #[test]
 fn a_v2_database_is_upgraded_in_place_rather_than_rewritten() {
     let scratch = Scratch::new("index-v2");

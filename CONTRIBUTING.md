@@ -68,6 +68,13 @@ No change lands without tests for its behaviour.
   produced, since the brickwall it recognises is LAME's and an authentic one
   cannot be synthesised. `scripts/make-fixtures.sh` regenerates those files
   with ffmpeg; no test runs it.
+- **`scripts/word_chars.py` is a fixture generator, not a build step.** It dumps
+  the characters Python's `\w` and `\s` match, and `character_classes.rs` checks
+  the crate's own predicates against that dump: Rust's `\w` would otherwise take
+  in 10,549 combining marks Python folds to a space, and the difference would
+  surface as shifted matching scores rather than a failing test. The dump is
+  committed under `tests/data`, so no build or test run needs Python. Only
+  regenerating it does, which happens approximately never.
 - **Prefer a pure function you can test directly** over one that has to open a
   file. The spectral classifier and the table rendering are both pure for this
   reason.
