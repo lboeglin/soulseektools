@@ -6,68 +6,9 @@
 //! a result is only accepted here when the artist it names actually matches the
 //! artist asked for -- and a file keeps no artwork rather than the wrong artwork.
 
-use std::time::{Duration, Instant};
-
-use serde_json::Value;
-
 use crate::errors::Result;
 use crate::matching::{similarity, NameForms};
-
-/// The User-Agent sent to artwork providers.
-///
-/// MusicBrainz asks callers to identify themselves with a real contact -- a URL
-/// or an email address -- and throttles or blocks those that do not. Nothing is
-/// invented here: set `artwork.contact` and it is included, leave it unset and
-/// the header simply names the tool and its version.
-#[must_use]
-pub fn user_agent(contact: &str) -> String {
-    let version = crate::VERSION;
-    if contact.trim().is_empty() {
-        format!("soulseektools/{version}")
-    } else {
-        format!("soulseektools/{version} ( {contact} )")
-    }
-}
-
-/// Holds a caller to a minimum interval between requests.
-///
-/// These APIs are free and publish limits; exceeding them earns 503s and then a
-/// block. One limiter lives on each provider instance, so the pacing is per
-/// service rather than global -- a slow provider must not slow a fast one.
-#[derive(Debug)]
-pub struct RateLimiter {
-    pub min_interval_seconds: f64,
-    next_allowed_at: std::sync::Mutex<Option<Instant>>,
-}
-
-impl RateLimiter {
-    #[must_use]
-    pub fn new(min_interval_seconds: f64) -> Self {
-        Self {
-            min_interval_seconds,
-            next_allowed_at: std::sync::Mutex::new(None),
-        }
-    }
-
-    /// Block until the next request is allowed.
-    pub fn wait(&self) {
-        if self.min_interval_seconds <= 0.0 {
-            return;
-        }
-        let mut next = self
-            .next_allowed_at
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-
-        if let Some(allowed_at) = *next {
-            let now = Instant::now();
-            if allowed_at > now {
-                std::thread::sleep(allowed_at - now);
-            }
-        }
-        *next = Some(Instant::now() + Duration::from_secs_f64(self.min_interval_seconds));
-    }
-}
+use crate::services::ServiceHttp;
 
 /// A cover image a provider believes belongs to the requested track.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -108,15 +49,6 @@ impl ArtSelection {
     }
 }
 
-/// The HTTP a provider needs, so its wire format is testable without network.
-pub trait ArtHttp {
-    /// A JSON GET with query parameters.
-    fn get_json(&self, url: &str, params: &[(&str, String)]) -> Result<Value>;
-
-    /// A raw GET, for the image itself.
-    fn get_bytes(&self, url: &str) -> Result<Vec<u8>>;
-}
-
 /// A source of cover art.
 pub trait ArtProvider {
     fn name(&self) -> &'static str;
@@ -125,7 +57,12 @@ pub trait ArtProvider {
     fn min_interval_seconds(&self) -> f64;
 
     /// Candidates for one track, best first.
-    fn search(&self, http: &dyn ArtHttp, artist: &str, title: &str) -> Result<Vec<ArtCandidate>>;
+    fn search(
+        &self,
+        http: &dyn ServiceHttp,
+        artist: &str,
+        title: &str,
+    ) -> Result<Vec<ArtCandidate>>;
 }
 
 /// Pick the best candidate whose artist matches the one asked for.

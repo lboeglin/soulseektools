@@ -21,6 +21,7 @@ pub mod playlist;
 pub mod replaygain;
 pub mod retag;
 pub mod review;
+pub mod services;
 pub mod soulseek;
 pub mod tagsheet;
 pub mod text;

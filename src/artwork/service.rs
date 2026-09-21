@@ -1,14 +1,13 @@
 //! Finding, verifying and embedding cover art for a library.
 
-use serde_json::Value;
-
-use crate::artwork::base::{select, user_agent, ArtHttp, ArtProvider, ArtSelection};
+use crate::artwork::base::{select, ArtProvider, ArtSelection};
 use crate::artwork::coverartarchive::{self, CoverArtArchiveProvider};
 use crate::artwork::itunes::{self, ITunesProvider};
 use crate::config::ArtworkSettings;
 use crate::errors::{Error, Result};
 use crate::library::tags;
 use crate::models::{Artwork, LibraryEntry};
+use crate::services::ServiceHttp;
 
 const MIME_BY_MAGIC: &[(&[u8], &str)] = &[
     (b"\x89PNG\r\n\x1a\n", "image/png"),
@@ -98,7 +97,7 @@ pub fn find_artwork(
     entry: &LibraryEntry,
     providers: &[Box<dyn ArtProvider>],
     settings: &ArtworkSettings,
-    http: &dyn ArtHttp,
+    http: &dyn ServiceHttp,
 ) -> ArtworkResult {
     let artist = first_non_empty(&[&entry.tags.artist, &entry.folder_artist, &entry.artist.raw]);
     let title = first_non_empty(&[&entry.tags.title, &entry.title.raw]);
@@ -156,7 +155,7 @@ pub fn find_artwork(
 }
 
 /// Fetch an image, taking its type from the bytes rather than the headers.
-pub fn download(http: &dyn ArtHttp, url: &str) -> Result<Artwork> {
+pub fn download(http: &dyn ServiceHttp, url: &str) -> Result<Artwork> {
     let data = http.get_bytes(url)?;
     Ok(Artwork {
         mime: detect_mime(&data).to_owned(),
@@ -189,53 +188,4 @@ fn first_non_empty(values: &[&String]) -> String {
         .iter()
         .find(|value| !value.is_empty())
         .map_or_else(String::new, |value| (*value).clone())
-}
-
-/// The real transport, shared by both providers.
-pub struct HttpTransport {
-    client: reqwest::blocking::Client,
-}
-
-impl HttpTransport {
-    pub fn new(settings: &ArtworkSettings) -> Result<Self> {
-        let client = reqwest::blocking::Client::builder()
-            .timeout(std::time::Duration::from_secs_f64(
-                settings.request_timeout_seconds,
-            ))
-            .user_agent(user_agent(&settings.contact))
-            .build()
-            .map_err(|error| Error::Config(format!("cannot build an HTTP client: {error}")))?;
-        Ok(Self { client })
-    }
-}
-
-impl ArtHttp for HttpTransport {
-    fn get_json(&self, url: &str, params: &[(&str, String)]) -> Result<Value> {
-        // `RequestBuilder::query` needs a feature this build does not carry, so
-        // the query string is built on the URL itself.
-        let url = reqwest::Url::parse_with_params(url, params)
-            .map_err(|error| Error::Config(format!("{url}: {error}")))?;
-        let response = self
-            .client
-            .get(url.clone())
-            .send()
-            .and_then(reqwest::blocking::Response::error_for_status)
-            .map_err(|error| Error::Config(format!("{url}: {error}")))?;
-        response
-            .json()
-            .map_err(|error| Error::Config(format!("{url}: {error}")))
-    }
-
-    fn get_bytes(&self, url: &str) -> Result<Vec<u8>> {
-        let response = self
-            .client
-            .get(url)
-            .send()
-            .and_then(reqwest::blocking::Response::error_for_status)
-            .map_err(|error| Error::Config(format!("{url}: {error}")))?;
-        Ok(response
-            .bytes()
-            .map_err(|error| Error::Config(format!("{url}: {error}")))?
-            .to_vec())
-    }
 }

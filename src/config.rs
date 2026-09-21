@@ -360,11 +360,12 @@ pub struct ArtworkSettings {
     /// -- one second for MusicBrainz, three for iTunes. Setting this to 0
     /// disables pacing entirely, which will get you throttled on a large run.
     pub min_request_interval_seconds: Option<f64>,
-    /// A URL or email address identifying you to artwork providers.
+    /// A URL or email address identifying you to every web service.
     ///
-    /// MusicBrainz asks callers to identify themselves and throttles those that
-    /// do not. Optional, and empty by default: nothing is sent that you did not
-    /// set.
+    /// MusicBrainz and AcoustID ask callers to identify themselves and throttle
+    /// those that do not; it is sent to all of them, artwork or not, because a
+    /// contact is a fact about you rather than about a service. Optional, and
+    /// empty by default: nothing is sent that you did not set.
     pub contact: String,
 }
 

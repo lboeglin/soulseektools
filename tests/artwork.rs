@@ -1,7 +1,7 @@
 //! Ported from `py/tests/unit/test_artwork.py`.
 //!
 //! The Python mocks `httpx` with `respx` and freezes the clock with a fake
-//! `time.monotonic`. Here the providers take an `ArtHttp`, so a recorded set of
+//! `time.monotonic`. Here the providers take a `ServiceHttp`, so a recorded set of
 //! responses substitutes for the network, and the rate limiter is measured
 //! against real elapsed time with intervals small enough to stay quick.
 
@@ -14,7 +14,7 @@ use std::time::Instant;
 
 use serde_json::{json, Value};
 
-use stk::artwork::base::{select, user_agent, ArtCandidate, ArtHttp, ArtProvider, RateLimiter};
+use stk::artwork::base::{select, ArtCandidate, ArtProvider};
 use stk::artwork::coverartarchive::CoverArtArchiveProvider;
 use stk::artwork::itunes::ITunesProvider;
 use stk::artwork::service::{
@@ -24,6 +24,7 @@ use stk::config::ArtworkSettings;
 use stk::errors::{Error, Result};
 use stk::matching::NameForms;
 use stk::models::{Artwork, LibraryEntry, ReplayGainTags, TrackTags};
+use stk::services::{user_agent, RateLimiter, ServiceHttp};
 use support::{encode, Encoded, Scratch};
 
 #[derive(Default)]
@@ -51,7 +52,7 @@ impl Recorded {
     }
 }
 
-impl ArtHttp for Recorded {
+impl ServiceHttp for Recorded {
     fn get_json(&self, url: &str, params: &[(&str, String)]) -> Result<Value> {
         let query: Vec<String> = params
             .iter()
@@ -69,6 +70,10 @@ impl ArtHttp for Recorded {
             .get(url)
             .cloned()
             .ok_or_else(|| Error::Config(format!("no stub for {url}")))
+    }
+
+    fn post_form_json(&self, url: &str, _form: &[(&str, String)]) -> Result<Value> {
+        Err(Error::Config(format!("no provider posts to {url}")))
     }
 
     fn get_bytes(&self, url: &str) -> Result<Vec<u8>> {

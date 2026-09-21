@@ -6,8 +6,9 @@
 
 use serde_json::Value;
 
-use crate::artwork::base::{ArtCandidate, ArtHttp, ArtProvider, RateLimiter};
+use crate::artwork::base::{ArtCandidate, ArtProvider};
 use crate::errors::Result;
+use crate::services::{RateLimiter, ServiceHttp};
 
 pub const SEARCH_URL: &str = "https://musicbrainz.org/ws/2/recording";
 pub const ARCHIVE_URL: &str = "https://coverartarchive.org/release";
@@ -44,7 +45,12 @@ impl ArtProvider for CoverArtArchiveProvider {
         self.limiter.min_interval_seconds
     }
 
-    fn search(&self, http: &dyn ArtHttp, artist: &str, title: &str) -> Result<Vec<ArtCandidate>> {
+    fn search(
+        &self,
+        http: &dyn ServiceHttp,
+        artist: &str,
+        title: &str,
+    ) -> Result<Vec<ArtCandidate>> {
         self.limiter.wait();
         let payload = http.get_json(
             SEARCH_URL,

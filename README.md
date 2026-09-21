@@ -116,7 +116,7 @@ The settings worth knowing about:
 | `loudness.reference_lufs` | What a scanned file is levelled to. -18 LUFS is ReplayGain 2.0. |
 | `loudness.true_peak` | Catch inter-sample peaks as well as the loudest sample. On by default. |
 | `artwork.require_artist_match` | Refuse cover art belonging to a different artist. |
-| `artwork.contact` | A URL or email identifying you to MusicBrainz. Optional. |
+| `artwork.contact` | A URL or email identifying you to MusicBrainz and AcoustID. Optional. |
 | `genres.map_path` | Your artist-to-genre map. Start from `data/genres.example.toml`. |
 | `organise.pattern` | Where a file belongs, from its tags. Default `{artist}/{album}/{track} - {title}`. |
 | `organise.track_number_width` | How many digits a track number is padded to. Default 2. |

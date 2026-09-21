@@ -112,6 +112,8 @@ src/
   audio/            decoding, spectral analysis, fingerprinting, the
                     spectrogram behind `verify --spectrograms`, and the
                     EBU R 128 loudness scan behind `stk loudness`
+  services.rs       what the public web services share: pacing, identification,
+                    the transport
   artwork/          providers and the artist-verification guard
   soulseek/         the client trait, the slskd backend, ranking
   review/           the review queue, the album view over it, and the picker
