@@ -106,6 +106,7 @@ src/
   replaygain.rs     loudness figures, album grouping, and the tags they become
   retag.rs          what a fetched file is tagged with, from its review row
   tagsheet.rs       reading an edited `tags dump` back
+  identify/         the AcoustID lookup, and choosing a release from its answer
   text/             normalisation and romaji transliteration
   library/          scanning, tags, the SQLite index, the --apply write log,
                     and the per-scan measurements behind `library trend`

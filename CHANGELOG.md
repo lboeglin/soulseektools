@@ -11,6 +11,37 @@ a set of ad-hoc scripts and a Nicotine+ plugin, and was then rewritten in Rust.
 
 ### Added
 
+- `stk tags identify`, which identifies a file from its audio and tags it
+  (#12). `tags dump` could show `01 track.flac` under `Unknown Artist` and
+  nothing in the tool could say what it was: a download from before the review
+  row existed, a file copied in from elsewhere, a row that was wrong. The
+  acoustic fingerprint `dupes content` already computes is the expensive half
+  of an AcoustID lookup, and the other half is one request, answered with the
+  MusicBrainz recording the print belongs to and every release it is on.
+
+  A match is proposed only when the service's score clears `identify.min_score`;
+  below it nothing is written, the same asymmetry `wantlist diff` keeps,
+  because a wrongly tagged file is a lie `organise` will then file under. Among
+  the releases the first rule that separates two decides, and the plan says
+  which: a title matching the file's album tag, then the folder name, then a
+  recording credited to the artist the file is filed under, then the earliest
+  date, then the original over a compilation, then the id. The recording's
+  credit is the artist and the release's the album artist, so a compilation
+  reads `Dave Rodgers` on `Various Artists` rather than the other way round.
+  Genres and the cover are left to the commands that own them.
+
+  Fingerprints are computed in parallel and cached in the index, so a library
+  that has run `dupes content` pays nothing, and a tagged file's print is
+  re-filed under its new modification time so the next command finds it too.
+  Every write goes through the change log as one `tags identify` run.
+
+- A TLS backend. `reqwest` was built with no TLS feature, so every request to
+  an https service failed to send; `art fetch` reported each provider as
+  unavailable rather than failing, which is how it went unseen. The rate
+  limiter, the User-Agent and the transport moved out of `artwork/` into
+  `services.rs`, being shared by every web service the tool talks to;
+  `artwork.contact` is sent to all of them.
+
 - `stk review pick`, which walks the tracks awaiting review and asks one question
   each, so a decision costs a keystroke rather than a track id read off a table
   and typed back into `stk review approve`. Reviewing a wantlist is the only

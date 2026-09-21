@@ -38,8 +38,8 @@ $ stk get "DECO*27 - Roki"
   command works without it.
 
 FLAC, WAV, AIFF, ALAC, MP3, AAC and Vorbis are read as audio. Opus is read and
-written as tags but not decoded, so `stk loudness` and `stk dupes content` pass
-over it. Monkey's Audio and WavPack are not handled at all.
+written as tags but not decoded, so `stk loudness`, `stk dupes content` and
+`stk tags identify` pass over it. Monkey's Audio and WavPack are not handled at all.
 
 ## Install
 
@@ -117,6 +117,7 @@ The settings worth knowing about:
 | `loudness.true_peak` | Catch inter-sample peaks as well as the loudest sample. On by default. |
 | `artwork.require_artist_match` | Refuse cover art belonging to a different artist. |
 | `artwork.contact` | A URL or email identifying you to MusicBrainz and AcoustID. Optional. |
+| `identify.min_score` | How sure AcoustID must be before a match is proposed. Default 0.85. |
 | `genres.map_path` | Your artist-to-genre map. Start from `data/genres.example.toml`. |
 | `organise.pattern` | Where a file belongs, from its tags. Default `{artist}/{album}/{track} - {title}`. |
 | `organise.track_number_width` | How many digits a track number is padded to. Default 2. |
@@ -315,6 +316,7 @@ stk genre check            # genres in use, and artists your map does not cover
 stk genre apply --apply    # write the mapped genres
 stk tags dump              # every file's artist/album/title/genre as CSV
 stk tags apply sheet.csv   # write back an edited one
+stk tags identify --apply  # tag untagged files from their audio, via AcoustID
 stk organise --apply       # move files into the layout their tags describe
 stk loudness --apply       # measure loudness and write the ReplayGain tags
 stk playlist genre Touhou  # an m3u8 of everything carrying a genre
@@ -402,6 +404,69 @@ Two rules decide what a cell means:
 Rows naming a file the index does not hold are reported and skipped, never
 guessed at. Everything written is logged, so `stk changes undo --last --apply`
 takes the whole run back.
+
+### Identifying untagged files
+
+A dump can show you `01 track.flac` under `Unknown Artist` and nothing more,
+and a spreadsheet cannot say what it is. `stk tags identify` asks the audio:
+the same acoustic fingerprint `dupes content` computes is sent to
+[AcoustID](https://acoustid.org), which answers with the MusicBrainz recording
+it belongs to and every release that recording is on.
+
+```bash
+stk tags identify                     # look up every file missing an artist or a title
+stk tags identify ~/Music/slskd       # or just one folder
+stk tags identify --all --limit 20    # look tagged files up too, twenty at a time
+stk tags identify --apply             # write what was found
+```
+
+```
+Score  File           Track                           Release                             Why
+0.98   01 track.flac  DECO*27 - ゴーストルール          GHOST (2016)                        one of 5 releases dated 2016-09-28, taken by id
+0.99   02 track.flac  Anamanaguchi feat. 初音ミク - Miku  HATSUNE MIKU EXPO 2016 E.P. (2016)  the earliest of 10 releases (2016-03-09)
+--     03 track.flac  no confident match (best 0.62)
+```
+
+Artist, title, album, album artist and track number are written; genres are
+left to `stk genre apply`, and the embedded cover is left alone. A match is
+only proposed when AcoustID's score clears `identify.min_score`; below it the
+file is reported as no confident match and nothing is written, since a
+wrongly tagged file is worse than an untagged one -- `stk organise` will file
+it under the lie.
+
+A recording is usually on several releases -- the album, a single, a decade of
+compilations -- and one has to be chosen, because that is what the album and
+track-number tags say. The first of these rules that separates two releases
+decides, and the `Why` column names it:
+
+1. a release whose title matches the file's album tag;
+2. a release whose title matches the folder the file is in;
+3. a recording credited to the artist the file is filed under -- one
+   fingerprint can be linked to a cover as well as the original;
+4. the earliest release, undated ones last;
+5. the original over a compilation, when both came out the same day;
+6. the release id, so a tie is the same tie on every run.
+
+On a compilation the recording's credit becomes the artist and the release's
+becomes the album artist, so a track reads `Dave Rodgers` on `Various Artists`
+rather than the other way round. A solo release leaves the album artist alone.
+Names are compared the way everything else here compares them, so a
+`DECO_27` folder matches a `DECO*27` credit.
+
+With `--all`, a file that already names an artist is looked up too and its
+tags proposed over; where the recording is credited to someone other than the
+file's artist the plan says so, because a print linked only to a cover is
+usually the cover. Read the plan.
+
+This is slow the first time: a fingerprint decodes two minutes of every file,
+in parallel, the way `stk verify` does. The prints are cached in the index, so
+a library that has run `stk dupes content` pays nothing, and a run of
+`identify` makes the next `dupes content` free in turn. Lookups are paced to
+AcoustID's published limit. Every write is logged under one `tags identify`
+run, so `stk changes undo --last --apply` takes it back.
+
+The release id is shown under `--json`, so a cover can be fetched for the
+exact release later; `stk art fetch` still searches by name for now.
 
 ### Playlists
 
