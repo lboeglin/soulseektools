@@ -1574,3 +1574,272 @@ fn a_download_inside_the_library_is_reindexed_after_the_write() {
     assert_eq!(entry.tags.artist, "DECO*27");
     assert_eq!(entry.tags.title, "Roki");
 }
+
+/// A backend whose transfer list the test rewrites between polls.
+#[derive(Default)]
+struct LiveClient {
+    transfers: Mutex<Vec<Transfer>>,
+    enqueued: Mutex<Vec<String>>,
+}
+
+impl LiveClient {
+    fn show(&self, transfers: Vec<Transfer>) {
+        *self.transfers.lock().expect("the fake is not poisoned") = transfers;
+    }
+}
+
+impl SoulseekClient for LiveClient {
+    fn is_connected(&self) -> bool {
+        true
+    }
+
+    fn search(&self, _text: &str, _timeout: u32, _limit: u32) -> Result<Vec<Candidate>> {
+        Ok(Vec::new())
+    }
+
+    fn enqueue(&self, username: &str, _files: &[Candidate], _to: &str) -> Result<Vec<Transfer>> {
+        self.enqueued
+            .lock()
+            .expect("the fake is not poisoned")
+            .push(username.to_owned());
+        Ok(Vec::new())
+    }
+
+    fn transfers(&self) -> Result<Vec<Transfer>> {
+        Ok(self
+            .transfers
+            .lock()
+            .expect("the fake is not poisoned")
+            .clone())
+    }
+
+    fn cancel(&self, _username: &str, _transfer_id: &str) -> Result<()> {
+        Ok(())
+    }
+}
+
+/// Time that passes only when the wait sleeps, calling back on every sleep so
+/// the test can change what the backend reports.
+struct TickingClock<'a> {
+    now: f64,
+    sleeps: usize,
+    on_sleep: Box<dyn FnMut(usize) + 'a>,
+}
+
+impl<'a> TickingClock<'a> {
+    fn new(on_sleep: impl FnMut(usize) + 'a) -> Self {
+        Self {
+            now: 1000.0,
+            sleeps: 0,
+            on_sleep: Box::new(on_sleep),
+        }
+    }
+}
+
+impl fetch::Clock for TickingClock<'_> {
+    fn now(&self) -> f64 {
+        self.now
+    }
+
+    fn sleep(&mut self, seconds: f64) {
+        self.now += seconds;
+        self.sleeps += 1;
+        (self.on_sleep)(self.sleeps);
+    }
+}
+
+const PATIENCE: fetch::Patience = fetch::Patience {
+    timeout_seconds: 600.0,
+    poll_seconds: 10.0,
+};
+
+fn from_user(username: &str, title: &str) -> Candidate {
+    Candidate {
+        username: username.to_owned(),
+        ..candidate(&format!("@@{username}\\Music\\{title}.flac"))
+    }
+}
+
+/// Roki, finished, from this peer.
+fn arrived_from(username: &str) -> Transfer {
+    Transfer {
+        username: username.to_owned(),
+        ..transfer(
+            &format!("@@{username}\\Music\\Roki.flac"),
+            TransferState::Completed,
+            "",
+        )
+    }
+}
+
+/// A track searched and approved, with these peers' files as its candidates.
+fn approved(store: &mut ReviewStore, settings: &Settings, track: &Track, peers: &[&str]) -> i64 {
+    store
+        .add(std::slice::from_ref(track))
+        .expect("an added track");
+    let client = FakeClient::with_candidates(
+        peers
+            .iter()
+            .map(|peer| from_user(peer, &track.title))
+            .collect(),
+    );
+    fetch::search_pending(store, &client, settings, None).expect("a search");
+    let track_id = store
+        .tracks(&[], None)
+        .expect("tracks")
+        .into_iter()
+        .find(|entry| entry.track.title == track.title)
+        .expect("the track just added")
+        .id;
+    store.approve(track_id, 1).expect("an approval");
+    track_id
+}
+
+fn wait(
+    store: &mut ReviewStore,
+    client: &dyn SoulseekClient,
+    settings: &Settings,
+    limit: Option<usize>,
+    patience: fetch::Patience,
+    clock: &mut dyn fetch::Clock,
+) -> fetch::Waited {
+    let mut index = index(settings);
+    fetch::wait_for_downloads(
+        store,
+        client,
+        settings,
+        &mut index,
+        &settings.library.all_roots(),
+        limit,
+        patience,
+        clock,
+        &mut |_| {},
+    )
+    .expect("a wait")
+}
+
+fn status(store: &ReviewStore, track_id: i64) -> TrackStatus {
+    store
+        .track(track_id)
+        .expect("a lookup")
+        .expect("the track")
+        .status
+}
+
+#[test]
+fn the_wait_ends_once_every_queued_track_has_arrived() {
+    let scratch = Scratch::new("fetch-wait-done");
+    let settings = settings(&scratch);
+    let mut store = store(&scratch);
+    let track_id = approved(&mut store, &settings, &roki(), &["peerA"]);
+    let client = LiveClient::default();
+    let mut clock = TickingClock::new(|_| client.show(vec![arrived_from("peerA")]));
+
+    let waited = wait(&mut store, &client, &settings, None, PATIENCE, &mut clock);
+
+    assert_eq!(waited.rounds, 2);
+    assert_eq!(waited.unfinished, 0);
+    assert_eq!(waited.queued.len(), 1);
+    assert_eq!(waited.collected.len(), 1);
+    assert_eq!(status(&store, track_id), TrackStatus::Downloaded);
+}
+
+#[test]
+fn a_stall_during_the_wait_sends_the_next_candidate_in_the_same_wait() {
+    let scratch = Scratch::new("fetch-wait-stall");
+    let settings = settings(&scratch);
+    let mut store = store(&scratch);
+    let track_id = approved(&mut store, &settings, &roki(), &["peerA", "peerB"]);
+    let client = LiveClient::default();
+    client.show(vec![Transfer {
+        state: TransferState::Queued,
+        ..arrived_from("peerA")
+    }]);
+    let mut clock = TickingClock::new(|sleeps| {
+        if sleeps == 2 {
+            client.show(vec![arrived_from("peerB")]);
+        }
+    });
+    let patience = fetch::Patience {
+        timeout_seconds: 3.0 * settings.slskd.stall_after_seconds,
+        poll_seconds: settings.slskd.stall_after_seconds + 1.0,
+    };
+
+    let waited = wait(&mut store, &client, &settings, None, patience, &mut clock);
+
+    assert_eq!(waited.stalled.len(), 1);
+    assert_eq!(waited.stalled[0].retried_with_rank, Some(2));
+    assert_eq!(
+        *client.enqueued.lock().expect("the fake is not poisoned"),
+        vec!["peerA".to_owned(), "peerB".to_owned()]
+    );
+    assert_eq!(waited.unfinished, 0);
+    assert_eq!(status(&store, track_id), TrackStatus::Downloaded);
+}
+
+#[test]
+fn the_wait_gives_up_after_its_timeout_and_leaves_the_track_queued() {
+    let scratch = Scratch::new("fetch-wait-timeout");
+    let settings = settings(&scratch);
+    let mut store = store(&scratch);
+    let track_id = approved(&mut store, &settings, &roki(), &["peerA"]);
+    let client = LiveClient::default();
+    let mut clock = TickingClock::new(|_| {});
+    let patience = fetch::Patience {
+        timeout_seconds: 30.0,
+        poll_seconds: 10.0,
+    };
+
+    let waited = wait(&mut store, &client, &settings, None, patience, &mut clock);
+
+    assert_eq!(waited.rounds, 4);
+    assert_eq!(clock.sleeps, 3);
+    assert_eq!(waited.unfinished, 1);
+    assert_eq!(status(&store, track_id), TrackStatus::Queued);
+}
+
+#[test]
+fn the_limit_caps_what_is_sent_and_the_rest_is_not_waited_for() {
+    let scratch = Scratch::new("fetch-wait-limit");
+    let settings = settings(&scratch);
+    let mut store = store(&scratch);
+    let first = approved(&mut store, &settings, &roki(), &["peerA"]);
+    let second = approved(
+        &mut store,
+        &settings,
+        &Track::new("DECO*27", "Ghost Rule"),
+        &["peerB"],
+    );
+    let client = LiveClient::default();
+    let mut clock = TickingClock::new(|_| client.show(vec![arrived_from("peerA")]));
+
+    let waited = wait(
+        &mut store,
+        &client,
+        &settings,
+        Some(1),
+        PATIENCE,
+        &mut clock,
+    );
+
+    assert_eq!(waited.queued.len(), 1);
+    assert_eq!(waited.unfinished, 0);
+    assert_eq!(status(&store, first), TrackStatus::Downloaded);
+    assert_eq!(status(&store, second), TrackStatus::Approved);
+}
+
+#[test]
+fn a_track_queued_before_the_wait_began_is_waited_for_too() {
+    let scratch = Scratch::new("fetch-wait-leftover");
+    let settings = settings(&scratch);
+    let mut store = store(&scratch);
+    let track_id = queued(&mut store, &settings);
+    let client = LiveClient::default();
+    let mut clock = TickingClock::new(|_| client.show(vec![arrived_from("peerA")]));
+
+    let waited = wait(&mut store, &client, &settings, None, PATIENCE, &mut clock);
+
+    assert!(waited.queued.is_empty());
+    assert_eq!(waited.collected.len(), 1);
+    assert_eq!(status(&store, track_id), TrackStatus::Downloaded);
+}

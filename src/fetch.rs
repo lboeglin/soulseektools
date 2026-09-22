@@ -9,7 +9,7 @@
 //! than by shelling out to a script at a hardcoded path as the plugin did, and
 //! tagged from the review row they were fetched for (#11).
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use rayon::prelude::*;
 use std::path::{Path, PathBuf};
@@ -21,7 +21,7 @@ use crate::library::index::LibraryIndex;
 use crate::library::scan::LOSSLESS_EXTENSIONS;
 use crate::models::{ScoredCandidate, TrackStatus, Verdict, VerifyResult};
 use crate::retag::{self, Retagged};
-use crate::review::store::ReviewStore;
+use crate::review::store::{ReviewStore, ReviewTrack};
 use crate::soulseek::base::{SoulseekClient, Transfer, TransferState};
 use crate::soulseek::ranking;
 use crate::text::normalize::{normalize, sanitize_folder_name, UNKNOWN_ARTIST};
@@ -263,10 +263,19 @@ pub fn enqueue_approved(
     limit: Option<usize>,
     now: f64,
 ) -> crate::errors::Result<Vec<EnqueueOutcome>> {
-    let approved_tracks = store.tracks(&[TrackStatus::Approved], limit)?;
+    let approved = store.tracks(&[TrackStatus::Approved], limit)?;
+    enqueue(store, client, approved, now)
+}
+
+fn enqueue(
+    store: &mut ReviewStore,
+    client: &dyn SoulseekClient,
+    approved: Vec<ReviewTrack>,
+    now: f64,
+) -> crate::errors::Result<Vec<EnqueueOutcome>> {
     let mut outcomes = Vec::new();
 
-    for entry in approved_tracks {
+    for entry in approved {
         let Some(approved) = entry.approved().cloned() else {
             store.mark(
                 entry.id,
@@ -410,6 +419,110 @@ pub fn collect(
         });
     }
     Ok(outcomes)
+}
+
+/// Time as the wait for downloads sees it, so a test need not sit through it.
+pub trait Clock {
+    fn now(&self) -> f64;
+    fn sleep(&mut self, seconds: f64);
+}
+
+/// The wall clock.
+pub struct SystemClock;
+
+impl Clock for SystemClock {
+    fn now(&self) -> f64 {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0.0, |since| since.as_secs_f64())
+    }
+
+    fn sleep(&mut self, seconds: f64) {
+        std::thread::sleep(std::time::Duration::from_secs_f64(seconds.max(0.0)));
+    }
+}
+
+/// How long to wait for downloads, and how often to look.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Patience {
+    pub timeout_seconds: f64,
+    pub poll_seconds: f64,
+}
+
+/// Everything a wait for downloads did, round after round.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Waited {
+    pub stalled: Vec<StallOutcome>,
+    pub queued: Vec<EnqueueOutcome>,
+    pub collected: Vec<CollectOutcome>,
+    pub rounds: usize,
+    /// Tracks still on their way when the wait ended; nonzero only on a timeout.
+    pub unfinished: usize,
+}
+
+/// Queue the approved picks, then keep collecting until every one has arrived
+/// or failed, or `patience` runs out.
+///
+/// `fetch download` queues and collects once, which leaves the waiting to
+/// whoever runs it again; this is that waiting (#14). Each round records what
+/// finished, retries what has stalled, and sends the candidate a failure or a
+/// stall promoted. `limit` caps the tracks newly sent, as it does for
+/// `fetch download`; a track already queued when the wait began is waited for
+/// too, since nothing else will collect it. A timeout abandons nothing: slskd
+/// keeps the transfers, and the next collect records them.
+#[allow(clippy::too_many_arguments)]
+pub fn wait_for_downloads(
+    store: &mut ReviewStore,
+    client: &dyn SoulseekClient,
+    settings: &Settings,
+    index: &mut LibraryIndex,
+    roots: &[PathBuf],
+    limit: Option<usize>,
+    patience: Patience,
+    clock: &mut dyn Clock,
+    progress: &mut dyn FnMut(&Waited),
+) -> crate::errors::Result<Waited> {
+    let start = clock.now();
+    let mut waited = Waited::default();
+
+    let mut ours: HashSet<i64> = store
+        .tracks(&[TrackStatus::Queued], None)?
+        .iter()
+        .map(|entry| entry.id)
+        .collect();
+    let sent = enqueue_approved(store, client, limit, start)?;
+    ours.extend(sent.iter().map(|outcome| outcome.track_id));
+    waited.queued = sent;
+
+    loop {
+        let now = clock.now();
+        // Collected first: a transfer that finished while the wait slept is not
+        // stalled, however long ago it was queued.
+        waited
+            .collected
+            .extend(collect(store, client, settings, index, roots, now, true)?);
+        waited
+            .stalled
+            .extend(retry_stalled(store, client, settings, now)?);
+        let promoted: Vec<ReviewTrack> = store
+            .tracks(&[TrackStatus::Approved], None)?
+            .into_iter()
+            .filter(|entry| ours.contains(&entry.id))
+            .collect();
+        waited.queued.extend(enqueue(store, client, promoted, now)?);
+        waited.rounds += 1;
+
+        waited.unfinished = store
+            .tracks(&[TrackStatus::Queued, TrackStatus::Approved], None)?
+            .iter()
+            .filter(|entry| ours.contains(&entry.id))
+            .count();
+        progress(&waited);
+        if waited.unfinished == 0 || clock.now() - start >= patience.timeout_seconds {
+            return Ok(waited);
+        }
+        clock.sleep(patience.poll_seconds);
+    }
 }
 
 /// Where the finished file should be on disk.
