@@ -23,6 +23,12 @@ $ stk review pick     # choose a candidate per track, one keystroke each
 $ stk fetch download  # queue the approved picks, verify what arrives
 ```
 
+Or the whole loop, waiting for the downloads and organising what arrives:
+
+```
+$ stk sync "My Spotify Library.csv" --apply
+```
+
 Or, for a single song:
 
 ```
@@ -360,6 +366,41 @@ The export's album is the streaming service's: sometimes a compilation or a
 "(Deluxe Edition)" that the peer's rip is not. `replace` writes it anyway -- the
 point is that the file says what was asked for -- and `stk tags apply` remains
 the way to correct it.
+
+**Or all of it at once.**
+
+Once the library exists, keeping it in step with a growing export is the same
+loop every time: scan, diff, search, pick, download, organise what arrived.
+`stk sync` runs it as one command:
+
+```bash
+stk sync "My Spotify Library.csv"           # scan, diff, search, pick; show the rest
+stk sync "My Spotify Library.csv" --apply   # and download, organise and scan again
+stk sync "My Spotify Library.csv" --apply --yes --limit 20
+```
+
+It scans the library, queues what the export has that the library does not,
+searches for everything waiting to be searched -- leftovers from earlier runs
+included -- and walks the review queue with the same prompt as `stk review
+pick`. With `--apply` it then queues the approved picks and **waits**: it keeps
+collecting what finishes and retrying what stalls with the next candidate, until
+nothing it sent is still on its way or `--timeout` passes (twice
+`slskd.stall_after_seconds` by default, long enough for a stalled transfer to be
+retried once). What is still downloading then is not abandoned; the next sync,
+or `stk fetch download --collect`, records it. Whatever arrived is organised out
+of `slskd.download_directory` into the library, as `stk organise --from` would,
+and the library is scanned again so `stk library trend` records the result.
+
+Without `--apply` nothing on disk changes: the scan, the diff, the search and
+the pick only write to the index and the review queue, as those commands do on
+their own, and the download and the organise are described instead of done.
+
+`--yes` takes the best candidate for every track rather than asking, and is
+required under `--json`, which prints one document with a section per step.
+`--limit` caps how many tracks are searched and downloaded, so a first sync
+against a large export does not queue hundreds of searches at once. The exit
+code is non-zero when a search, a download or a move failed, or a download
+turned out to be a transcode.
 
 ## Keeping the library clean
 

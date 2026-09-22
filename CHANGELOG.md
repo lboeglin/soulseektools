@@ -11,6 +11,32 @@ a set of ad-hoc scripts and a Nicotine+ plugin, and was then rewritten in Rust.
 
 ### Added
 
+- `stk sync`, which runs the recurring loop -- scan, diff, search, pick,
+  download, organise, scan again -- as one command under one `--apply` (#14).
+  Every step already existed on its own, but keeping a library in step with a
+  growing export meant remembering six commands and their order, and one step
+  had no command at all: `fetch download` queues and collects once, so waiting
+  for what it queued meant running it again by hand until the queue emptied.
+
+  The waiting is new. After queueing the approved picks, the sync keeps
+  collecting what finishes, retrying what stalls with the next candidate and
+  sending whatever a failure promoted, until nothing it sent is still on its way
+  or `--timeout` passes. A track queued by an earlier run is waited for too,
+  since nothing else will collect it; a timeout abandons nothing, and the next
+  sync records what arrived in the meantime. What arrived is then organised out
+  of `slskd.download_directory` into the library and the library is scanned
+  again, so `library trend` gets its point.
+
+  The steps are the library calls the individual commands wrap, not the
+  commands, so the output is one report and `--json` one document with a section
+  per step. Without `--apply` only the index and the review queue change -- the
+  scan, diff, search and pick, which write nothing else on their own either --
+  and the download and the organise are described instead. The pick is the
+  `review pick` prompt, skipped under `--yes` for the top candidate everywhere;
+  `--json` without `--yes` is refused, as `pick` refuses it. `--limit` caps
+  searches and downloads, and the exit code is non-zero when a search, a
+  download or a move failed, or a download is fake.
+
 - `stk get --album`, which fetches a peer's folder as one decision, starting
   from an album name (#13). `stk get "DECO*27 - Roki"` got one track and there
   was no equivalent for a record: getting *Ghost Rule EP* meant typing every

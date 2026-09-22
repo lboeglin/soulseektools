@@ -64,7 +64,8 @@ search_timeout_seconds = 15
 `download_directory` is how `stk` finds a finished file to verify: slskd's API
 reports the *remote* path, not the local one, so the local path is rebuilt from
 this directory, the artist folder the download was queued into, and the file's
-own name.
+own name. It is also where `stk sync --apply` organises finished downloads from,
+and that command refuses to run without it.
 
 Check it:
 
