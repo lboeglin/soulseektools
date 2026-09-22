@@ -1,11 +1,13 @@
 //! `stk library` -- build and inspect the cached view of the library.
 
+use std::path::PathBuf;
+
 use clap::Subcommand;
 use serde_json::json;
 
 use crate::cli::context::{show, table, unix_now, AppContext};
 use crate::errors::Result;
-use crate::library::index::LibraryIndex;
+use crate::library::index::RefreshResult;
 use crate::library::stats::{self, LibrarySnapshot};
 
 #[derive(Subcommand, Debug)]
@@ -39,20 +41,53 @@ pub fn run(context: &AppContext, command: LibraryCommand) -> Result<i32> {
     }
 }
 
-/// Measure the library and keep the result, so `trend` has a series to show.
-///
-/// Taken at the end of a scan because that is the one moment the index is known
-/// to agree with the disk, and taken without being asked because a trend nobody
-/// remembers to collect is not a trend.
-fn record(index: &mut LibraryIndex) -> Result<()> {
-    let entries = index.entries()?;
-    let verdicts = index.verdict_counts()?;
-    let snapshot = stats::measure(&entries, &verdicts, unix_now());
-    index.record_snapshot(&snapshot)?;
-    Ok(())
+/// What one scan found, across every root.
+pub(crate) struct Scanned {
+    pub roots: Vec<PathBuf>,
+    pub result: RefreshResult,
+    pub total: usize,
 }
 
-fn scan(context: &AppContext, full: bool) -> Result<i32> {
+impl Scanned {
+    pub fn to_json(&self) -> serde_json::Value {
+        json!({
+            "roots": self.roots.iter().map(|root| show(root)).collect::<Vec<_>>(),
+            "added": self.result.added,
+            "updated": self.result.updated,
+            "unchanged": self.result.unchanged,
+            "removed": self.result.removed,
+            "failed": self
+                .result
+                .failed
+                .iter()
+                .map(|(path, reason)| json!([show(path), reason]))
+                .collect::<Vec<_>>(),
+            "total": self.total,
+        })
+    }
+
+    pub fn report(&self, context: &AppContext) {
+        context.say(&format!(
+            "Indexed {} file(s) under {}: {} added, {} updated, {} unchanged, {} removed",
+            self.total,
+            self.roots
+                .iter()
+                .map(|root| show(root))
+                .collect::<Vec<_>>()
+                .join(", "),
+            self.result.added,
+            self.result.updated,
+            self.result.unchanged,
+            self.result.removed
+        ));
+        for (path, reason) in &self.result.failed {
+            context.say(&format!("skipped {}: {reason}", show(path)));
+        }
+    }
+}
+
+/// Bring the index in line with every root, and measure the result.
+pub(crate) fn refresh(context: &AppContext, full: bool) -> Result<Scanned> {
     let roots = context.require_library_roots()?;
     let exclude = context.excludes()?;
     let extensions: Vec<&str> = context
@@ -66,39 +101,20 @@ fn scan(context: &AppContext, full: bool) -> Result<i32> {
     let mut index = context.open_index()?;
     let result = index.refresh(&roots, &extensions, &exclude, full, None)?;
     let total = index.count()?;
-    record(&mut index)?;
+    index.record_measurement(unix_now())?;
+    Ok(Scanned {
+        roots,
+        result,
+        total,
+    })
+}
 
+fn scan(context: &AppContext, full: bool) -> Result<i32> {
+    let scanned = refresh(context, full)?;
     if context.as_json {
-        context.emit(&json!({
-            "roots": roots.iter().map(|root| show(root)).collect::<Vec<_>>(),
-            "added": result.added,
-            "updated": result.updated,
-            "unchanged": result.unchanged,
-            "removed": result.removed,
-            "failed": result
-                .failed
-                .iter()
-                .map(|(path, reason)| json!([show(path), reason]))
-                .collect::<Vec<_>>(),
-            "total": total,
-        }));
-        return Ok(0);
-    }
-
-    context.say(&format!(
-        "Indexed {total} file(s) under {}: {} added, {} updated, {} unchanged, {} removed",
-        roots
-            .iter()
-            .map(|root| show(root))
-            .collect::<Vec<_>>()
-            .join(", "),
-        result.added,
-        result.updated,
-        result.unchanged,
-        result.removed
-    ));
-    for (path, reason) in &result.failed {
-        context.say(&format!("skipped {}: {reason}", show(path)));
+        context.emit(&scanned.to_json());
+    } else {
+        scanned.report(context);
     }
     Ok(0)
 }

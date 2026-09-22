@@ -249,3 +249,17 @@ fn a_year_end_does_not_slip_into_the_next_one() {
     assert_eq!(date_of(1_767_225_599.0), "2025-12-31");
     assert_eq!(date_of(1_767_225_600.0), "2026-01-01");
 }
+
+#[test]
+fn a_measurement_is_taken_from_what_the_index_holds() {
+    let scratch = support::Scratch::new("stats-measure-index");
+    let mut index = LibraryIndex::open(&scratch.join("library.db")).expect("an index");
+
+    assert!(index.record_measurement(5.0).expect("a first").is_some());
+    assert!(index.record_measurement(6.0).expect("a repeat").is_none());
+
+    let series = index.snapshots(None).expect("the series");
+    assert_eq!(series.len(), 1);
+    assert_eq!(series[0].total, 0);
+    assert!((series[0].taken_at - 5.0).abs() < f64::EPSILON);
+}

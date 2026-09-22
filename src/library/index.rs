@@ -865,6 +865,17 @@ impl LibraryIndex {
         Ok(Some(self.connection.last_insert_rowid()))
     }
 
+    /// Measure what the index holds now and record it, as [`Self::record_snapshot`].
+    ///
+    /// Taken at the end of a scan because that is the one moment the index is
+    /// known to agree with the disk, and taken without being asked because a
+    /// trend nobody remembers to collect is not a trend.
+    pub fn record_measurement(&mut self, taken_at: f64) -> Result<Option<i64>> {
+        let snapshot =
+            crate::library::stats::measure(&self.entries()?, &self.verdict_counts()?, taken_at);
+        self.record_snapshot(&snapshot)
+    }
+
     /// Recorded measurements, newest first.
     pub fn snapshots(&self, limit: Option<usize>) -> Result<Vec<LibrarySnapshot>> {
         let mut query = format!("SELECT {SNAPSHOT_COLUMNS} FROM snapshots ORDER BY id DESC");
