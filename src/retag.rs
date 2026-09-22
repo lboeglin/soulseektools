@@ -78,6 +78,9 @@ pub struct RowTags {
     pub title: String,
     pub album: String,
     pub track_number: Option<i64>,
+
+    /// Whether `title` was read off the peer's own filename (#13).
+    pub title_guessed: bool,
 }
 
 impl RowTags {
@@ -92,6 +95,7 @@ impl RowTags {
             track_number: track
                 .source_value(TRACK_NUMBER_COLUMNS)
                 .and_then(tags::leading_number),
+            title_guessed: track.title_guessed,
         }
     }
 }
@@ -102,19 +106,29 @@ impl RowTags {
 /// neither, and `genre apply` owns the second. An `stk get` row has no album,
 /// and a title-only query no artist, so a blank in the row never blanks the
 /// file under either policy.
+///
+/// A guessed title is demoted one step. `replace` says the row is better than
+/// whatever the uploader's tagger left, which holds for a title that was asked
+/// for by name and not for one `stk get --album` read off a filename: there the
+/// peer's own tag is the better of the two guesses. It still fills a blank (#13).
 #[must_use]
 pub fn plan(policy: TagPolicy, row: &RowTags, current: &TrackTags) -> TrackTags {
     let mut proposed = current.clone();
-    let wins = |proposed_empty: bool| match policy {
+    let under = |policy, proposed_empty: bool| match policy {
         TagPolicy::Replace => true,
         TagPolicy::Fill => proposed_empty,
         TagPolicy::Keep => false,
+    };
+    let wins = |proposed_empty: bool| under(policy, proposed_empty);
+    let title_policy = match (policy, row.title_guessed) {
+        (TagPolicy::Replace, true) => TagPolicy::Fill,
+        (policy, _) => policy,
     };
 
     if !row.artist.is_empty() && wins(proposed.artist.is_empty()) {
         proposed.artist.clone_from(&row.artist);
     }
-    if !row.title.is_empty() && wins(proposed.title.is_empty()) {
+    if !row.title.is_empty() && under(title_policy, proposed.title.is_empty()) {
         proposed.title.clone_from(&row.title);
     }
     if !row.album.is_empty() && wins(proposed.album.is_empty()) {

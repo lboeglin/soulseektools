@@ -1,4 +1,4 @@
-//! The policy that decides what a fetched file is tagged with (#11).
+//! The policy that decides what a fetched file is tagged with (#11, #13).
 //!
 //! `plan` is pure, so every rule about which side wins is checked here without
 //! a file; the write, the log and the reindex are covered in `fetch.rs`.
@@ -24,6 +24,7 @@ fn row() -> RowTags {
         title: "Roki".to_owned(),
         album: "Ghost".to_owned(),
         track_number: None,
+        title_guessed: false,
     }
 }
 
@@ -152,4 +153,63 @@ fn a_policy_round_trips_through_its_spelling() {
 #[test]
 fn replace_is_the_default_policy() {
     assert_eq!(TagPolicy::default(), TagPolicy::Replace);
+}
+
+/// `replace` says the row beats whatever the uploader's tagger left, which
+/// holds for a title someone asked for by name. A title `stk get --album` read
+/// off a filename is the weaker of the two guesses, so it never overwrites (#13).
+#[test]
+fn a_guessed_title_does_not_overwrite_the_one_the_peer_wrote() {
+    let guessed = RowTags {
+        title_guessed: true,
+        ..row()
+    };
+
+    let planned = plan(TagPolicy::Replace, &guessed, &peer());
+
+    assert_eq!(planned.title, "Track 01");
+    // Only the title is demoted: the artist and album came from the album that
+    // was asked for, not from a filename.
+    assert_eq!(planned.artist, "DECO*27");
+    assert_eq!(planned.album, "Ghost");
+}
+
+#[test]
+fn a_guessed_title_still_fills_a_file_that_has_none() {
+    let guessed = RowTags {
+        title_guessed: true,
+        ..row()
+    };
+    let untitled = TrackTags {
+        title: String::new(),
+        ..peer()
+    };
+
+    assert_eq!(plan(TagPolicy::Replace, &guessed, &untitled).title, "Roki");
+}
+
+#[test]
+fn a_guessed_title_writes_nothing_under_keep() {
+    let guessed = RowTags {
+        title_guessed: true,
+        ..row()
+    };
+    let untitled = TrackTags {
+        title: String::new(),
+        ..peer()
+    };
+
+    assert_eq!(plan(TagPolicy::Keep, &guessed, &untitled), untitled);
+}
+
+#[test]
+fn the_row_carries_whether_the_queue_called_its_title_a_guess() {
+    let asked_for = Track::new("DECO*27", "Roki");
+    let guessed = Track {
+        title_guessed: true,
+        ..Track::new("DECO*27", "Roki")
+    };
+
+    assert!(!RowTags::of(&asked_for).title_guessed);
+    assert!(RowTags::of(&guessed).title_guessed);
 }

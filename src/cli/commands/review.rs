@@ -128,6 +128,7 @@ fn list(
                     "id": entry.id,
                     "artist": entry.track.artist,
                     "title": entry.track.title,
+                    "title_guessed": entry.track.title_guessed,
                     "status": entry.status.to_string(),
                     "detail": entry.detail,
                     "approved_rank": entry.approved_rank,
@@ -157,10 +158,17 @@ fn list(
     let rows: Vec<Vec<String>> = tracks
         .iter()
         .map(|entry| {
+            // A title `get --album` read off a filename is marked, because it
+            // is the one thing in the queue nobody asked for by name (#13).
+            let guessed = if entry.track.title_guessed {
+                " (guessed)"
+            } else {
+                ""
+            };
             vec![
                 entry.id.to_string(),
                 entry.status.to_string(),
-                format!("{} - {}", entry.track.artist, entry.track.title),
+                format!("{} - {}{guessed}", entry.track.artist, entry.track.title),
                 entry.detail.clone(),
             ]
         })

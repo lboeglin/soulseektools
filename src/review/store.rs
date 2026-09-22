@@ -14,9 +14,9 @@ use rusqlite::{params, params_from_iter, Connection, OptionalExtension, Transact
 use crate::errors::{Error, Result};
 use crate::models::{Candidate, ScoredCandidate, Track, TrackStatus};
 
-/// Bumped from 1 to 2 by the retry tracking in #2, and to 3 by the album
-/// fallback in #6.
-pub const SCHEMA_VERSION: i64 = 3;
+/// Bumped from 1 to 2 by the retry tracking in #2, to 3 by the album fallback
+/// in #6, and to 4 by the guessed titles in #13.
+pub const SCHEMA_VERSION: i64 = 4;
 
 const SCHEMA: &str = "
 CREATE TABLE IF NOT EXISTS meta (
@@ -82,6 +82,15 @@ const V2_COLUMNS: &[(&str, &str)] = &[
 /// candidates have been tried is what lets the fallback reach them.
 const V3_COLUMNS: &[(&str, &str)] = &[("attempted", "INTEGER NOT NULL DEFAULT 0")];
 
+/// The column schema v4 adds to `tracks`, from #13.
+///
+/// A row `stk get --album` writes carries a title read off a peer's filename:
+/// the folder was what was asked for, and no tracklist says what is inside it.
+/// Every other row in the queue was typed or exported, so nothing had to record
+/// the difference before -- and the difference decides whether `fetch download`
+/// may write that title over the one the peer put on the file.
+const V4_COLUMNS: &[(&str, &str)] = &[("title_guessed", "INTEGER NOT NULL DEFAULT 0")];
+
 /// A wanted track and everything found for it.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ReviewTrack {
@@ -133,6 +142,7 @@ impl ReviewStore {
 
         add_missing_columns(&connection, "tracks", V2_COLUMNS)?;
         add_missing_columns(&connection, "candidates", V3_COLUMNS)?;
+        add_missing_columns(&connection, "tracks", V4_COLUMNS)?;
 
         connection
             .execute(
@@ -156,8 +166,9 @@ impl ReviewStore {
                 .connection
                 .execute(
                     "INSERT OR IGNORE INTO tracks \
-                     (query, artist, title, album, duration_seconds, status, source_row, added_at) \
-                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                     (query, artist, title, album, duration_seconds, status, source_row, \
+                      title_guessed, added_at) \
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
                     params![
                         track.query(),
                         track.artist,
@@ -166,6 +177,7 @@ impl ReviewStore {
                         track.duration_seconds,
                         TrackStatus::Pending.as_str(),
                         source_row_json(&track.source_row),
+                        i64::from(track.title_guessed),
                         now,
                     ],
                 )
@@ -576,6 +588,7 @@ fn partial_track(row: &rusqlite::Row<'_>) -> rusqlite::Result<PartialTrack> {
             title: row.get("title")?,
             album: row.get("album")?,
             duration_seconds: row.get("duration_seconds")?,
+            title_guessed: row.get::<_, Option<i64>>("title_guessed")?.unwrap_or(0) != 0,
             source_row: parse_source_row(&source_row),
         },
         status: status.parse().unwrap_or(TrackStatus::Pending),

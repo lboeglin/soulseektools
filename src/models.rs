@@ -127,6 +127,13 @@ pub struct Track {
     pub title: String,
     pub album: String,
     pub duration_seconds: Option<f64>,
+
+    /// Whether `title` was read off a peer's filename rather than asked for by
+    /// name (#13). `stk get --album` has no tracklist and no choice; everything
+    /// else in the queue was typed or exported. A guess is weaker evidence than
+    /// a tag the peer wrote, and [`crate::retag::plan`] treats it as such.
+    pub title_guessed: bool,
+
     pub source_row: Vec<(String, String)>,
 }
 

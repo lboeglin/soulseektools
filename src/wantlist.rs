@@ -114,6 +114,7 @@ pub fn read_export(path: &Path) -> Result<Vec<Track>> {
             duration_seconds: duration_at
                 .and_then(|at| record.get(at))
                 .and_then(parse_duration),
+            title_guessed: false,
             source_row: headers
                 .iter()
                 .zip(record.iter())

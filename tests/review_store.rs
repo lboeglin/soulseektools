@@ -1,5 +1,5 @@
 //! Ported from `py/tests/unit/test_review_store.py`, plus the retry and stall
-//! tracking `review.db` v2 adds (#2).
+//! tracking `review.db` v2 adds (#2) and the guessed titles v4 adds (#13).
 
 mod support;
 
@@ -19,6 +19,7 @@ fn track(artist: &str, title: &str) -> Track {
         title: title.to_owned(),
         album: "Ghost".to_owned(),
         duration_seconds: Some(215.0),
+        title_guessed: false,
         source_row: Vec::new(),
     }
 }
@@ -524,4 +525,54 @@ fn a_v1_database_is_upgraded_in_place_rather_than_rewritten() {
     assert_eq!(stored.track.artist, "DECO*27");
     assert_eq!(stored.queued_at, None);
     assert_eq!(stored.attempts, 0);
+}
+
+/// A row `stk get --album` writes says so, because its title came off a
+/// filename rather than out of anything anyone asked for by name (#13).
+#[test]
+fn a_row_records_whether_its_title_was_guessed() {
+    let scratch = Scratch::new("review-guessed");
+    let mut store = store(&scratch);
+
+    store
+        .add(&[
+            roki(),
+            Track {
+                title: "Aimai Elegy".to_owned(),
+                title_guessed: true,
+                ..roki()
+            },
+        ])
+        .expect("two added tracks");
+
+    let stored = store.tracks(&[], None).expect("tracks");
+    assert!(!stored[0].track.title_guessed);
+    assert!(stored[1].track.title_guessed);
+}
+
+/// v4 adds `title_guessed` to a table an existing database already holds rows
+/// in, so the column has to arrive without disturbing them (#13).
+#[test]
+fn a_v3_database_keeps_its_tracks_when_the_guessed_column_arrives() {
+    let scratch = Scratch::new("review-v3");
+    let database = scratch.join("v3.db");
+
+    {
+        let mut store = ReviewStore::open(&database).expect("a store");
+        reviewable(&mut store);
+    }
+    let connection = rusqlite::Connection::open(&database).expect("a database");
+    connection
+        .execute_batch("ALTER TABLE tracks DROP COLUMN title_guessed")
+        .expect("a v3 tracks table");
+    drop(connection);
+
+    let store = ReviewStore::open(&database).expect("an upgraded store");
+    let stored = &store.tracks(&[], None).expect("tracks")[0];
+
+    assert_eq!(stored.track.query(), "DECO*27 - Roki");
+    assert_eq!(stored.candidates.len(), 3);
+    // Nothing written before the column existed was a guess, which is what the
+    // default says, rather than leaving it unknown.
+    assert!(!stored.track.title_guessed);
 }
