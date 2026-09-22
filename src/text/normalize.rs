@@ -51,7 +51,7 @@ static WHITESPACE: LazyLock<Regex> = LazyLock::new(|| Regex::new(&format!("[{SPA
 static WORD: LazyLock<Regex> = LazyLock::new(|| Regex::new(&format!("[{ALNUM}_]+")).unwrap());
 static LEADING_TRACK_NUMBER: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(&format!(
-        r"^[{SPACE}]*[\(\[]?\d{{1,3}}(?:[.\-]\d{{1,3}})?[\)\]]?[{SPACE}]*[-.\u{{2013}}\u{{2014}}_]?[{SPACE}]*"
+        r"^[{SPACE}]*[\(\[]?(?<disc>\d{{1,3}})(?:[.\-](?<track>\d{{1,3}}))?[\)\]]?[{SPACE}]*[-.\u{{2013}}\u{{2014}}_]?[{SPACE}]*"
     ))
     .unwrap()
 });
@@ -110,6 +110,21 @@ pub fn strip_track_number(name: &str) -> String {
     } else {
         trimmed.to_owned()
     }
+}
+
+/// The track number a leading `01 -`, `(06)`, `15.` or `1-05` names.
+///
+/// The second group wins where there is one: `1-05` is track five of disc one,
+/// and the disc is not what a tag calls the track number. This is not
+/// [`crate::library::tags::leading_number`], which reads a tag value such as
+/// `3/12` and refuses anything a filename is made of.
+#[must_use]
+pub fn track_number(name: &str) -> Option<i64> {
+    let numbered = LEADING_TRACK_NUMBER.captures(name)?;
+    numbered
+        .name("track")
+        .or_else(|| numbered.name("disc"))
+        .and_then(|digits| digits.as_str().parse().ok())
 }
 
 /// Remove a leading artist name from a filename stem, if present.

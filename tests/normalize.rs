@@ -1,7 +1,8 @@
 //! Ported from `py/tests/unit/test_normalize.py`.
 
 use stk::text::normalize::{
-    normalize, sanitize_folder_name, strip_artist_prefix, strip_track_number, UNKNOWN_ARTIST,
+    normalize, sanitize_folder_name, strip_artist_prefix, strip_track_number, track_number,
+    UNKNOWN_ARTIST,
 };
 
 #[test]
@@ -146,4 +147,28 @@ fn sanitize_folder_name_falls_back_when_nothing_survives() {
         sanitize_folder_name("   ", UNKNOWN_ARTIST),
         "Unknown Artist"
     );
+}
+
+/// What `stk get --album` files a download under: the folder gives no tracklist,
+/// so the filename's own number is the only one there is (#13).
+#[test]
+fn a_filename_gives_up_the_track_number_it_leads_with() {
+    for (name, expected) in [
+        ("01 - Roki.flac", Some(1)),
+        ("(06) Yowamushi Montblanc.flac", Some(6)),
+        ("15. Ghost Rule.mp3", Some(15)),
+        ("Roki.flac", None),
+        ("", None),
+    ] {
+        assert_eq!(track_number(name), expected, "track_number({name:?})");
+    }
+}
+
+/// `1-05` is the fifth track of the first disc, and what a tag calls the track
+/// number is the track. Taking the leading group would file every disc's opener
+/// as track one.
+#[test]
+fn a_disc_prefixed_filename_yields_the_track_not_the_disc() {
+    assert_eq!(track_number("1-05 Roki.flac"), Some(5));
+    assert_eq!(track_number("2.03 - Ghost Rule.flac"), Some(3));
 }
