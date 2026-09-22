@@ -106,7 +106,7 @@ The settings worth knowing about:
 | `ranking.prefer_lossless` | Rank lossless above lossy. On by default. |
 | `ranking.require_lossless` | Discard lossy results entirely. Off by default. |
 | `ranking.min_bitrate` | Discard lossy results below this. Lossless is never discarded. |
-| `review.album_minimum_tracks` | How many waiting tracks a peer's folder must hold to be offered as an album. |
+| `review.album_minimum_tracks` | How many tracks a peer's folder must hold to count as an album, in `review albums` and `get --album`. |
 | `slskd.stall_after_seconds` | How long a download may sit queued before the next candidate is tried. |
 | `fetch.tags` | What a finished download is tagged with: `replace` (default), `fill` or `keep`. |
 | `uploader.prefer_one` | Take a batch from one peer where the per-track choice is close. On by default. |
@@ -152,6 +152,60 @@ A list may carry blank lines and `#` comments, so it can be kept by hand.
 
 `--queue-only` approves a candidate without downloading it, so you can gather a
 few and run `stk fetch download` once.
+
+## Getting a whole album
+
+An album is not twelve tracks you happen to want together. Soulseek's real unit
+is the folder, and `--album` asks for one by name:
+
+```bash
+stk get --album "DECO*27 - Ghost Rule EP"    # search, show the folders, take one
+stk get --album -a "DECO*27" "Ghost Rule EP" # or give the artist separately
+stk get --album "Ghost Rule EP" --lossless   # the quality limits apply per folder
+stk get --album "Ghost Rule EP" --yes        # take the best-scored folder
+```
+
+```
+$ stk get --album "DECO*27 - Ghost Rule EP"
+Searching for DECO*27 Ghost Rule EP ...
+#  Peer   Album                   Files  Quality        Slot  Queue
+1  bulk   DECO27 - Ghost Rule EP  4      4 flac         free  0
+2  peerC  Ghost Rule [2017]       4      3 flac, 1 mp3  busy  7
+
+1. @@bulk\Music\DECO27 - Ghost Rule EP
+   01 - Roki.flac [flac, 44.1kHz/16bit] user=bulk queue=0 slot=free
+   02 - Ghost Rule.flac [flac, 44.1kHz/16bit] user=bulk queue=0 slot=free
+   03 - Aimai Elegy.flac [flac, 44.1kHz/16bit] user=bulk queue=0 slot=free
+   04 - Hibana.flac [flac, 44.1kHz/16bit] user=bulk queue=0 slot=free
+   + 2 other file(s), not queued
+
+Take which? [1-2, or n for none] (1):
+```
+
+Every file is named before you choose, because the folder is taken whole: what
+six columns say about it is not enough to decide on four transfers. The `.cue`,
+the `.log` and the scan are counted so the listing describes the folder as it
+is, and left where they are -- the album was asked for, not the uploader's
+paperwork.
+
+The same search and the same reject and penalise terms apply, read across the
+whole folder rather than one file at a time: one `(Karaoke)` track inside it
+says something about all of them. What cannot come along is the name match,
+because an album asked for by name brings no tracklist to hold the filenames
+against. `--lossless` and `--min-bitrate` therefore apply per folder: one MP3
+among the FLACs is a warning on the listing rather than a file quietly dropped
+out of a folder you would have received whole.
+
+Each audio file becomes its own review row, approved with that peer's file, so
+`stk fetch download` queues them as it queues anything else. The titles are read
+off the filenames -- there is nothing else to read them off -- so the queue marks
+them as guesses, and a download keeps the peer's own title wherever it has one.
+`review.album_minimum_tracks` sets how many audio files make a folder worth
+offering, and one already downloaded or already on its way is left alone.
+
+If one file never arrives, it fails on its own: there is no second candidate for
+it, because the folder was the point. `stk get "DECO*27 - Roki"` is how you go
+and find that one somewhere else.
 
 ## Building a library from an export
 
@@ -262,7 +316,10 @@ convention. An offer only ever covers tracks already waiting in the queue — th
 folder's other contents, a `.cue` or a scan among them, were never searched for
 and are never fetched — so approving one is four ordinary approvals made at
 once, and each track still falls back to its own next candidate if that file
-does not arrive. The offer is shown before it is taken, and `--tracks` names
+does not arrive. That is the difference from `stk get --album`, which starts
+from an album name rather than from the queue: there the folder *is* what was
+asked for, so all of its audio is taken and each file has only the one
+candidate. The offer is shown before it is taken, and `--tracks` names
 every track and candidate in it. `review.album_minimum_tracks` sets how many
 tracks a folder must hold to be worth offering.
 

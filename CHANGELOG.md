@@ -11,6 +11,43 @@ a set of ad-hoc scripts and a Nicotine+ plugin, and was then rewritten in Rust.
 
 ### Added
 
+- `stk get --album`, which fetches a peer's folder as one decision, starting
+  from an album name (#13). `stk get "DECO*27 - Roki"` got one track and there
+  was no equivalent for a record: getting *Ghost Rule EP* meant typing every
+  title and hoping `review albums` then offered a folder, or writing a CSV.
+  Neither is "get me this album". The album logic existed but could only run
+  over tracks already in the queue, grouping *their* candidates by peer folder,
+  and it could not start from a name because the tracklist is not known.
+
+  So the folder is what is scored. The search, the client and the reject and
+  penalise pass over the remote path are the ones `stk get` already uses, read
+  across the folder's files together rather than one at a time -- a folder is
+  queued whole or not at all, so one `(Karaoke)` track inside it is evidence
+  about all of them. What cannot come along is the per-file name match, which
+  has no counterpart without a tracklist, and `--lossless` and `--min-bitrate`
+  therefore apply per folder: one MP3 among the FLACs is a warning on the
+  listing rather than a file quietly dropped out of a folder that would arrive
+  whole either way. Every file is named before the prompt, and the `.cue`, the
+  `.log` and the scan are counted and left where they are -- the album was asked
+  for, not the uploader's paperwork.
+
+  Taking one writes a review row per audio file, each approved with that peer's
+  file as its only candidate. That is the same shape `review approve-album`
+  leaves behind, so `fetch download`, `collect` and the stall retry need no
+  change: the folder is a unit of decision, not of transfer. With one candidate
+  there is nothing for the retry to promote, so a file that never arrives fails
+  on its own and `stk get` by name is how to go and find it elsewhere. A row
+  already queued or downloaded is left alone and named.
+
+  The titles are read off the filenames, because a folder offers nothing else to
+  read them off, so `review.db` v4 records that they are guesses and
+  `fetch download` never writes one over a title the peer had right -- `replace`
+  is a statement about rows that were asked for by name. The track number comes
+  off the filename too and reaches the file through the column an export's
+  number already travels in. `review.album_minimum_tracks` decides how many
+  audio files make a folder worth offering, for this and for `review albums`
+  alike.
+
 - `stk tags identify`, which identifies a file from its audio and tags it
   (#12). `tags dump` could show `01 track.flac` under `Unknown Artist` and
   nothing in the tool could say what it was: a download from before the review

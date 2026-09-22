@@ -117,8 +117,9 @@ src/
                     the transport
   artwork/          providers and the artist-verification guard
   soulseek/         the client trait, the slskd backend, ranking
-  review/           the review queue, the album view over it, and the picker
-                    that walks it
+  review/           the review queue, the album view over it -- over the queue,
+                    and over a search for one album -- and the picker that
+                    walks it
   cli/              one module per command group
 ```
 
