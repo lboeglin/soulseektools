@@ -8,7 +8,7 @@
 
 use stk::config::{RankingSettings, UploaderSettings};
 use stk::models::{Candidate, ScoredCandidate, Track};
-use stk::soulseek::ranking::{prefer_one_uploader, rank, PREFERRED_FLAG};
+use stk::soulseek::ranking::{is_audio, prefer_one_uploader, rank, score_folder, PREFERRED_FLAG};
 
 fn track() -> Track {
     Track {
@@ -507,4 +507,188 @@ fn preferring_one_uploader_can_be_widened_or_narrowed() {
 fn an_empty_batch_settles_on_nobody() {
     assert_eq!(prefer_one_uploader(&mut [], &uploader()), None);
     assert_eq!(prefer_one_uploader(&mut [Vec::new()], &uploader()), None);
+}
+
+/// Scoring a folder rather than a file (#13).
+///
+/// `stk get --album` starts from an album name, so there is no tracklist and no
+/// title to hold a filename against. What is left is the half of the scoring
+/// that reads the whole remote path, and it has to read the folder's files
+/// together: a folder is queued whole or not at all.
+fn lossy(path: &str, bitrate: u32) -> Candidate {
+    Candidate {
+        bit_depth: None,
+        sample_rate: None,
+        bitrate: Some(bitrate),
+        ..candidate(path)
+    }
+}
+
+fn album(folder: &str, names: &[&str]) -> Vec<Candidate> {
+    names
+        .iter()
+        .map(|name| candidate(&format!("{folder}\\{name}")))
+        .collect()
+}
+
+fn ghost_rule() -> Vec<Candidate> {
+    album(
+        "@@peer\\Music\\DECO27 - Ghost Rule EP",
+        &["01 - Roki.flac", "02 - Ghost Rule.flac", "03 - Aimai.flac"],
+    )
+}
+
+#[test]
+fn a_folder_of_audio_is_worth_scoring() {
+    let scored = score_folder(
+        &ghost_rule(),
+        &RankingSettings::default(),
+        "deco 27 ghost rule",
+    )
+    .expect("a scored folder");
+
+    assert!(scored.score > 0);
+    assert!(scored.flags.is_empty());
+    assert_eq!(scored.below_quality, 0);
+}
+
+#[test]
+fn a_folder_with_no_audio_in_it_is_not_a_folder_worth_offering() {
+    let paperwork = album(
+        "@@peer\\Music\\Ghost Rule EP",
+        &["folder.jpg", "ghost.cue", "ghost.log"],
+    );
+
+    assert_eq!(
+        score_folder(&paperwork, &RankingSettings::default(), "ghost rule"),
+        None
+    );
+}
+
+/// A file is scored on its own path; a folder is taken whole, so one karaoke
+/// track inside it is evidence about every track inside it.
+#[test]
+fn a_rejected_term_on_any_file_rejects_the_whole_folder() {
+    let mixed = album(
+        "@@peer\\Music\\Ghost Rule EP",
+        &["01 - Roki.flac", "02 - Ghost Rule (Karaoke).flac"],
+    );
+    let scored =
+        score_folder(&mixed, &RankingSettings::default(), "ghost rule").expect("a scored folder");
+
+    assert!(scored.score < 0);
+    assert_eq!(scored.flags, vec!["reject:karaoke".to_owned()]);
+}
+
+#[test]
+fn a_penalised_term_in_the_folder_name_costs_the_whole_folder() {
+    let options = RankingSettings::default();
+    let live = album(
+        "@@peer\\Music\\DECO27 Live at Budokan",
+        &["01 - Roki.flac", "02 - Ghost Rule.flac"],
+    );
+
+    let studio = score_folder(&ghost_rule(), &options, "deco 27 ghost rule").expect("a folder");
+    let concert = score_folder(&live, &options, "deco 27 ghost rule").expect("a folder");
+
+    assert!(concert.flags.contains(&"live".to_owned()));
+    assert_eq!(studio.score - concert.score, options.penalty_per_term);
+}
+
+/// The carve-out `terms_in` makes for a single file has to hold for a folder:
+/// nobody asking for *Live and Learn* is asking to reject every path saying
+/// "live".
+#[test]
+fn a_term_the_album_itself_contains_is_not_held_against_it() {
+    let asked_for = album(
+        "@@peer\\Music\\Live and Learn",
+        &["01 - Open Your Heart.flac", "02 - Live and Learn.flac"],
+    );
+    let scored =
+        score_folder(&asked_for, &RankingSettings::default(), "live and learn").expect("a folder");
+
+    assert!(scored.flags.is_empty());
+    assert!(scored.score > 0);
+}
+
+/// The mean, not the sum. A folder padded out with bonus tracks is not a better
+/// rip of the record than a folder holding the record.
+#[test]
+fn a_longer_folder_does_not_outscore_a_better_one() {
+    let padded: Vec<Candidate> = (1..=20)
+        .map(|number| lossy(&format!("@@a\\Music\\Best Of\\{number:02} - Roki.mp3"), 320))
+        .collect();
+    let options = RankingSettings::default();
+
+    let short = score_folder(&ghost_rule(), &options, "ghost rule").expect("a folder");
+    let long = score_folder(&padded, &options, "best of").expect("a folder");
+
+    assert!(short.score > long.score);
+}
+
+#[test]
+fn a_peers_free_slot_and_queue_move_the_whole_folder() {
+    let options = RankingSettings::default();
+    let busy: Vec<Candidate> = ghost_rule()
+        .into_iter()
+        .map(|file| Candidate {
+            free_upload_slots: false,
+            queue_length: 40,
+            ..file
+        })
+        .collect();
+
+    let free = score_folder(&ghost_rule(), &options, "ghost rule").expect("a folder");
+    let waiting = score_folder(&busy, &options, "ghost rule").expect("a folder");
+
+    assert_eq!(free.score - waiting.score, 1000 + 40);
+}
+
+/// A folder is taken whole, so the one MP3 among the FLACs is a warning. Hiding
+/// it would describe a folder that is not the one on the peer's disk, and the
+/// one on the peer's disk is what would arrive.
+#[test]
+fn a_folder_that_is_only_partly_lossless_is_warned_about_rather_than_dropped() {
+    let mut mixed = ghost_rule();
+    mixed.push(lossy(
+        "@@peer\\Music\\DECO27 - Ghost Rule EP\\04 - Bonus.mp3",
+        192,
+    ));
+    let options = RankingSettings {
+        require_lossless: true,
+        ..RankingSettings::default()
+    };
+
+    let scored = score_folder(&mixed, &options, "ghost rule").expect("a folder");
+
+    assert_eq!(scored.below_quality, 1);
+    assert!(scored.score > 0);
+}
+
+#[test]
+fn a_folder_nothing_in_which_clears_the_floor_is_gone() {
+    let all_lossy = vec![
+        lossy("@@peer\\Music\\Ghost Rule EP\\01 - Roki.mp3", 192),
+        lossy("@@peer\\Music\\Ghost Rule EP\\02 - Ghost Rule.mp3", 192),
+    ];
+    let options = RankingSettings {
+        min_bitrate: Some(320),
+        ..RankingSettings::default()
+    };
+
+    assert_eq!(score_folder(&all_lossy, &options, "ghost rule"), None);
+}
+
+#[test]
+fn only_audio_counts_as_audio() {
+    for (path, audio) in [
+        ("@@peer\\Music\\01 - Roki.flac", true),
+        ("@@peer\\Music\\01 - Roki.mp3", true),
+        ("@@peer\\Music\\01 - Roki.opus", true),
+        ("@@peer\\Music\\ghost.cue", false),
+        ("@@peer\\Music\\folder.jpg", false),
+        ("@@peer\\Music\\readme", false),
+    ] {
+        assert_eq!(is_audio(&candidate(path)), audio, "is_audio({path:?})");
+    }
 }

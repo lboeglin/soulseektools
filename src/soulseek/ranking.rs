@@ -36,6 +36,16 @@ fn audio_extensions() -> &'static HashSet<&'static str> {
     &SET
 }
 
+/// Whether a result is audio at all, by its container.
+///
+/// The extension check [`score`] opens with, on its own: a folder holds a
+/// `.cue`, a `.log` and a scan alongside the music, and grouping one has to
+/// tell them apart before it counts what is in it.
+#[must_use]
+pub fn is_audio(candidate: &Candidate) -> bool {
+    audio_extensions().contains(candidate.extension().as_str())
+}
+
 /// The gap between quality tiers, which every other weight sits inside.
 ///
 /// Public so `config` can bound the uploader window against it rather than
@@ -88,7 +98,7 @@ pub fn score(
     wanted: &str,
     options: &RankingSettings,
 ) -> Option<ScoredCandidate> {
-    if !audio_extensions().contains(candidate.extension().as_str()) {
+    if !is_audio(candidate) {
         return None;
     }
 
@@ -176,7 +186,9 @@ pub fn is_lossless(candidate: &Candidate) -> bool {
         || candidate.bit_depth.is_some()
 }
 
-fn meets_quality_floor(candidate: &Candidate, options: &RankingSettings) -> bool {
+/// Whether a result clears `--lossless` and `--min-bitrate`.
+#[must_use]
+pub fn meets_quality_floor(candidate: &Candidate, options: &RankingSettings) -> bool {
     if is_lossless(candidate) {
         return true;
     }
@@ -213,6 +225,96 @@ fn quality_score(candidate: &Candidate, prefer_lossless: bool) -> i64 {
         0
     };
     tier + quality * QUALITY_WEIGHT
+}
+
+/// The flag a file carries when it is the part of its folder missing the floor.
+pub const BELOW_QUALITY_FLAG: &str = "below-quality-limit";
+
+/// What a peer's folder is worth, and what is wrong with it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FolderScore {
+    pub score: i64,
+    /// The reject and penalise terms its paths carry.
+    pub flags: Vec<String>,
+    /// How many of its audio files miss `--lossless` or `--min-bitrate`.
+    pub below_quality: usize,
+}
+
+/// Score a peer's folder the way [`score`] scores a file, minus the name match.
+///
+/// An album search knows no tracklist, so there is no title to hold a filename
+/// against -- the one half of the scoring that cannot make the move. What does
+/// survive is the half that reads the whole remote path, which is the half that
+/// catches a live set or a karaoke rip, and here it is read across every file
+/// at once: a folder is taken whole or not at all, so one `Karaoke` track
+/// inside it is evidence about all of them.
+///
+/// Quality is the mean of what the files are worth rather than the sum, or a
+/// folder padded with bonus tracks would outrank a better rip of the record.
+///
+/// `None` means nothing in the folder clears the quality floor. A folder where
+/// only some files fail keeps its place and carries a warning instead: dropping
+/// the files that fail would offer a folder that is not the one on the peer's
+/// disk, and the one on the peer's disk is what would arrive.
+#[must_use]
+pub fn score_folder(
+    files: &[Candidate],
+    options: &RankingSettings,
+    wanted: &str,
+) -> Option<FolderScore> {
+    let audio: Vec<&Candidate> = files.iter().filter(|file| is_audio(file)).collect();
+    let first = audio.first()?;
+
+    let paths = audio
+        .iter()
+        .map(|file| file.remote_path.as_str())
+        .collect::<Vec<_>>()
+        .join(" ");
+    let path_text = flatten(&SEPARATORS.replace_all(&paths, " "));
+
+    let rejected = terms_in(&path_text, &options.reject_terms, wanted);
+    if !rejected.is_empty() {
+        return Some(FolderScore {
+            score: REJECTED_SCORE,
+            flags: rejected
+                .iter()
+                .map(|term| format!("reject:{term}"))
+                .collect(),
+            below_quality: 0,
+        });
+    }
+
+    let below = audio
+        .iter()
+        .filter(|file| !meets_quality_floor(file, options))
+        .count();
+    if below == audio.len() {
+        return None;
+    }
+
+    let mut total = audio
+        .iter()
+        .map(|file| quality_score(file, options.prefer_lossless))
+        .sum::<i64>()
+        / i64::try_from(audio.len()).unwrap_or(1);
+
+    // Availability belongs to the peer rather than to the file: slskd spreads
+    // one response's free slot and queue length across every file in it.
+    total += if first.free_upload_slots {
+        FREE_SLOT_BONUS
+    } else {
+        0
+    };
+    total -= i64::from(first.queue_length.min(MAX_QUEUE_PENALTY));
+
+    let flags = terms_in(&path_text, &options.penalise_terms, wanted);
+    total -= options.penalty_per_term * i64::try_from(flags.len()).unwrap_or(0);
+
+    Some(FolderScore {
+        score: total.max(0),
+        flags,
+        below_quality: below,
+    })
 }
 
 /// Whether the offered file is a different length from the track wanted.
