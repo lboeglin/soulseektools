@@ -1,4 +1,4 @@
-//! Grouping the review queue by the folder a peer offers it from (#6).
+//! Grouping by the folder a peer offers files from (#6, #13).
 //!
 //! The offers are built from a real `ReviewStore` rather than from hand-made
 //! `ReviewTrack` values, because the rank numbering the grouping depends on is
@@ -7,9 +7,11 @@
 
 mod support;
 
+use stk::config::RankingSettings;
 use stk::models::{Candidate, ScoredCandidate, Track, TrackStatus};
-use stk::review::albums::{offers, AlbumOffer};
+use stk::review::albums::{album_rows, folders, offers, queue_folder, AlbumOffer, FolderOffer};
 use stk::review::store::ReviewStore;
+use stk::soulseek::ranking::BELOW_QUALITY_FLAG;
 use support::Scratch;
 
 fn store(scratch: &Scratch) -> ReviewStore {
@@ -489,4 +491,297 @@ fn a_folder_is_ranked_by_how_often_it_is_already_the_first_choice() {
 
     assert_eq!(offer.covered(), 2);
     assert_eq!(offer.top_picks(), 1);
+}
+
+/// Folders grouped straight out of a search, for `stk get --album` (#13).
+///
+/// Nothing here goes through the review queue first: the point of the command
+/// is that an album can be asked for by name, with no tracklist and no rows
+/// waiting. `wanted` is the flattened query, which is what keeps the reject and
+/// penalise terms from being held against an album that contains one.
+fn found(username: &str, remote_path: &str) -> Candidate {
+    Candidate {
+        username: username.to_owned(),
+        remote_path: remote_path.to_owned(),
+        size: 30_000_000,
+        sample_rate: Some(44100),
+        bit_depth: Some(16),
+        free_upload_slots: true,
+        ..Candidate::default()
+    }
+}
+
+fn listing(username: &str, folder: &str, names: &[&str]) -> Vec<Candidate> {
+    names
+        .iter()
+        .map(|name| found(username, &format!("{folder}\\{name}")))
+        .collect()
+}
+
+fn ghost_rule(username: &str) -> Vec<Candidate> {
+    listing(
+        username,
+        "@@peer\\Music\\DECO27 - Ghost Rule EP",
+        &[
+            "01 - Roki.flac",
+            "02 - Ghost Rule.flac",
+            "03 - Aimai Elegy.flac",
+        ],
+    )
+}
+
+fn offered(candidates: &[Candidate], minimum: usize) -> Vec<FolderOffer> {
+    folders(
+        candidates,
+        &RankingSettings::default(),
+        "deco 27 ghost rule ep",
+        minimum,
+    )
+}
+
+#[test]
+fn a_search_becomes_one_offer_per_peer_and_folder() {
+    let mut results = ghost_rule("bulk");
+    results.extend(listing(
+        "peerC",
+        "@@peer\\Shared\\Ghost Rule",
+        &["Roki.flac", "Ghost Rule.flac"],
+    ));
+
+    let offers = offered(&results, 2);
+
+    assert_eq!(offers.len(), 2);
+    assert_eq!(offers[0].username, "bulk");
+    assert_eq!(offers[0].name(), "DECO27 - Ghost Rule EP");
+    assert_eq!(offers[0].count(), 3);
+    assert_eq!(offers[1].username, "peerC");
+    assert_eq!(offers[1].count(), 2);
+}
+
+#[test]
+fn a_folder_holding_too_little_is_not_an_album() {
+    let mut results = ghost_rule("bulk");
+    results.extend(listing("thin", "@@peer\\Shared", &["Roki.flac"]));
+
+    let offers = offered(&results, 2);
+
+    assert_eq!(offers.len(), 1);
+    assert_eq!(offers[0].username, "bulk");
+}
+
+/// The `.cue`, the `.log` and the scan are what the folder holds, so the
+/// listing counts them -- and they are not what was asked for, so nothing
+/// queues them.
+#[test]
+fn a_folders_paperwork_is_counted_and_never_queued() {
+    let mut results = ghost_rule("bulk");
+    results.extend(listing(
+        "bulk",
+        "@@peer\\Music\\DECO27 - Ghost Rule EP",
+        &["ghost.cue", "ghost.log", "folder.jpg"],
+    ));
+
+    let offers = offered(&results, 2);
+
+    assert_eq!(offers[0].count(), 3);
+    assert_eq!(offers[0].extras, 3);
+    assert!(offers[0]
+        .files
+        .iter()
+        .all(|file| file.candidate.extension() == "flac"));
+}
+
+/// `Candidate::split_path` hands back the whole path as both halves when there
+/// is no separator, so a bare filename would otherwise group with itself and be
+/// offered as an album of one.
+#[test]
+fn a_file_naming_no_folder_is_not_an_album() {
+    let loose = vec![
+        found("stray", "Roki.flac"),
+        found("stray", "Ghost Rule.flac"),
+        found("stray", "@@stray\\Aimai.flac"),
+    ];
+
+    assert!(offered(&loose, 2).is_empty());
+}
+
+#[test]
+fn the_listing_is_the_same_every_time_it_is_asked_for() {
+    let mut results = ghost_rule("bulk");
+    results.extend(listing(
+        "other",
+        "@@peer\\Music\\Ghost Rule EP",
+        &["01 - Roki.flac", "02 - Ghost Rule.flac", "03 - Aimai.flac"],
+    ));
+
+    let first: Vec<String> = offered(&results, 2)
+        .iter()
+        .map(|offer| format!("{}/{}", offer.username, offer.folder))
+        .collect();
+    for _ in 0..8 {
+        let again: Vec<String> = offered(&results, 2)
+            .iter()
+            .map(|offer| format!("{}/{}", offer.username, offer.folder))
+            .collect();
+        assert_eq!(again, first);
+    }
+}
+
+#[test]
+fn a_file_below_the_quality_limit_is_flagged_rather_than_hidden() {
+    let mut results = ghost_rule("bulk");
+    results.push(Candidate {
+        bit_depth: None,
+        sample_rate: None,
+        bitrate: Some(192),
+        ..found(
+            "bulk",
+            "@@peer\\Music\\DECO27 - Ghost Rule EP\\04 - Bonus.mp3",
+        )
+    });
+    let options = RankingSettings {
+        require_lossless: true,
+        ..RankingSettings::default()
+    };
+
+    let offers = folders(&results, &options, "deco 27 ghost rule ep", 2);
+
+    assert_eq!(offers[0].count(), 4);
+    assert_eq!(offers[0].below_quality, 1);
+    assert_eq!(offers[0].quality(), "3 flac, 1 mp3");
+    let bonus = offers[0]
+        .files
+        .iter()
+        .find(|file| file.candidate.extension() == "mp3")
+        .expect("the one lossy file");
+    assert_eq!(bonus.flags, vec![BELOW_QUALITY_FLAG.to_owned()]);
+}
+
+#[test]
+fn what_the_peer_says_about_itself_carries_to_the_offer() {
+    let busy: Vec<Candidate> = ghost_rule("bulk")
+        .into_iter()
+        .map(|file| Candidate {
+            free_upload_slots: false,
+            queue_length: 12,
+            ..file
+        })
+        .collect();
+
+    let offers = offered(&busy, 2);
+
+    assert!(!offers[0].free_slots());
+    assert_eq!(offers[0].queue_length(), 12);
+}
+
+#[test]
+fn a_folder_becomes_one_row_per_file_with_the_album_and_the_number_on_it() {
+    let offers = offered(&ghost_rule("bulk"), 2);
+    let rows = album_rows(&offers[0], "DECO*27", "Ghost Rule EP");
+
+    assert_eq!(rows.len(), 3);
+    let titles: Vec<&str> = rows.iter().map(|(track, _)| track.title.as_str()).collect();
+    assert_eq!(titles, vec!["Roki", "Ghost Rule", "Aimai Elegy"]);
+
+    for (track, _) in &rows {
+        assert_eq!(track.artist, "DECO*27");
+        assert_eq!(track.album, "Ghost Rule EP");
+        assert!(track.title_guessed);
+    }
+    assert_eq!(
+        rows[2].0.source_value(&["track number"]),
+        Some("3"),
+        "the filename's own number"
+    );
+}
+
+/// The artist is usually in the filename as well as in the folder, and a title
+/// of `DECO*27 - Roki` would file the download under a track nobody has.
+#[test]
+fn a_filename_repeating_the_artist_does_not_repeat_it_in_the_title() {
+    let repeated = listing(
+        "bulk",
+        "@@peer\\Music\\Ghost Rule EP",
+        &["01 - DECO_27 - Roki.flac", "02 - DECO_27 - Ghost Rule.flac"],
+    );
+    let offers = offered(&repeated, 2);
+    let rows = album_rows(&offers[0], "DECO*27", "Ghost Rule EP");
+
+    let titles: Vec<&str> = rows.iter().map(|(track, _)| track.title.as_str()).collect();
+    assert_eq!(titles, vec!["Roki", "Ghost Rule"]);
+}
+
+/// The queue's key is `artist - title`, so two files reducing to one title
+/// would have the second silently take the first's row.
+#[test]
+fn two_files_giving_the_same_title_yield_one_row() {
+    let twice = listing(
+        "bulk",
+        "@@peer\\Music\\Ghost Rule EP",
+        &["01 - Roki.flac", "01 - Roki.mp3", "02 - Ghost Rule.flac"],
+    );
+    let offers = offered(&twice, 2);
+    let rows = album_rows(&offers[0], "DECO*27", "Ghost Rule EP");
+
+    assert_eq!(rows.len(), 2);
+    assert_eq!(rows[0].1.candidate.extension(), "flac");
+}
+
+#[test]
+fn queueing_a_folder_approves_every_file_with_its_own_candidate() {
+    let scratch = Scratch::new("albums-queue-folder");
+    let mut store = store(&scratch);
+    let offers = offered(&ghost_rule("bulk"), 2);
+    let rows = album_rows(&offers[0], "DECO*27", "Ghost Rule EP");
+
+    let outcome = queue_folder(&mut store, &rows).expect("a queued folder");
+
+    assert_eq!(outcome.queued, 3);
+    assert!(outcome.skipped.is_empty());
+
+    let approved = store
+        .tracks(&[TrackStatus::Approved], None)
+        .expect("the approved rows");
+    assert_eq!(approved.len(), 3);
+    for entry in &approved {
+        assert_eq!(entry.candidates.len(), 1);
+        assert_eq!(entry.approved_rank, Some(1));
+        assert!(entry.track.title_guessed);
+        assert_eq!(
+            entry.approved().expect("an approved candidate").candidate,
+            rows.iter()
+                .find(|(track, _)| track.query() == entry.track.query())
+                .expect("the row it came from")
+                .1
+                .candidate
+        );
+    }
+}
+
+/// An album asked for as a whole is not a reason to re-queue a transfer already
+/// in flight, or to fetch a second copy of a track that is already here.
+#[test]
+fn a_track_already_on_its_way_is_left_alone() {
+    let scratch = Scratch::new("albums-queue-skips");
+    let mut store = store(&scratch);
+    let offers = offered(&ghost_rule("bulk"), 2);
+    let rows = album_rows(&offers[0], "DECO*27", "Ghost Rule EP");
+
+    let waiting = reviewable(
+        &mut store,
+        "Roki",
+        &[scored("someone", "@@x\\Roki.flac", 10)],
+    );
+    store
+        .mark(waiting, TrackStatus::Downloaded, "already here")
+        .expect("a downloaded track");
+
+    let outcome = queue_folder(&mut store, &rows).expect("a queued folder");
+
+    assert_eq!(outcome.queued, 2);
+    assert_eq!(outcome.skipped, vec!["DECO*27 - Roki".to_owned()]);
+    let entry = store.track(waiting).expect("the track").expect("a row");
+    assert_eq!(entry.status, TrackStatus::Downloaded);
+    assert_eq!(entry.candidates.len(), 1);
+    assert_eq!(entry.candidates[0].candidate.username, "someone");
 }
