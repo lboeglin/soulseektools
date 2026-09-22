@@ -1902,6 +1902,7 @@ fn get_accepts_one_track_several_tracks_and_a_list() {
         query: query.into_iter().map(str::to_owned).collect(),
         from,
         artist: None,
+        album: false,
         lossless: false,
         min_bitrate: None,
         yes: false,
@@ -1949,6 +1950,7 @@ fn get_applies_one_artist_across_a_whole_list() {
         query: vec!["Roki".to_owned(), "Ghost Rule".to_owned()],
         from: None,
         artist: Some("DECO*27".to_owned()),
+        album: false,
         lossless: false,
         min_bitrate: None,
         yes: false,
@@ -1969,6 +1971,7 @@ fn get_reports_a_list_it_cannot_read() {
         query: Vec::new(),
         from: Some(PathBuf::from("no-such-list.txt")),
         artist: None,
+        album: false,
         lossless: false,
         min_bitrate: None,
         yes: false,
@@ -2248,4 +2251,115 @@ fn loudness_gives_an_album_gain_when_the_whole_record_is_named() {
         .expect("readable loudness tags");
     assert!(written.album_gain.is_some());
     drop(harness);
+}
+
+/// `--album` takes one album, and says so before it opens a socket. A list of
+/// albums is a list of interactive decisions, which is the one thing the batch
+/// path exists to avoid (#13).
+#[test]
+fn get_album_takes_one_album_and_not_a_list() {
+    let _guard = exclusive();
+    let harness = Harness::new("cli-get-album-one");
+    harness.with_config(&harness.join("Music"));
+
+    let list = harness.join("albums.txt");
+    std::fs::write(&list, "DECO*27 - Ghost Rule EP\n").expect("a written list");
+
+    assert_eq!(
+        run(&[
+            "get",
+            "--album",
+            "DECO*27 - Ghost Rule EP",
+            "ZUN - Heian Alien"
+        ]),
+        1
+    );
+    assert_eq!(
+        run(&["get", "--album", "--from", &list.display().to_string()]),
+        1
+    );
+    assert_eq!(run(&["get", "--album"]), 1);
+    drop(harness);
+}
+
+/// The album listing's rows, checked as a pure function for the same reason the
+/// other rendering is: a CLI test can only see the exit code (#13).
+#[test]
+fn get_album_lists_a_peer_a_count_and_what_is_inside() {
+    use stk::cli::commands::get::{folder_rows, folder_warnings};
+    use stk::config::RankingSettings;
+    use stk::models::Candidate;
+    use stk::review::albums::folders;
+
+    let file = |name: &str, lossless: bool| Candidate {
+        username: "bulk".to_owned(),
+        remote_path: format!("@@peer\\Music\\DECO27 - Ghost Rule EP\\{name}"),
+        size: 30_000_000,
+        sample_rate: if lossless { Some(44100) } else { None },
+        bit_depth: if lossless { Some(16) } else { None },
+        bitrate: if lossless { None } else { Some(192) },
+        free_upload_slots: false,
+        queue_length: 7,
+        ..Candidate::default()
+    };
+    let found = vec![
+        file("01 - Roki.flac", true),
+        file("02 - Ghost Rule.flac", true),
+        file("04 - Bonus.mp3", false),
+        file("ghost.cue", true),
+    ];
+
+    let offers = folders(
+        &found,
+        &RankingSettings {
+            require_lossless: true,
+            ..RankingSettings::default()
+        },
+        "deco 27 ghost rule ep",
+        2,
+    );
+
+    assert_eq!(
+        folder_rows(&offers),
+        vec![vec![
+            "1".to_owned(),
+            "bulk".to_owned(),
+            "DECO27 - Ghost Rule EP".to_owned(),
+            "3".to_owned(),
+            "2 flac, 1 mp3".to_owned(),
+            "busy".to_owned(),
+            "7".to_owned(),
+        ]]
+    );
+    assert_eq!(offers[0].extras, 1);
+    assert_eq!(
+        folder_warnings(&offers[0]),
+        "1 file(s) below the quality limit"
+    );
+}
+
+#[test]
+fn nothing_is_wrong_with_a_folder_that_has_nothing_wrong_with_it() {
+    use stk::cli::commands::get::folder_warnings;
+    use stk::config::RankingSettings;
+    use stk::models::Candidate;
+    use stk::review::albums::folders;
+
+    let file = |name: &str| Candidate {
+        username: "bulk".to_owned(),
+        remote_path: format!("@@peer\\Music\\Ghost Rule EP\\{name}"),
+        size: 30_000_000,
+        sample_rate: Some(44100),
+        bit_depth: Some(16),
+        free_upload_slots: true,
+        ..Candidate::default()
+    };
+    let offers = folders(
+        &[file("01 - Roki.flac"), file("02 - Ghost Rule.flac")],
+        &RankingSettings::default(),
+        "ghost rule ep",
+        2,
+    );
+
+    assert_eq!(folder_warnings(&offers[0]), "");
 }
