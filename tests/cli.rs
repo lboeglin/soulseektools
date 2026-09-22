@@ -2400,3 +2400,145 @@ fn nothing_is_wrong_with_a_folder_that_has_nothing_wrong_with_it() {
 
     assert_eq!(folder_warnings(&offers[0]), "");
 }
+
+/// A library, a config naming a download directory, and an export in which
+/// Roki is owned and Senbonzakura is not.
+fn sync_harness(name: &str) -> (Harness, PathBuf, PathBuf) {
+    let harness = Harness::new(name);
+    let root = library(&harness);
+    harness.with_config(&root);
+    let downloads = harness.join("downloads");
+    let config = std::fs::read_to_string(harness.join("stk.toml")).expect("the config");
+    std::fs::write(
+        harness.join("stk.toml"),
+        format!(
+            "{config}\n[slskd]\ndownload_directory = {}\n",
+            quoted(&downloads)
+        ),
+    )
+    .expect("a written config");
+
+    let export = harness.join("export.csv");
+    std::fs::write(
+        &export,
+        "Track name,Artist name\nRoki,DECO*27\nSenbonzakura,Hatsune Miku\n",
+    )
+    .expect("a written export");
+    (harness, downloads, export)
+}
+
+/// A finished download as a fetch leaves it, peer's filename and all.
+fn fetched(downloads: &Path) -> PathBuf {
+    encode(
+        &downloads.join("ZUN").join("01 peer name.flac"),
+        &Encoded {
+            metadata: &[("artist", "ZUN"), ("album", "Lotus"), ("title", "Song")],
+            ..Encoded::default()
+        },
+    )
+}
+
+fn queued_titles(harness: &Harness) -> Vec<String> {
+    stk::review::store::ReviewStore::open(&harness.join("review.db"))
+        .expect("the review queue")
+        .tracks(&[], None)
+        .expect("tracks")
+        .into_iter()
+        .map(|entry| entry.track.title)
+        .collect()
+}
+
+#[test]
+fn sync_under_json_without_yes_is_refused_before_anything_runs() {
+    let _guard = exclusive();
+    let (harness, _, export) = sync_harness("cli-sync-json");
+
+    assert_eq!(run(&["--json", "sync", &export.display().to_string()]), 1);
+    assert!(!harness.join("review.db").exists());
+    assert!(!harness.join("library.db").exists());
+    drop(harness);
+}
+
+#[test]
+fn sync_apply_without_a_download_directory_is_refused() {
+    let _guard = exclusive();
+    let harness = Harness::new("cli-sync-no-downloads");
+    let root = library(&harness);
+    harness.with_config(&root);
+    let export = harness.join("export.csv");
+    std::fs::write(&export, "Track name,Artist name\nRoki,DECO*27\n").expect("an export");
+
+    assert_eq!(
+        run(&["sync", "--yes", "--apply", &export.display().to_string()]),
+        1
+    );
+    assert!(!harness.join("review.db").exists());
+    drop(harness);
+}
+
+#[test]
+fn sync_with_an_export_that_is_not_there_fails() {
+    let _guard = exclusive();
+    let (harness, _, _) = sync_harness("cli-sync-no-export");
+    let absent = harness.join("absent.csv").display().to_string();
+
+    assert_eq!(run(&["sync", "--yes", &absent]), 1);
+    drop(harness);
+}
+
+#[test]
+fn sync_without_apply_queues_what_is_missing_and_moves_nothing() {
+    let _guard = exclusive();
+    let (harness, downloads, export) = sync_harness("cli-sync-dry");
+    let download = fetched(&downloads);
+
+    // `--limit 0` searches nothing, which keeps slskd out of the test.
+    assert_eq!(
+        run(&[
+            "sync",
+            "--yes",
+            "--limit",
+            "0",
+            &export.display().to_string()
+        ]),
+        0
+    );
+
+    assert_eq!(queued_titles(&harness), vec!["Senbonzakura".to_owned()]);
+    assert!(download.is_file(), "nothing moves without --apply");
+    assert!(logged(&harness).is_empty());
+    drop(harness);
+}
+
+#[test]
+fn sync_apply_organises_what_arrived_and_scans_it_in() {
+    let _guard = exclusive();
+    let (harness, downloads, export) = sync_harness("cli-sync-apply");
+    let download = fetched(&downloads);
+
+    assert_eq!(
+        run(&[
+            "sync",
+            "--yes",
+            "--apply",
+            "--limit",
+            "0",
+            &export.display().to_string()
+        ]),
+        0
+    );
+
+    let landed = harness
+        .join("Music")
+        .join("ZUN")
+        .join("Lotus")
+        .join("Song.flac");
+    assert!(!download.exists());
+    assert!(landed.is_file());
+    let index =
+        stk::library::index::LibraryIndex::open(&harness.join("library.db")).expect("the index");
+    assert!(index.entry(&landed).expect("a lookup").is_some());
+    assert_eq!(index.snapshots(None).expect("the series")[0].total, 3);
+    assert!(logged(&harness).iter().all(|row| row.command == "organise"));
+    drop(harness);
+}

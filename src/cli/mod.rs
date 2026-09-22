@@ -101,6 +101,9 @@ pub enum Command {
     #[command(subcommand)]
     Fetch(commands::fetch::FetchCommand),
 
+    /// Scan, diff an export, search, pick, download and organise in one pass.
+    Sync(commands::sync::SyncArgs),
+
     /// Inspect and undo what the writing commands changed.
     #[command(subcommand)]
     Changes(commands::changes::ChangesCommand),
@@ -152,6 +155,7 @@ pub fn run(arguments: Vec<std::ffi::OsString>) -> i32 {
         Command::Wantlist(command) => commands::wantlist::run(&context, command),
         Command::Review(command) => commands::review::run(&context, command),
         Command::Fetch(command) => commands::fetch::run(&context, command),
+        Command::Sync(args) => commands::sync::run(&context, &args),
         Command::Changes(command) => commands::changes::run(&context, command),
     };
 

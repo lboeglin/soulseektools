@@ -44,7 +44,7 @@ pub fn run(context: &AppContext, command: FetchCommand) -> Result<i32> {
     }
 }
 
-fn client(settings: &SlskdSettings) -> Result<SlskdClient<HttpTransport>> {
+pub(crate) fn client(settings: &SlskdSettings) -> Result<SlskdClient<HttpTransport>> {
     Ok(SlskdClient::new(
         settings.clone(),
         HttpTransport::new(settings)?,
@@ -63,32 +63,11 @@ fn search(context: &AppContext, limit: Option<usize>) -> Result<i32> {
     let outcomes = fetch::search_pending(&mut store, &client, context.settings(), limit)?;
 
     if context.as_json {
-        context.emit(&json!(outcomes
-            .iter()
-            .map(|outcome| json!({
-                "track_id": outcome.track_id,
-                "query": outcome.query,
-                "found": outcome.found,
-                "error": outcome.error,
-                "preferred_uploader": outcome.preferred_uploader,
-            }))
-            .collect::<Vec<_>>()));
+        context.emit(&json!(outcomes.iter().map(search_row).collect::<Vec<_>>()));
         return Ok(0);
     }
 
-    let rows: Vec<Vec<String>> = outcomes
-        .iter()
-        .map(|outcome| {
-            let found = if outcome.error.is_empty() {
-                outcome.found.to_string()
-            } else {
-                "--".to_owned()
-            };
-            vec![found, outcome.query.clone(), outcome.error.clone()]
-        })
-        .collect();
-    context.say(&table(&["Found", "Track", "Note"], &rows));
-
+    report_searched(context, &outcomes);
     let with_candidates = outcomes.iter().filter(|outcome| outcome.found > 0).count();
     context.say(&format!(
         "Searched {} track(s); {with_candidates} have candidates to review. \
@@ -147,7 +126,32 @@ fn download(context: &AppContext, limit: Option<usize>, collect_only: bool) -> R
     Ok(0)
 }
 
-fn stall_row(outcome: &fetch::StallOutcome) -> serde_json::Value {
+pub(crate) fn search_row(outcome: &fetch::SearchOutcome) -> serde_json::Value {
+    json!({
+        "track_id": outcome.track_id,
+        "query": outcome.query,
+        "found": outcome.found,
+        "error": outcome.error,
+        "preferred_uploader": outcome.preferred_uploader,
+    })
+}
+
+pub(crate) fn report_searched(context: &AppContext, outcomes: &[fetch::SearchOutcome]) {
+    let rows: Vec<Vec<String>> = outcomes
+        .iter()
+        .map(|outcome| {
+            let found = if outcome.error.is_empty() {
+                outcome.found.to_string()
+            } else {
+                "--".to_owned()
+            };
+            vec![found, outcome.query.clone(), outcome.error.clone()]
+        })
+        .collect();
+    context.say(&table(&["Found", "Track", "Note"], &rows));
+}
+
+pub(crate) fn stall_row(outcome: &fetch::StallOutcome) -> serde_json::Value {
     json!({
         "track_id": outcome.track_id,
         "query": outcome.query,
@@ -157,7 +161,7 @@ fn stall_row(outcome: &fetch::StallOutcome) -> serde_json::Value {
     })
 }
 
-fn enqueue_row(outcome: &fetch::EnqueueOutcome) -> serde_json::Value {
+pub(crate) fn enqueue_row(outcome: &fetch::EnqueueOutcome) -> serde_json::Value {
     json!({
         "track_id": outcome.track_id,
         "query": outcome.query,
@@ -167,7 +171,7 @@ fn enqueue_row(outcome: &fetch::EnqueueOutcome) -> serde_json::Value {
     })
 }
 
-fn collect_row(outcome: &fetch::CollectOutcome) -> serde_json::Value {
+pub(crate) fn collect_row(outcome: &fetch::CollectOutcome) -> serde_json::Value {
     json!({
         "track_id": outcome.track_id,
         "query": outcome.query,
@@ -220,7 +224,7 @@ fn describe_tags(retagged: &Retagged) -> String {
     note
 }
 
-fn report_stalled(context: &AppContext, stalled: &[fetch::StallOutcome]) {
+pub(crate) fn report_stalled(context: &AppContext, stalled: &[fetch::StallOutcome]) {
     if stalled.is_empty() {
         return;
     }
@@ -242,7 +246,7 @@ fn report_stalled(context: &AppContext, stalled: &[fetch::StallOutcome]) {
     context.say(&table(&["Stalled", "Waited", "Note", "Error"], &rows));
 }
 
-fn report_queued(context: &AppContext, queued: &[fetch::EnqueueOutcome]) {
+pub(crate) fn report_queued(context: &AppContext, queued: &[fetch::EnqueueOutcome]) {
     if queued.is_empty() {
         return;
     }
@@ -260,7 +264,7 @@ fn report_queued(context: &AppContext, queued: &[fetch::EnqueueOutcome]) {
     context.say(&table(&["", "Track", "Note"], &rows));
 }
 
-fn report_collected(context: &AppContext, collected: &[fetch::CollectOutcome]) {
+pub(crate) fn report_collected(context: &AppContext, collected: &[fetch::CollectOutcome]) {
     if collected.is_empty() {
         return;
     }

@@ -13,6 +13,7 @@ pub mod loudness;
 pub mod organise;
 pub mod playlist;
 pub mod review;
+pub mod sync;
 pub mod tags;
 pub mod verify;
 pub mod wantlist;

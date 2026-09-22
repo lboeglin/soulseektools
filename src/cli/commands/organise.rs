@@ -137,7 +137,7 @@ pub(crate) fn where_to(context: &AppContext, roots: &[PathBuf]) -> Result<PathBu
     }
 }
 
-fn blocked_row(planned: &PlannedMove) -> Option<serde_json::Value> {
+pub(crate) fn blocked_row(planned: &PlannedMove) -> Option<serde_json::Value> {
     planned.blocked.as_ref().map(|obstacle| {
         json!({
             "path": show(&planned.entry.path),
@@ -146,7 +146,7 @@ fn blocked_row(planned: &PlannedMove) -> Option<serde_json::Value> {
     })
 }
 
-fn report(
+pub(crate) fn report(
     context: &AppContext,
     planned: &[PlannedMove],
     ready: &[&PlannedMove],
