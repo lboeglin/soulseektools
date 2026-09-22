@@ -1127,6 +1127,43 @@ fn organise_rejects_a_pattern_it_cannot_use() {
 }
 
 #[test]
+fn organise_from_moves_a_download_into_the_library() {
+    let _guard = exclusive();
+    let harness = Harness::new("cli-organise-from");
+    let root = library(&harness);
+    harness.with_config(&root);
+    let downloads = harness.join("downloads");
+    let fetched = encode(
+        &downloads.join("ZUN").join("01 peer name.flac"),
+        &Encoded {
+            metadata: &[("artist", "ZUN"), ("album", "Lotus"), ("title", "Song")],
+            ..Encoded::default()
+        },
+    );
+    let from = downloads.display().to_string();
+
+    assert_eq!(run(&["organise", "--from", &from]), 0);
+    assert!(fetched.is_file(), "nothing moves without --apply");
+
+    assert_eq!(run(&["organise", "--from", &from, "--apply"]), 0);
+    assert!(!fetched.exists());
+    assert!(root.join("ZUN").join("Lotus").join("Song.flac").is_file());
+    drop(harness);
+}
+
+#[test]
+fn organise_from_a_directory_that_is_not_there_fails() {
+    let _guard = exclusive();
+    let harness = Harness::new("cli-organise-from-missing");
+    let root = library(&harness);
+    harness.with_config(&root);
+    let from = harness.join("absent").display().to_string();
+
+    assert_eq!(run(&["organise", "--from", &from]), 1);
+    drop(harness);
+}
+
+#[test]
 fn organise_leaves_no_empty_artist_folder_behind() {
     let _guard = exclusive();
     let harness = Harness::new("cli-organise-prune");

@@ -6,11 +6,14 @@ use std::path::{Path, PathBuf};
 
 use stk::audio::fingerprint::Fingerprint;
 use stk::config::OrganiseSettings;
-use stk::library::index::{describe, LibraryIndex};
+use stk::library::changes::ChangeFilter;
+use stk::library::index::{default_extensions, describe, LibraryIndex};
+use stk::library::scan::Excludes;
 use stk::matching::NameForms;
 use stk::models::{LibraryEntry, ReplayGainTags, TrackTags};
 use stk::organise::{
-    move_file, plan_moves, prune_empty, render, spelled_on_disk, Obstacle, Pattern, PlannedMove,
+    apply_moves, loose_entries, move_file, plan_moves, prune_empty, render, spelled_on_disk,
+    Obstacle, Pattern, PlannedMove,
 };
 use support::{encode, Encoded, Scratch};
 
@@ -379,6 +382,111 @@ fn a_source_directory_still_holding_a_cover_is_kept() {
 
     assert!(removed.is_empty());
     assert!(folder.join("cover.jpg").exists());
+}
+
+fn download(scratch: &Scratch) -> (PathBuf, PathBuf) {
+    let downloads = scratch.join("downloads");
+    let file = encode(
+        &downloads.join("ZUN").join("01 peer name.flac"),
+        &Encoded {
+            metadata: &[("artist", "ZUN"), ("album", "Lotus"), ("title", "Song")],
+            ..Encoded::default()
+        },
+    );
+    (downloads, file)
+}
+
+#[test]
+fn loose_files_are_described_from_where_they_sit_rather_than_the_index() {
+    let scratch = Scratch::new("organise-loose");
+    let (downloads, file) = download(&scratch);
+
+    let entries =
+        loose_entries(&downloads, default_extensions(), &Excludes::default()).expect("entries");
+
+    assert_eq!(entries.len(), 1);
+    assert_eq!(entries[0].path, file);
+    assert_eq!(entries[0].tags.title, "Song");
+}
+
+#[test]
+fn loose_files_are_only_read_from_a_directory() {
+    let scratch = Scratch::new("organise-loose-missing");
+
+    assert!(loose_entries(
+        &scratch.join("absent"),
+        default_extensions(),
+        &Excludes::default()
+    )
+    .is_err());
+}
+
+#[test]
+fn applying_a_plan_moves_indexes_and_logs_each_file() {
+    let scratch = Scratch::new("organise-apply");
+    let (downloads, file) = download(&scratch);
+    let root = scratch.join("Music");
+    std::fs::create_dir_all(&root).expect("a root");
+    let roots = vec![root.clone()];
+    let mut index = LibraryIndex::open(&scratch.join("library.db")).expect("an index");
+
+    let entries =
+        loose_entries(&downloads, default_extensions(), &Excludes::default()).expect("entries");
+    let planned = plan_moves(
+        &entries,
+        &pattern("{artist}/{album}/{title}"),
+        &settings(),
+        &roots,
+        Some(&root),
+    );
+    let ready: Vec<&PlannedMove> = planned.iter().filter(|move_| move_.ready()).collect();
+    let applied = apply_moves(&mut index, &ready, &roots, &settings(), 1.0).expect("applied");
+
+    let landed = root.join("ZUN").join("Lotus").join("Song.flac");
+    assert_eq!(applied.moved, 1);
+    assert!(applied.failures.is_empty());
+    assert!(landed.is_file());
+    assert!(!file.exists());
+    assert!(index.entry(&landed).expect("a lookup").is_some());
+    let logged = index
+        .changes(&ChangeFilter::default())
+        .expect("the change log");
+    assert_eq!(logged.len(), 1);
+    assert_eq!(logged[0].command, "organise");
+}
+
+#[test]
+fn a_move_that_fails_is_reported_and_the_rest_carry_on() {
+    let scratch = Scratch::new("organise-apply-failed");
+    let (downloads, _) = download(&scratch);
+    let root = scratch.join("Music");
+    let roots = vec![root.clone()];
+    let mut index = LibraryIndex::open(&scratch.join("library.db")).expect("an index");
+
+    let vanished = encode(
+        &downloads.join("ZUN").join("02 peer name.flac"),
+        &Encoded {
+            metadata: &[("artist", "ZUN"), ("album", "Lotus"), ("title", "Gone")],
+            ..Encoded::default()
+        },
+    );
+
+    let entries =
+        loose_entries(&downloads, default_extensions(), &Excludes::default()).expect("entries");
+    let planned = plan_moves(
+        &entries,
+        &pattern("{artist}/{title}"),
+        &settings(),
+        &roots,
+        Some(&root),
+    );
+    std::fs::remove_file(&vanished).expect("the file gone before the move");
+    let ready: Vec<&PlannedMove> = planned.iter().filter(|move_| move_.ready()).collect();
+    let applied = apply_moves(&mut index, &ready, &roots, &settings(), 1.0).expect("applied");
+
+    assert_eq!(applied.moved, 1);
+    assert_eq!(applied.failures.len(), 1);
+    assert!(root.join("ZUN").join("Song.flac").is_file());
 }
 
 #[test]

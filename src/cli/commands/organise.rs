@@ -7,11 +7,9 @@ use serde_json::json;
 
 use crate::cli::context::{show, table, unix_now, AppContext};
 use crate::errors::{Error, Result};
-use crate::library::changes::ChangeLog;
-use crate::library::index::describe;
-use crate::library::scan::{iter_audio_files, owning_root};
+use crate::library::scan::owning_root;
 use crate::models::LibraryEntry;
-use crate::organise::{self, Pattern, PlannedMove};
+use crate::organise::{self, Applied, Pattern, PlannedMove};
 
 #[derive(Args, Debug)]
 pub struct OrganiseArgs {
@@ -48,45 +46,23 @@ pub fn run(context: &AppContext, args: &OrganiseArgs) -> Result<i32> {
     };
 
     if let Some(destination) = &destination {
-        // Otherwise the files leave the library and the next `library scan`
-        // evicts every one of them, the walk never having seen them again.
-        if owning_root(destination, &roots).is_none() {
-            return Err(Error::Config(format!(
-                "organise.destination is outside every library root: {}
-hint: point it                  inside one, or add it to library.roots",
-                show(destination)
-            )));
-        }
+        inside_a_root(destination, &roots)?;
     }
 
     let planned =
         organise::plan_moves(&entries, &pattern, settings, &roots, destination.as_deref());
     let ready: Vec<&PlannedMove> = planned.iter().filter(|move_| move_.ready()).collect();
 
-    let mut failures: Vec<(String, String)> = Vec::new();
-    let mut pruned = 0;
-    if args.apply {
-        let log = ChangeLog::open(&index, "organise", unix_now())?;
-        for planned in &ready {
-            let from = &planned.entry.path;
-            // Logged before the rename: a row for a move that did not happen is
-            // refused by `changes undo` as a file that is gone, where a move
-            // with no row is a hole in the record.
-            log.moved(&mut index, from, &planned.destination)?;
-            match organise::move_file(from, &planned.destination) {
-                Ok(()) => {
-                    let landed = organise::spelled_on_disk(&planned.destination);
-                    index.relocate(from, &landed, &roots)?;
-                    if settings.remove_empty_directories {
-                        if let Some(root) = owning_root(from, &roots) {
-                            pruned += organise::prune_empty(from, root).len();
-                        }
-                    }
-                }
-                Err(error) => failures.push((show(from), error.to_string())),
-            }
-        }
-    }
+    let applied = if args.apply {
+        organise::apply_moves(&mut index, &ready, &roots, settings, unix_now())?
+    } else {
+        Applied::default()
+    };
+    let failures: Vec<(String, String)> = applied
+        .failures
+        .iter()
+        .map(|(path, error)| (show(path), error.clone()))
+        .collect();
 
     if context.as_json {
         context.emit(&json!({
@@ -107,21 +83,32 @@ hint: point it                  inside one, or add it to library.roots",
         return Ok(0);
     }
 
-    report(context, &planned, &ready, &failures, args.apply, pruned);
+    report(
+        context,
+        &planned,
+        &ready,
+        &failures,
+        args.apply,
+        applied.pruned,
+    );
     Ok(0)
 }
 
-/// Files under a directory that is not part of the library.
-///
-/// Described rather than looked up: nothing outside a root is in the index, and
-/// the whole point of `--from` is to reach what the index has not seen.
-fn loose(context: &AppContext, source: &Path) -> Result<Vec<LibraryEntry>> {
-    if !source.is_dir() {
+/// Refuse a destination no library root contains.
+pub(crate) fn inside_a_root(destination: &Path, roots: &[PathBuf]) -> Result<()> {
+    // Otherwise the files leave the library and the next `library scan`
+    // evicts every one of them, the walk never having seen them again.
+    if owning_root(destination, roots).is_none() {
         return Err(Error::Config(format!(
-            "--from: not a directory: {}",
-            source.display()
+            "organise.destination is outside every library root: {}\n\
+             hint: point it inside one, or add it to library.roots",
+            show(destination)
         )));
     }
+    Ok(())
+}
+
+fn loose(context: &AppContext, source: &Path) -> Result<Vec<LibraryEntry>> {
     let extensions: Vec<&str> = context
         .settings()
         .library
@@ -129,18 +116,15 @@ fn loose(context: &AppContext, source: &Path) -> Result<Vec<LibraryEntry>> {
         .iter()
         .map(String::as_str)
         .collect();
-
-    Ok(iter_audio_files(source, &extensions, &context.excludes()?)
-        .iter()
-        .filter_map(|path| describe(path, source).ok())
-        .collect())
+    organise::loose_entries(source, &extensions, &context.excludes()?)
+        .map_err(|error| Error::Config(format!("--from: {error}")))
 }
 
 /// Where `--from` sends what it finds.
 ///
 /// With several roots and no configured destination there is no answer, and
 /// picking one silently is how a tool moves files somebody did not mean to move.
-fn where_to(context: &AppContext, roots: &[PathBuf]) -> Result<PathBuf> {
+pub(crate) fn where_to(context: &AppContext, roots: &[PathBuf]) -> Result<PathBuf> {
     if let Some(destination) = context.resolved.resolved_organise_destination() {
         return Ok(destination);
     }

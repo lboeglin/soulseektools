@@ -14,7 +14,9 @@ use std::path::{Path, PathBuf};
 
 use crate::config::OrganiseSettings;
 use crate::errors::{Error, Result};
-use crate::library::scan::owning_root;
+use crate::library::changes::ChangeLog;
+use crate::library::index::{describe, LibraryIndex};
+use crate::library::scan::{iter_audio_files, owning_root, Excludes};
 use crate::models::LibraryEntry;
 use crate::text::normalize::{sanitize_folder_name, UNKNOWN_ARTIST};
 
@@ -357,6 +359,70 @@ pub fn plan_moves(
             }
         })
         .collect()
+}
+
+/// Files under a directory that is not part of the library.
+///
+/// Described rather than looked up: nothing outside a root is in the index, and
+/// the flat `<download dir>/<Artist>/<peer's filename>` layout a fetch leaves
+/// behind is exactly what the index has not seen.
+pub fn loose_entries(
+    source: &Path,
+    extensions: &[&str],
+    exclude: &Excludes,
+) -> Result<Vec<LibraryEntry>> {
+    if !source.is_dir() {
+        return Err(Error::Config(format!(
+            "not a directory: {}",
+            source.display()
+        )));
+    }
+    Ok(iter_audio_files(source, extensions, exclude)
+        .iter()
+        .filter_map(|path| describe(path, source).ok())
+        .collect())
+}
+
+/// What carrying out a plan did.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Applied {
+    pub moved: usize,
+    pub pruned: usize,
+    /// The file that stayed where it was, and why.
+    pub failures: Vec<(PathBuf, String)>,
+}
+
+/// Carry out the moves that are ready, logging each under one `organise` run.
+pub fn apply_moves(
+    index: &mut LibraryIndex,
+    ready: &[&PlannedMove],
+    roots: &[PathBuf],
+    settings: &OrganiseSettings,
+    now: f64,
+) -> Result<Applied> {
+    let log = ChangeLog::open(index, "organise", now)?;
+    let mut applied = Applied::default();
+    for planned in ready {
+        let from = &planned.entry.path;
+        // Logged before the rename: a row for a move that did not happen is
+        // refused by `changes undo` as a file that is gone, where a move with no
+        // row is a hole in the record.
+        log.moved(index, from, &planned.destination)?;
+        match move_file(from, &planned.destination) {
+            Ok(()) => {
+                let landed = spelled_on_disk(&planned.destination);
+                index.relocate(from, &landed, roots)?;
+                applied.moved += 1;
+                if settings.remove_empty_directories {
+                    if let Some(root) = owning_root(from, roots) {
+                        applied.pruned += prune_empty(from, root).len();
+                    }
+                }
+            }
+            Err(error) => applied.failures.push((from.clone(), error.to_string())),
+        }
+    }
+    Ok(applied)
 }
 
 /// Whether two paths are spelled the same, separators aside.
