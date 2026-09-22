@@ -1843,3 +1843,99 @@ fn a_track_queued_before_the_wait_began_is_waited_for_too() {
     assert_eq!(waited.collected.len(), 1);
     assert_eq!(status(&store, track_id), TrackStatus::Downloaded);
 }
+
+#[test]
+fn with_nothing_on_its_way_the_wait_does_not_ask_the_backend() {
+    let scratch = Scratch::new("fetch-wait-nothing");
+    let settings = settings(&scratch);
+    let mut store = store(&scratch);
+    let mut clock = TickingClock::new(|_| panic!("nothing to wait for"));
+
+    let waited = wait(
+        &mut store,
+        &FakeClient::default(),
+        &settings,
+        None,
+        PATIENCE,
+        &mut clock,
+    );
+
+    assert_eq!(waited.rounds, 0);
+    assert_eq!(waited, fetch::Waited::default());
+}
+
+fn collected(
+    error: &str,
+    retried_with_rank: Option<i64>,
+    verdict: Option<Verdict>,
+) -> fetch::CollectOutcome {
+    fetch::CollectOutcome {
+        track_id: 1,
+        query: "DECO*27 - Roki".to_owned(),
+        state: TransferState::Completed,
+        local_path: None,
+        verdict: verdict.map(|verdict| stk::models::VerifyResult {
+            path: PathBuf::from("Roki.flac"),
+            verdict,
+            detail: String::new(),
+            sample_rate: None,
+            bit_depth: None,
+            codec: String::new(),
+            cutoff_hz: None,
+            nyquist_hz: None,
+            steepness_db_per_khz: None,
+        }),
+        tags: None,
+        error: error.to_owned(),
+        retried_with_rank,
+    }
+}
+
+fn waited_with(collected: Vec<fetch::CollectOutcome>) -> fetch::Waited {
+    fetch::Waited {
+        collected,
+        ..fetch::Waited::default()
+    }
+}
+
+#[test]
+fn a_clean_download_is_nothing_to_own_up_to() {
+    assert!(!waited_with(vec![collected("", None, Some(Verdict::Ok))]).went_wrong());
+}
+
+#[test]
+fn a_fake_download_is_something_to_own_up_to() {
+    assert!(waited_with(vec![collected("", None, Some(Verdict::Fake))]).went_wrong());
+}
+
+#[test]
+fn a_failure_the_retry_picked_up_is_not_a_failure_of_the_run() {
+    assert!(!waited_with(vec![collected("peer gone", Some(2), None)]).went_wrong());
+    assert!(waited_with(vec![collected("peer gone", None, None)]).went_wrong());
+}
+
+#[test]
+fn a_track_that_could_not_be_queued_is_something_to_own_up_to() {
+    let waited = fetch::Waited {
+        queued: vec![fetch::EnqueueOutcome {
+            track_id: 1,
+            query: "DECO*27 - Roki".to_owned(),
+            destination: "DECO_27".to_owned(),
+            queued: false,
+            error: "slskd unreachable".to_owned(),
+        }],
+        ..fetch::Waited::default()
+    };
+
+    assert!(waited.went_wrong());
+}
+
+#[test]
+fn a_timeout_alone_is_nothing_to_own_up_to() {
+    let waited = fetch::Waited {
+        unfinished: 3,
+        ..fetch::Waited::default()
+    };
+
+    assert!(!waited.went_wrong());
+}

@@ -460,6 +460,24 @@ pub struct Waited {
     pub unfinished: usize,
 }
 
+impl Waited {
+    /// Whether anything needs owning up to: a track that could not be queued,
+    /// one that failed with no candidate left to try, or a download `verify`
+    /// calls fake. A failure the retry picked up is not one, and neither is a
+    /// timeout -- what is still on its way has not failed.
+    #[must_use]
+    pub fn went_wrong(&self) -> bool {
+        self.queued.iter().any(|outcome| !outcome.queued)
+            || self.collected.iter().any(|outcome| {
+                (!outcome.error.is_empty() && outcome.retried_with_rank.is_none())
+                    || outcome
+                        .verdict
+                        .as_ref()
+                        .is_some_and(|verdict| verdict.verdict == Verdict::Fake)
+            })
+    }
+}
+
 /// Queue the approved picks, then keep collecting until every one has arrived
 /// or failed, or `patience` runs out.
 ///
@@ -491,8 +509,15 @@ pub fn wait_for_downloads(
         .map(|entry| entry.id)
         .collect();
     let sent = enqueue_approved(store, client, limit, start)?;
-    ours.extend(sent.iter().map(|outcome| outcome.track_id));
+    ours.extend(
+        sent.iter()
+            .filter(|outcome| outcome.queued)
+            .map(|outcome| outcome.track_id),
+    );
     waited.queued = sent;
+    if ours.is_empty() {
+        return Ok(waited);
+    }
 
     loop {
         let now = clock.now();
