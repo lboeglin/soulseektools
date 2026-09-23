@@ -655,6 +655,24 @@ fn a_verdict_is_recorded_against_the_file() {
     );
 }
 
+/// The verdict column is text, so a new verdict needs no migration (#16).
+#[test]
+fn every_verdict_survives_the_round_trip_through_the_index() {
+    let scratch = Scratch::new("index-every-verdict");
+    let root = library_root(&scratch);
+    let track = root.join("DECO_27").join("01 - Roki.flac");
+    let mut index = open(&scratch, "index.db");
+    refresh(&mut index, &root);
+
+    for verdict in stk::models::Verdict::ALL {
+        index
+            .set_verdict(&track, verdict, 1.0)
+            .expect("a recorded verdict");
+        assert_eq!(index.verdict(&track).expect("a lookup"), Some(verdict));
+        assert_eq!(verdict.as_str().parse(), Ok(verdict));
+    }
+}
+
 /// Multiple roots, from #2: a library spread across two drives.
 #[test]
 fn files_under_two_roots_land_in_one_index() {

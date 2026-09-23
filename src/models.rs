@@ -348,17 +348,29 @@ impl FromStr for TrackStatus {
     }
 }
 
-/// Outcome of the lossless-authenticity check.
+/// Outcome of the authenticity check.
+///
+/// `Upsampled` is not a transcode: the audio is intact, but it was stretched
+/// into a bigger container than it needs -- a 128 kbps MP3 re-encoded at 320,
+/// or a 44.1 kHz/16-bit master padded out to 96 kHz/24-bit -- so the peer's
+/// claim about it was false (#16).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum Verdict {
     Ok,
     Suspect,
     Fake,
+    Upsampled,
     Error,
 }
 
 impl Verdict {
-    pub const ALL: [Self; 4] = [Self::Ok, Self::Suspect, Self::Fake, Self::Error];
+    pub const ALL: [Self; 5] = [
+        Self::Ok,
+        Self::Suspect,
+        Self::Fake,
+        Self::Upsampled,
+        Self::Error,
+    ];
 
     #[must_use]
     pub fn as_str(self) -> &'static str {
@@ -366,6 +378,7 @@ impl Verdict {
             Self::Ok => "OK",
             Self::Suspect => "SUSPECT",
             Self::Fake => "FAKE",
+            Self::Upsampled => "UPSAMPLED",
             Self::Error => "ERROR",
         }
     }
