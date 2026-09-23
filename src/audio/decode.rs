@@ -68,6 +68,10 @@ pub struct Audio {
     /// Whether anything has been read yet, which is what decides if a window
     /// starting at zero has to seek at all.
     read: bool,
+    /// Every sample `window` has read, ORed together as a left-aligned 32-bit
+    /// integer, for [`Audio::bits_used`]. Only kept for a stream deeper than
+    /// 16 bits, the one claim it can expose.
+    sample_bits: Option<i64>,
 }
 
 impl Audio {
@@ -137,12 +141,29 @@ impl Audio {
                     .filter(|seconds| *seconds != 0.0),
             },
             read: false,
+            sample_bits: bit_depth.filter(|depth| *depth > 16).map(|_| 0),
         })
     }
 
     #[must_use]
     pub fn stream(&self) -> &StreamInfo {
         &self.stream
+    }
+
+    /// How many bits of its stated depth the samples `window` has read use.
+    ///
+    /// A 16-bit master padded to 24 bits leaves the low 8 bits of every
+    /// sample zero, and no amount of reading the spectrum shows it. `None`
+    /// for a stream of 16 bits or fewer, and until a non-zero sample is read.
+    ///
+    /// Every decoder hands samples over as `f32` in `[-1, 1)`, whatever their
+    /// depth, and a 24-bit integer fits an `f32` mantissa exactly, so scaling
+    /// back by 2^31 recovers the sample left-aligned in 32 bits.
+    #[must_use]
+    pub fn bits_used(&self) -> Option<u32> {
+        let bits = self.sample_bits.filter(|bits| *bits != 0)?;
+        let depth = self.stream.bit_depth?;
+        Some((32 - bits.trailing_zeros()).min(depth))
     }
 
     /// Hand every frame to `on_frames`, interleaved, at the file's own rate and
@@ -199,6 +220,13 @@ impl Audio {
             }
             let dropped = skip.min(buffer.len() / channels);
             skip -= dropped;
+            if let Some(bits) = self.sample_bits.as_mut() {
+                *bits = buffer[dropped * channels..]
+                    .iter()
+                    .fold(*bits, |bits, sample| {
+                        bits | (f64::from(*sample) * 2_147_483_648.0) as i64
+                    });
+            }
             samples.extend(
                 buffer[dropped * channels..]
                     .chunks_exact(channels)

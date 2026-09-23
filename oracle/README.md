@@ -75,6 +75,15 @@ too narrow to hold `2*mid + side`, so the Rust build refuses the file rather
 than believe the noise it decodes. The oracle's verdict for it stands, and
 nothing in the Rust build can check it. The other 257 rows match exactly.
 
+**Two `verify` rows are judged differently on purpose.** `hachi\01 ドーナツホール.flac`
+and `Neru\01. ロストワンの号哭.flac` state 24 bits and use 16: the low 8 bits of
+every sample are zero, which ffmpeg's `astats` confirms (`Bit depth: 16/16`).
+The Python judged the spectrum alone and called them OK; since #16 they are
+`UPSAMPLED`, "24-bit container holding 16-bit audio". The captured rows are
+left as the Python wrote them, and the gates in `oracle_verify.rs` and
+`oracle_cli.rs` name these two and expect the new verdict, with every other
+field unchanged.
+
 **`verify.csv` has been reviewed, but not exhaustively.** The 9 FAKE verdicts
 are specific and physically plausible — see the summary below — but the
 classifier had never seen a real file before this run. Treat the verdicts as a

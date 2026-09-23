@@ -198,6 +198,72 @@ pub fn transcode_to_flac(scratch: &Scratch, name: &str, bitrate: &str) -> PathBu
     faked
 }
 
+/// How a generated FLAC stores its samples.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Depth {
+    Sixteen,
+    /// 16-bit samples shifted into a 24-bit stream: the low 8 bits are zero.
+    PaddedTo24,
+    TwentyFour,
+}
+
+/// A hi-res FLAC of broadband noise, optionally brickwalled at `band_limit_hz`.
+///
+/// A band limit at a lower rate's Nyquist is what resampling that rate up
+/// leaves behind, and it is built here rather than through a resampler so the
+/// test states exactly where the wall is.
+pub fn hi_res_flac(
+    destination: &Path,
+    sample_rate: u32,
+    band_limit_hz: Option<f64>,
+    depth: Depth,
+) -> PathBuf {
+    const SECONDS: f64 = 2.0;
+    create_parent(destination);
+    let mut rng = StdRng::seed_from_u64(20_260_923);
+    let mono: Vec<f64> = (0..(SECONDS * f64::from(sample_rate)) as usize)
+        .map(|_| rng.random_range(-0.5..0.5))
+        .collect();
+    let mono = match band_limit_hz {
+        Some(limit) => brickwall(&mono, sample_rate, limit),
+        None => mono,
+    };
+    let samples: Vec<f32> = mono
+        .iter()
+        .flat_map(|sample| [*sample as f32; CHANNELS])
+        .collect();
+    write_flac_at(destination, &samples, sample_rate, depth);
+    destination.to_path_buf()
+}
+
+/// Remove everything at and above `limit_hz`, scaled back to half full scale.
+fn brickwall(samples: &[f64], sample_rate: u32, limit_hz: f64) -> Vec<f64> {
+    let length = samples.len();
+    let mut planner = realfft::RealFftPlanner::<f64>::new();
+    let forward = planner.plan_fft_forward(length);
+    let inverse = planner.plan_fft_inverse(length);
+
+    let mut input = samples.to_vec();
+    let mut spectrum = forward.make_output_vec();
+    forward
+        .process(&mut input, &mut spectrum)
+        .expect("a forward transform");
+    for (bin, value) in spectrum.iter_mut().enumerate() {
+        if bin as f64 * f64::from(sample_rate) / length as f64 >= limit_hz {
+            *value = realfft::num_complex::Complex::new(0.0, 0.0);
+        }
+    }
+    let mut shaped = inverse.make_output_vec();
+    inverse
+        .process(&mut spectrum, &mut shaped)
+        .expect("an inverse transform");
+
+    let peak = shaped
+        .iter()
+        .fold(0.0_f64, |best, value| best.max(value.abs()));
+    shaped.iter().map(|value| 0.5 * value / peak).collect()
+}
+
 /// Interleaved stereo samples, in `[-1, 1]`.
 fn samples(options: &Encoded<'_>) -> Vec<f32> {
     let rate = f64::from(options.sample_rate);
@@ -238,15 +304,24 @@ fn samples(options: &Encoded<'_>) -> Vec<f32> {
 const BLOCK_SIZE: usize = 4096;
 
 fn write_flac(path: &Path, samples: &[f32], sample_rate: u32) {
+    write_flac_at(path, samples, sample_rate, Depth::Sixteen);
+}
+
+fn write_flac_at(path: &Path, samples: &[f32], sample_rate: u32, depth: Depth) {
     let mut pcm: Vec<i32> = samples
         .iter()
-        .map(|sample| i32::from(to_i16(*sample)))
+        .map(|sample| match depth {
+            Depth::Sixteen => i32::from(to_i16(*sample)),
+            Depth::PaddedTo24 => i32::from(to_i16(*sample)) << 8,
+            Depth::TwentyFour => (sample.clamp(-1.0, 1.0) * 8_388_607.0).round() as i32,
+        })
         .collect();
+    let bits = if depth == Depth::Sixteen { 16 } else { 24 };
     let frames = pcm.len() / CHANNELS;
     let whole = frames.div_ceil(BLOCK_SIZE) * BLOCK_SIZE;
     pcm.resize(whole * CHANNELS, 0);
 
-    let source = MemSource::from_samples(&pcm, CHANNELS, 16, sample_rate as usize);
+    let source = MemSource::from_samples(&pcm, CHANNELS, bits, sample_rate as usize);
     let config = flacenc::config::Encoder::default()
         .into_verified()
         .expect("a valid encoder configuration");

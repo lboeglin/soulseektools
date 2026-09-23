@@ -20,6 +20,7 @@ use stk::audio::verify::verify_files;
 use stk::config::VerifySettings;
 use stk::models::VerifyResult;
 
+#[derive(Clone)]
 struct Row {
     path: PathBuf,
     verdict: String,
@@ -100,6 +101,27 @@ fn undecodable(row: &Row) -> bool {
     row.codec == "flac" && row.bit_depth == "32"
 }
 
+/// The rows #16 deliberately changed.
+///
+/// Both files state 24 bits and use 16: every sample's low 8 bits are zero,
+/// which ffmpeg's `astats` confirms (`Bit depth: 16/16`). The Python never
+/// looked, so it called them OK on their spectrum alone; the padding is what
+/// `UPSAMPLED` exists to report. Every other field still has to match.
+const PADDED: &[&str] = &["01 ドーナツホール.flac", "01. ロストワンの号哭.flac"];
+
+fn as_now_judged(row: &Row) -> Row {
+    let mut row = row.clone();
+    if row
+        .path
+        .file_name()
+        .is_some_and(|name| PADDED.iter().any(|padded| name == *padded))
+    {
+        "UPSAMPLED".clone_into(&mut row.verdict);
+        "24-bit container holding 16-bit audio -- padded, not hi-res".clone_into(&mut row.detail);
+    }
+    row
+}
+
 fn differences(row: &Row, result: &VerifyResult) -> Vec<String> {
     let mut found = Vec::new();
     let mut compare = |field: &str, expected: &str, got: String| {
@@ -136,7 +158,7 @@ fn every_verdict_matches_the_oracle() {
             eprintln!("skipping {}: 32-bit FLAC", row.path.display());
             continue;
         }
-        let found = differences(row, result);
+        let found = differences(&as_now_judged(row), result);
         if !found.is_empty() {
             report.push(format!(
                 "{}\n    {}",

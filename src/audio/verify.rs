@@ -18,9 +18,10 @@ use crate::models::{Verdict, VerifyResult};
 /// an error, so one unreadable file cannot abort a library-wide run.
 #[must_use]
 pub fn verify_file(path: &Path, settings: &VerifySettings) -> VerifyResult {
-    let sampled = sample(path, settings)
-        .and_then(|(stream, chunks)| Ok((claim(path, &stream)?, stream, chunks)));
-    let (claim, stream, chunks) = match sampled {
+    let sampled = sample(path, settings).and_then(|(stream, chunks, bits_used)| {
+        Ok((claim(path, &stream)?, stream, chunks, bits_used))
+    });
+    let (claim, stream, chunks, bits_used) = match sampled {
         Ok(sampled) => sampled,
         Err(error) => {
             return VerifyResult {
@@ -53,10 +54,16 @@ pub fn verify_file(path: &Path, settings: &VerifySettings) -> VerifyResult {
     };
 
     let nyquist = stream.nyquist_hz();
+    let (verdict, detail) = match (stream.bit_depth, bits_used) {
+        (Some(claimed), Some(used)) if used <= 16 && claimed > 16 => {
+            padded(analysis.verdict, analysis.detail, claimed, used)
+        }
+        _ => (analysis.verdict, analysis.detail),
+    };
     VerifyResult {
         path: path.to_path_buf(),
-        verdict: analysis.verdict,
-        detail: analysis.detail,
+        verdict,
+        detail,
         sample_rate: Some(stream.sample_rate),
         bit_depth: stream.bit_depth,
         codec: stream.codec,
@@ -84,8 +91,28 @@ fn claim(path: &Path, stream: &StreamInfo) -> Result<Claim> {
     })
 }
 
-/// The stream's properties and a few windows of its audio, from one open.
-fn sample(path: &Path, settings: &VerifySettings) -> Result<(StreamInfo, Vec<Vec<f32>>)> {
+/// Fold a padded bit depth into the spectrum's verdict.
+///
+/// Padding is an upsample whatever the spectrum said, except that a transcode
+/// is the graver finding and stays one.
+fn padded(verdict: Verdict, detail: String, claimed: u32, used: u32) -> (Verdict, String) {
+    let padding = format!("{claimed}-bit container holding {used}-bit audio");
+    match verdict {
+        Verdict::Ok | Verdict::Suspect => (
+            Verdict::Upsampled,
+            format!("{padding} -- padded, not hi-res"),
+        ),
+        Verdict::Upsampled => (Verdict::Upsampled, format!("{detail}; {padding}")),
+        Verdict::Fake | Verdict::Error => (verdict, detail),
+    }
+}
+
+/// The stream's properties, a few windows of its audio, and how many bits
+/// those windows used, from one open.
+fn sample(
+    path: &Path,
+    settings: &VerifySettings,
+) -> Result<(StreamInfo, Vec<Vec<f32>>, Option<u32>)> {
     let mut audio = Audio::open(path)?;
     let stream = audio.stream().clone();
 
@@ -100,7 +127,7 @@ fn sample(path: &Path, settings: &VerifySettings) -> Result<(StreamInfo, Vec<Vec
             chunks.push(chunk);
         }
     }
-    Ok((stream, chunks))
+    Ok((stream, chunks, audio.bits_used()))
 }
 
 /// Python's `round()`, which breaks ties to even where Rust's rounds away from

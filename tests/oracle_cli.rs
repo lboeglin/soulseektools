@@ -248,6 +248,23 @@ fn undecodable(row: &str) -> bool {
     cells.len() > 5 && cells[cells.len() - 6] == "flac" && cells[cells.len() - 4] == "32"
 }
 
+/// A row as #16 judges it: two files the Python called OK state 24 bits and
+/// use 16, which is now `UPSAMPLED`. `oracle_verify.rs` names the same two
+/// and says how that was confirmed.
+fn as_now_judged(row: &str) -> String {
+    const PADDED: &[&str] = &["01 ドーナツホール.flac", "01. ロストワンの号哭.flac"];
+    if !PADDED.iter().any(|padded| row.contains(padded)) {
+        return row.to_owned();
+    }
+    let verdict = row.find(",OK,\"").expect("an OK row");
+    let detail_end = row[verdict + 5..].find("\",").expect("a quoted detail") + verdict + 5;
+    format!(
+        "{},UPSAMPLED,\"24-bit container holding 16-bit audio -- padded, not hi-res\"{}",
+        &row[..verdict],
+        &row[detail_end + 1..]
+    )
+}
+
 #[test]
 fn the_verify_report_matches_the_oracle_row_for_row() {
     let _guard = exclusive();
@@ -265,8 +282,11 @@ fn the_verify_report_matches_the_oracle_row_for_row() {
     assert_eq!(&written[..3], b"\xef\xbb\xbf");
 
     let (theirs, ours) = (read(&expected), read(&output));
-    let (theirs, ours): (Vec<&str>, Vec<&str>) = (
-        theirs.lines().map(str::trim_end).collect(),
+    let (theirs, ours): (Vec<String>, Vec<&str>) = (
+        theirs
+            .lines()
+            .map(|row| as_now_judged(row.trim_end()))
+            .collect(),
         ours.lines().map(str::trim_end).collect(),
     );
 
@@ -277,7 +297,7 @@ fn the_verify_report_matches_the_oracle_row_for_row() {
         theirs.len(),
         ours.len()
     );
-    let differing: Vec<(usize, &&str, &&str)> = theirs
+    let differing: Vec<(usize, &String, &&str)> = theirs
         .iter()
         .zip(&ours)
         .enumerate()

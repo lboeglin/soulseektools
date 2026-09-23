@@ -12,7 +12,7 @@ mod support;
 use stk::audio::verify::verify_file;
 use stk::config::VerifySettings;
 use stk::models::Verdict;
-use support::{committed, noise_source, silence, transcode_to_flac, Scratch};
+use support::{committed, hi_res_flac, noise_source, silence, transcode_to_flac, Depth, Scratch};
 
 fn source(scratch: &Scratch) -> std::path::PathBuf {
     noise_source(&scratch.join("source.flac"), 8, 44100)
@@ -182,4 +182,90 @@ fn an_mp3_is_not_judged_as_a_lossless_transcode() {
         "{}",
         result.detail
     );
+}
+
+#[test]
+fn a_hi_res_file_resampled_and_padded_from_cd_audio_is_caught_on_both_counts() {
+    let scratch = Scratch::new("verify-hi-res-fake");
+    let fake = hi_res_flac(
+        &scratch.join("fake.flac"),
+        96000,
+        Some(22050.0),
+        Depth::PaddedTo24,
+    );
+
+    let result = verify_file(&fake, &VerifySettings::default());
+
+    assert_eq!(result.verdict, Verdict::Upsampled, "{}", result.detail);
+    assert!(result.detail.contains("44100Hz audio"), "{}", result.detail);
+    assert!(
+        result
+            .detail
+            .contains("24-bit container holding 16-bit audio"),
+        "{}",
+        result.detail
+    );
+}
+
+#[test]
+fn a_hi_res_file_resampled_from_48000_is_caught() {
+    let scratch = Scratch::new("verify-hi-res-48");
+    let fake = hi_res_flac(
+        &scratch.join("fake.flac"),
+        96000,
+        Some(24000.0),
+        Depth::TwentyFour,
+    );
+
+    let result = verify_file(&fake, &VerifySettings::default());
+
+    assert_eq!(result.verdict, Verdict::Upsampled, "{}", result.detail);
+    assert!(result.detail.contains("48000Hz audio"), "{}", result.detail);
+}
+
+#[test]
+fn a_cd_rate_file_padded_to_24_bits_is_caught_by_its_depth_alone() {
+    let scratch = Scratch::new("verify-padded");
+    let padded = hi_res_flac(&scratch.join("padded.flac"), 44100, None, Depth::PaddedTo24);
+
+    let result = verify_file(&padded, &VerifySettings::default());
+
+    assert_eq!(result.verdict, Verdict::Upsampled, "{}", result.detail);
+    assert_eq!(
+        result.detail,
+        "24-bit container holding 16-bit audio -- padded, not hi-res"
+    );
+}
+
+#[test]
+fn genuine_hi_res_audio_passes() {
+    let scratch = Scratch::new("verify-hi-res-genuine");
+    let genuine = hi_res_flac(
+        &scratch.join("genuine.flac"),
+        96000,
+        None,
+        Depth::TwentyFour,
+    );
+
+    let result = verify_file(&genuine, &VerifySettings::default());
+
+    assert_eq!(result.verdict, Verdict::Ok, "{}", result.detail);
+    assert_eq!(result.bit_depth, Some(24));
+}
+
+#[test]
+fn a_transcode_padded_to_24_bits_stays_a_transcode() {
+    // A lossy source is the graver finding; the padding adds nothing to it.
+    let scratch = Scratch::new("verify-padded-transcode");
+    let fake = hi_res_flac(
+        &scratch.join("fake.flac"),
+        44100,
+        Some(16000.0),
+        Depth::PaddedTo24,
+    );
+
+    let result = verify_file(&fake, &VerifySettings::default());
+
+    assert_eq!(result.verdict, Verdict::Fake, "{}", result.detail);
+    assert!(result.detail.contains("transcoded"), "{}", result.detail);
 }

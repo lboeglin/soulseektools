@@ -8,7 +8,7 @@
 mod support;
 
 use stk::audio::decode::{probe_windows, Audio};
-use support::{encode, noise_source, Encoded, Scratch};
+use support::{committed, encode, hi_res_flac, noise_source, Depth, Encoded, Scratch};
 
 fn source(scratch: &Scratch) -> std::path::PathBuf {
     noise_source(&scratch.join("source.flac"), 8, 44100)
@@ -136,4 +136,59 @@ fn a_track_of_unknown_length_is_read_once_from_the_start() {
 fn rms(samples: &[f32]) -> f64 {
     let sum: f64 = samples.iter().map(|s| f64::from(*s) * f64::from(*s)).sum();
     (sum / samples.len() as f64).sqrt()
+}
+
+#[test]
+fn a_16_bit_master_padded_to_24_uses_16_bits() {
+    let scratch = Scratch::new("decode-bits-padded");
+    let padded = hi_res_flac(&scratch.join("padded.flac"), 44100, None, Depth::PaddedTo24);
+    let mut audio = Audio::open(&padded).expect("an open file");
+    audio.window(0.0, 1.0).expect("decoded samples");
+
+    assert_eq!(audio.stream().bit_depth, Some(24));
+    assert_eq!(audio.bits_used(), Some(16));
+}
+
+#[test]
+fn a_genuine_24_bit_stream_uses_all_24() {
+    let scratch = Scratch::new("decode-bits-genuine");
+    let genuine = hi_res_flac(
+        &scratch.join("genuine.flac"),
+        96000,
+        None,
+        Depth::TwentyFour,
+    );
+    let mut audio = Audio::open(&genuine).expect("an open file");
+    audio.window(0.0, 1.0).expect("decoded samples");
+
+    assert_eq!(audio.bits_used(), Some(24));
+}
+
+#[test]
+fn bits_used_says_nothing_about_a_16_bit_or_lossy_stream() {
+    let scratch = Scratch::new("decode-bits-none");
+    let mut cd =
+        Audio::open(&noise_source(&scratch.join("cd.flac"), 2, 44100)).expect("an open file");
+    cd.window(0.0, 1.0).expect("decoded samples");
+    let mut mp3 = Audio::open(&committed("noise-320k.mp3")).expect("an open file");
+    mp3.window(0.0, 1.0).expect("decoded samples");
+
+    assert_eq!(cd.bits_used(), None);
+    assert_eq!(mp3.bits_used(), None);
+}
+
+#[test]
+fn bits_used_waits_for_a_sample_that_is_not_silence() {
+    let scratch = Scratch::new("decode-bits-unread");
+    let genuine = hi_res_flac(
+        &scratch.join("genuine.flac"),
+        96000,
+        None,
+        Depth::TwentyFour,
+    );
+
+    assert_eq!(
+        Audio::open(&genuine).expect("an open file").bits_used(),
+        None
+    );
 }

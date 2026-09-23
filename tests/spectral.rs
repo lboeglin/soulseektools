@@ -26,8 +26,8 @@ use realfft::RealFftPlanner;
 
 use stk::audio::spectral::{
     analyse, average_spectrum_db, band_average, bitrate_tier, classify, classify_lossy,
-    cliff_steepness, cutoff_tier, find_cutoff, matched_bitrate, Claim, Tuning, BAND_WIDTH_HZ,
-    KNOWN_LOSSY_CUTOFFS, MIN_ANALYSABLE_CUTOFF_HZ,
+    cliff_steepness, cutoff_tier, find_cutoff, matched_bitrate, resampled_from, Claim, Tuning,
+    BAND_WIDTH_HZ, KNOWN_LOSSY_CUTOFFS, MIN_ANALYSABLE_CUTOFF_HZ,
 };
 use stk::models::Verdict;
 
@@ -482,4 +482,63 @@ fn a_lossy_claim_is_judged_by_its_bitrate_not_as_a_transcode() {
 
     assert_eq!(claimed(128), Verdict::Ok);
     assert_eq!(claimed(320), Verdict::Upsampled);
+}
+
+#[test]
+fn a_wall_at_a_lower_rates_nyquist_in_a_hi_res_container_is_an_upsample() {
+    for (sample_rate, cutoff, source) in [
+        (48000, 21900.0, "44100Hz"),
+        (96000, 21900.0, "44100Hz"),
+        (96000, 23850.0, "48000Hz"),
+        (192_000, 47850.0, "96000Hz"),
+    ] {
+        let (verdict, detail) = classify(cutoff, 90.0, sample_rate, 25.0, 1500);
+
+        assert_eq!(
+            verdict,
+            Verdict::Upsampled,
+            "{sample_rate} at {cutoff}: {detail}"
+        );
+        assert!(detail.contains(source), "{detail}");
+    }
+}
+
+#[test]
+fn a_resamplers_wall_short_of_the_nyquist_is_still_found() {
+    // ffmpeg's resampler stops its passband at 97% of the Nyquist it leaves.
+    assert_eq!(resampled_from(21400.0, 96000), Some(44100));
+}
+
+#[test]
+fn a_hi_res_master_rolling_off_near_a_lower_nyquist_is_not_an_upsample() {
+    // Genuine 96 kHz recordings of material with nothing above 22 kHz exist;
+    // only the steepness tells them from an upsample.
+    let (verdict, detail) = classify(21900.0, 9.0, 96000, 25.0, 1500);
+
+    assert_eq!(verdict, Verdict::Ok, "{detail}");
+}
+
+#[test]
+fn a_cd_rate_file_has_no_lower_rate_to_have_been_upsampled_from() {
+    assert_eq!(resampled_from(21900.0, 44100), None);
+    assert_ne!(
+        classify(20900.0, 90.0, 44100, 25.0, 1500).0,
+        Verdict::Upsampled
+    );
+}
+
+#[test]
+fn a_hi_res_wall_in_a_lossy_band_is_still_a_transcode() {
+    // A lossy source resampled up is worse than a lossless one: it keeps FAKE.
+    assert_eq!(classify(19800.0, 60.0, 48000, 25.0, 1500).0, Verdict::Fake);
+}
+
+#[test]
+fn a_hi_res_file_resampled_from_44100_is_detected() {
+    let samples = brickwall(22050.0, 96000, DURATION_SECONDS);
+    let result =
+        analyse(&[samples], 96000, Claim::Lossless, &tuning()).expect("an analysable spectrum");
+
+    assert_eq!(result.verdict, Verdict::Upsampled, "{}", result.detail);
+    assert!(result.detail.contains("44100Hz audio"), "{}", result.detail);
 }

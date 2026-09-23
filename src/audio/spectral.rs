@@ -4,7 +4,9 @@
 //! MP3 re-encoded as FLAC is a transcode, [`Verdict::Fake`]. An MP3 claims its
 //! header bitrate: a 128 kbps file re-encoded at 320 is an upsample,
 //! [`Verdict::Upsampled`]. Either lie leaves the first encoder's low-pass
-//! behind, and that edge is what this module finds.
+//! behind, and that edge is what this module finds. So does a 44.1 kHz master
+//! resampled to 96 kHz: nothing was lost, but its content stops dead at the
+//! Nyquist of the rate it really has.
 //!
 //! A genuine CD-sourced lossless file carries content out to near the Nyquist
 //! frequency. An MP3 or AAC re-encoded as FLAC keeps the lossy encoder's low-pass
@@ -71,6 +73,17 @@ pub const KNOWN_LOSSY_CUTOFFS: &[(u32, u32, &str, u32)] = &[
     (16800, 19000, "~160-192kbps source", 160),
     (19000, 20600, "~256-320kbps source", 256),
 ];
+
+/// The sample rates a master is made at, and so what a hi-res file can have
+/// been resampled from.
+pub const STANDARD_SAMPLE_RATES: &[u32] = &[44100, 48000, 88200, 96000, 176_400];
+
+/// How far below a lower rate's Nyquist a resampler's wall can land.
+///
+/// A resampler's anti-aliasing filter has to finish before the Nyquist of the
+/// rate it is leaving, so its passband ends a little short of it: ffmpeg's
+/// default stops at 97%, sox's at 91-95%.
+pub const RESAMPLER_MARGIN_HZ: u32 = 2000;
 
 /// How much of a VBR file's average bitrate counts as its claim.
 ///
@@ -369,6 +382,18 @@ pub fn classify(
             ),
         );
     }
+    if let Some(source_rate) = is_steep
+        .then(|| resampled_from(cutoff_hz, sample_rate))
+        .flatten()
+    {
+        return (
+            Verdict::Upsampled,
+            format!(
+                "{sample_rate}Hz container but content stops sharply at {measured}, \
+                 the limit of {source_rate}Hz audio -- upsampled, not hi-res"
+            ),
+        );
+    }
     if is_steep {
         if let Some(label) = label {
             return (
@@ -388,6 +413,23 @@ pub fn classify(
         Verdict::Ok,
         format!("gradual roll-off from {measured} -- consistent with mastering, not a transcode"),
     )
+}
+
+/// The standard rate below `sample_rate` whose Nyquist a cutoff sits at, if any.
+///
+/// The band average reports the lower edge of the last band carrying
+/// content, so a wall exactly at a Nyquist reads up to one band below it.
+#[must_use]
+pub fn resampled_from(cutoff_hz: f64, sample_rate: u32) -> Option<u32> {
+    STANDARD_SAMPLE_RATES
+        .iter()
+        .copied()
+        .filter(|rate| *rate < sample_rate)
+        .find(|rate| {
+            let nyquist = f64::from(*rate) / 2.0;
+            nyquist - f64::from(RESAMPLER_MARGIN_HZ) <= cutoff_hz
+                && cutoff_hz <= nyquist + BAND_WIDTH_HZ as f64
+        })
 }
 
 /// Judge a lossy file's cutoff against the bitrate its header claims.
