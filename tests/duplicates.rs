@@ -9,11 +9,14 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use stk::audio::fingerprint::Fingerprint;
-use stk::duplicates::{self, DuplicatePair};
+use stk::config::OrganiseSettings;
+use stk::duplicates::{self, DuplicateGroup, DuplicatePair, Keep, Loser, Resolution};
+use stk::library::changes::{apply_undo, plan_undo, ChangeFilter, ChangeLog, UNDO_COMMAND};
 use stk::library::index::LibraryIndex;
 use stk::matching::{MatchThresholds, NameForms};
 use stk::models::{LibraryEntry, ReplayGainTags, TrackTags};
-use support::Scratch;
+use stk::organise::{Obstacle, PlannedMove};
+use support::{encode, Encoded, Scratch};
 
 fn entry(path: &str, artist: &str, title: &str) -> LibraryEntry {
     entry_with(path, artist, title, 1_000_000, Some(200.0))
@@ -474,4 +477,291 @@ fn a_print_the_index_had_to_compute_is_stored_for_the_next_run() {
             .as_ref(),
         Some(computed)
     );
+}
+
+fn pair(left: &LibraryEntry, right: &LibraryEntry, score: f64) -> DuplicatePair {
+    DuplicatePair {
+        left: left.clone(),
+        right: right.clone(),
+        score,
+        evidence: format!("score {score:.2}"),
+    }
+}
+
+fn sized(path: &str, size: u64) -> LibraryEntry {
+    entry_with(path, "DECO*27", "Roki", size, Some(200.0))
+}
+
+fn paths(entries: &[LibraryEntry]) -> Vec<&Path> {
+    entries.iter().map(|entry| entry.path.as_path()).collect()
+}
+
+fn one_group(entries: &[LibraryEntry]) -> DuplicateGroup {
+    let pairs = entries
+        .windows(2)
+        .map(|window| pair(&window[0], &window[1], 1.0));
+    duplicates::group(pairs).remove(0)
+}
+
+#[test]
+fn three_copies_reported_as_three_pairs_are_one_group() {
+    let [a, b, c] = [sized("a.flac", 1), sized("b.flac", 2), sized("c.flac", 3)];
+
+    let groups = duplicates::group([pair(&a, &b, 1.0), pair(&b, &c, 1.0), pair(&a, &c, 1.0)]);
+
+    assert_eq!(groups.len(), 1);
+    assert_eq!(
+        paths(&groups[0].entries),
+        [
+            Path::new("a.flac"),
+            Path::new("b.flac"),
+            Path::new("c.flac")
+        ]
+    );
+    assert_eq!(groups[0].pairs.len(), 3);
+}
+
+#[test]
+fn copies_linked_only_through_a_third_share_its_group_and_others_stay_apart() {
+    let [a, b, c] = [sized("a.flac", 1), sized("b.flac", 2), sized("c.flac", 3)];
+    let apart = [sized("x.flac", 1), sized("y.flac", 2)];
+
+    let groups = duplicates::group([
+        pair(&apart[0], &apart[1], 1.0),
+        pair(&b, &c, 1.0),
+        pair(&a, &b, 1.0),
+    ]);
+
+    assert_eq!(groups.len(), 2);
+    assert_eq!(paths(&groups[0].entries).len(), 3);
+    assert_eq!(
+        paths(&groups[1].entries),
+        [Path::new("x.flac"), Path::new("y.flac")]
+    );
+}
+
+#[test]
+fn a_pair_both_finders_report_is_counted_once_on_the_stronger_score() {
+    let [a, b] = [sized("a.flac", 1), sized("b.flac", 2)];
+
+    let groups = duplicates::group([pair(&a, &b, 0.9), pair(&b, &a, 0.97)]);
+
+    assert_eq!(groups[0].pairs.len(), 1);
+    assert!((groups[0].pairs[0].score - 0.97).abs() < f64::EPSILON);
+}
+
+#[test]
+fn a_group_is_as_strong_as_its_weakest_pair() {
+    let [a, b, c] = [sized("a.flac", 1), sized("b.flac", 2), sized("c.flac", 3)];
+
+    let groups = duplicates::group([pair(&a, &b, 0.99), pair(&b, &c, 0.8)]);
+
+    assert!((groups[0].lowest_score() - 0.8).abs() < f64::EPSILON);
+}
+
+#[test]
+fn lossless_keeps_the_flac_even_when_its_mp3_is_larger() {
+    let group = one_group(&[sized("Roki.flac", 1_000), sized("Roki.mp3", 5_000)]);
+
+    let resolution = duplicates::choose(&group, Keep::Lossless);
+
+    assert_eq!(resolution.keeper.path, Path::new("Roki.flac"));
+    assert_eq!(resolution.losers.len(), 1);
+    assert_eq!(resolution.losers[0].entry.path, Path::new("Roki.mp3"));
+    assert!(
+        resolution.losers[0].reason.contains("lossy"),
+        "{:?}",
+        resolution.losers
+    );
+}
+
+#[test]
+fn largest_keeps_the_larger_copy_whatever_its_container() {
+    let group = one_group(&[sized("Roki.flac", 1_000), sized("Roki.mp3", 5_000)]);
+
+    let resolution = duplicates::choose(&group, Keep::Largest);
+
+    assert_eq!(resolution.keeper.path, Path::new("Roki.mp3"));
+    assert_eq!(resolution.losers[0].reason, "smaller");
+}
+
+#[test]
+fn lossless_falls_back_to_the_larger_of_two_lossless_copies() {
+    let group = one_group(&[sized("a.flac", 1_000), sized("b.flac", 2_000)]);
+
+    let resolution = duplicates::choose(&group, Keep::Lossless);
+
+    assert_eq!(resolution.keeper.path, Path::new("b.flac"));
+    assert_eq!(resolution.losers[0].reason, "smaller");
+}
+
+#[test]
+fn tagged_keeps_the_copy_with_more_filled_in() {
+    let bare = sized("bare.flac", 9_000);
+    let mut full = sized("full.flac", 1_000);
+    full.tags.album = "Ghost".to_owned();
+    full.artwork_bytes = 10;
+
+    let resolution = duplicates::choose(&one_group(&[bare, full]), Keep::Tagged);
+
+    assert_eq!(resolution.keeper.path, Path::new("full.flac"));
+    assert_eq!(
+        resolution.losers[0].reason,
+        "2 of 4 tag fields filled, against 4"
+    );
+}
+
+#[test]
+fn oldest_keeps_the_copy_that_was_there_first() {
+    let mut old = sized("old.mp3", 1_000);
+    old.mtime = 10.0;
+    let mut new = sized("new.flac", 9_000);
+    new.mtime = 20.0;
+
+    let resolution = duplicates::choose(&one_group(&[old, new]), Keep::Oldest);
+
+    assert_eq!(resolution.keeper.path, Path::new("old.mp3"));
+    assert_eq!(resolution.losers[0].reason, "newer");
+}
+
+#[test]
+fn identical_copies_resolve_by_path_whatever_order_they_came_in() {
+    let [a, b] = [sized("a.flac", 1_000), sized("b.flac", 1_000)];
+
+    for pairs in [[pair(&a, &b, 1.0)], [pair(&b, &a, 1.0)]] {
+        let resolution = duplicates::choose(&duplicates::group(pairs).remove(0), Keep::Lossless);
+        assert_eq!(resolution.keeper.path, Path::new("a.flac"));
+        assert!(resolution.losers[0].reason.contains("first by path"));
+    }
+}
+
+#[test]
+fn a_keep_policy_parses_by_name_and_names_the_known_ones_otherwise() {
+    assert_eq!(Keep::default(), Keep::Lossless);
+    for keep in Keep::ALL {
+        assert_eq!(keep.to_string().parse::<Keep>(), Ok(keep));
+    }
+    let error = "biggest".parse::<Keep>().expect_err("an unknown policy");
+    assert!(
+        error.contains("largest, lossless, oldest, tagged"),
+        "{error}"
+    );
+}
+
+fn resolution(keeper: &str, losers: &[&str]) -> Resolution {
+    Resolution {
+        keeper: sized(keeper, 1),
+        losers: losers
+            .iter()
+            .map(|path| Loser {
+                entry: sized(path, 1),
+                reason: "smaller".to_owned(),
+            })
+            .collect(),
+    }
+}
+
+#[test]
+fn quarantine_keeps_each_losers_path_below_its_root() {
+    let scratch = Scratch::new("dupes-plan-quarantine");
+    let roots = [scratch.join("E"), scratch.join("F")];
+    let keep = |name: &str| scratch.join("E").join(name).display().to_string();
+    let lose = |root: &str, name: &str| scratch.join(root).join(name).display().to_string();
+    let directory = scratch.join("quarantine").join("7");
+    std::fs::create_dir_all(directory.join("Occupied")).expect("a directory");
+    std::fs::write(directory.join("Occupied").join("x.mp3"), b"x").expect("a file");
+
+    let planned = duplicates::plan_quarantine(
+        &[
+            resolution(&keep("A/keep.flac"), &[&lose("E", "A/lose.mp3")]),
+            resolution(&keep("B/keep.flac"), &[&lose("F", "A/lose.mp3")]),
+            resolution(&keep("C/keep.flac"), &[&lose("E", "Occupied/x.mp3")]),
+            resolution(&keep("D/keep.flac"), &["/elsewhere/y.mp3"]),
+        ],
+        &roots,
+        &directory,
+    );
+
+    let target = directory.join("A").join("lose.mp3");
+    assert_eq!(planned[0].destination, target);
+    assert!(planned[0].ready());
+    assert_eq!(planned[1].blocked, Some(Obstacle::Claimed(target)));
+    assert!(matches!(planned[2].blocked, Some(Obstacle::Occupied(_))));
+    assert_eq!(planned[3].blocked, Some(Obstacle::NoRoot));
+}
+
+#[test]
+fn quarantined_files_leave_the_index_and_an_undo_puts_them_back() {
+    let scratch = Scratch::new("dupes-quarantine");
+    let root = scratch.join("Music");
+    let keeper = encode(&root.join("DECO_27").join("Roki.flac"), &Encoded::default());
+    let loser = encode(&root.join("Loose").join("Roki.mp3"), &Encoded::default());
+    let beside = encode(&root.join("Shared").join("Roki.mp3"), &Encoded::default());
+    std::fs::write(root.join("Shared").join("cover.jpg"), b"jpeg").expect("a cover");
+    let roots = [root.clone()];
+
+    let mut index = LibraryIndex::open(&scratch.join("library.db")).expect("an index");
+    let mut entries = Vec::new();
+    for path in [&keeper, &loser, &beside] {
+        entries.push(
+            index
+                .reindex(path, &roots)
+                .expect("indexed")
+                .expect("a file"),
+        );
+    }
+    let resolved = Resolution {
+        keeper: entries[0].clone(),
+        losers: entries[1..]
+            .iter()
+            .map(|entry| Loser {
+                entry: entry.clone(),
+                reason: "lossy, and the kept copy is lossless".to_owned(),
+            })
+            .collect(),
+    };
+
+    let log = ChangeLog::open(&index, duplicates::RESOLVE_COMMAND, 1.0).expect("a log");
+    let directory = duplicates::quarantine_directory(&index, log.run_id());
+    assert_eq!(directory, scratch.join("quarantine").join("1"));
+    let planned = duplicates::plan_quarantine(&[resolved], &roots, &directory);
+    let ready: Vec<&PlannedMove> = planned.iter().collect();
+    let applied = duplicates::quarantine(
+        &mut index,
+        &log,
+        &ready,
+        &roots,
+        &OrganiseSettings::default(),
+    )
+    .expect("a quarantine");
+
+    assert_eq!(applied.moved, 2);
+    assert!(applied.failures.is_empty());
+    assert_eq!(applied.pruned, 1, "only the folder left genuinely empty");
+    assert!(keeper.is_file());
+    assert!(!root.join("Loose").exists());
+    assert!(root.join("Shared").join("cover.jpg").is_file());
+    let parked = directory.join("Loose").join("Roki.mp3");
+    assert!(parked.is_file());
+    assert!(directory.join("Shared").join("Roki.mp3").is_file());
+    assert_eq!(index.count().expect("a count"), 1);
+
+    let changes = index.changes(&ChangeFilter::default()).expect("the log");
+    assert_eq!(changes.len(), 2);
+    assert!(changes
+        .iter()
+        .all(|change| change.command == "dupes resolve" && change.field == "move"));
+
+    let undo = ChangeLog::open(&index, UNDO_COMMAND, 2.0).expect("an undo log");
+    for change in changes {
+        let plan = plan_undo(&index, change).expect("a plan");
+        assert!(plan.ready(), "{:?}", plan.blocked);
+        apply_undo(&mut index, &plan, &undo, &roots).expect("an undo");
+    }
+
+    assert!(loser.is_file());
+    assert!(beside.is_file());
+    assert!(!parked.exists());
+    assert_eq!(index.count().expect("a count"), 3);
+    assert!(index.entry(&loser).expect("a lookup").is_some());
 }
