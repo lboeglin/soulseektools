@@ -78,12 +78,33 @@ pub const KNOWN_LOSSY_CUTOFFS: &[(u32, u32, &str, u32)] = &[
 /// been resampled from.
 pub const STANDARD_SAMPLE_RATES: &[u32] = &[44100, 48000, 88200, 96000, 176_400];
 
-/// How far below a lower rate's Nyquist a resampler's wall can land.
+/// The highest rate that is not a hi-res claim, and so is never judged an
+/// upsample by its spectrum.
+pub const HI_RES_ABOVE_HZ: u32 = 48000;
+
+/// How far below a lower rate's Nyquist a sharp resampler's wall can land.
 ///
-/// A resampler's anti-aliasing filter has to finish before the Nyquist of the
-/// rate it is leaving, so its passband ends a little short of it: ffmpeg's
-/// default stops at 97%, sox's at 91-95%.
+/// A steep filter such as soxr's finishes before the Nyquist it protects, so
+/// its passband ends a little short of it: 91-97% of the way.
 pub const RESAMPLER_MARGIN_HZ: u32 = 2000;
+
+/// How far above a lower rate's Nyquist a soft resampler's tail can run.
+///
+/// ffmpeg's default resampler trades stopband for speed: resampling 44.1 kHz
+/// to 96 kHz, it is only 15 dB down at 22.05 kHz and passes the noise floor
+/// at 23 kHz on a slope no brickwall test calls sharp. The steep drop to
+/// digital silence comes after, 3 kHz or so past the Nyquist, and that is
+/// the edge [`RESAMPLER_FLOOR_DB`] finds.
+pub const RESAMPLER_OVERSHOOT_HZ: u32 = 3500;
+
+/// The floor below which a resampler's stopband counts as silence.
+///
+/// Far below where a master's content fades -- the ordinary noise floor
+/// judges that -- but above the dither and noise a resampled file carries
+/// past its edge, which in the reference library sits anywhere from -92 to
+/// -164 dB. A genuine hi-res recording carries its converter's noise to
+/// Nyquist and never gets this quiet.
+pub const RESAMPLER_FLOOR_DB: f64 = -85.0;
 
 /// How much of a VBR file's average bitrate counts as its claim.
 ///
@@ -382,18 +403,6 @@ pub fn classify(
             ),
         );
     }
-    if let Some(source_rate) = is_steep
-        .then(|| resampled_from(cutoff_hz, sample_rate))
-        .flatten()
-    {
-        return (
-            Verdict::Upsampled,
-            format!(
-                "{sample_rate}Hz container but content stops sharply at {measured}, \
-                 the limit of {source_rate}Hz audio -- upsampled, not hi-res"
-            ),
-        );
-    }
     if is_steep {
         if let Some(label) = label {
             return (
@@ -415,20 +424,66 @@ pub fn classify(
     )
 }
 
-/// The standard rate below `sample_rate` whose Nyquist a cutoff sits at, if any.
+/// The lower standard rates a hi-res file may have been resampled from, and
+/// the edge that gives it away.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Resampled {
+    /// Every rate whose resampling could have left this edge, lowest first.
+    /// Usually one; an edge near 23 kHz is as far past 44.1 kHz's Nyquist as a
+    /// soft resampler reaches and as far short of 48 kHz's as a sharp one
+    /// stops, and nothing in the spectrum says which.
+    pub from_hz: Vec<u32>,
+    pub edge_hz: f64,
+    pub steepness_db_per_khz: f64,
+}
+
+/// Find the edge a resampler leaves in a file claiming a higher rate.
 ///
-/// The band average reports the lower edge of the last band carrying
-/// content, so a wall exactly at a Nyquist reads up to one band below it.
+/// Two resamplers leave two shapes, so two floors. A sharp one walls the
+/// content off just below the old Nyquist, which the ordinary noise floor
+/// finds. A soft one lets it fade past the old Nyquist on a gentle slope and
+/// only then drops it to silence, which [`RESAMPLER_FLOOR_DB`] finds; so does
+/// a sharp one under a master whose highs are already quiet. Either way the
+/// edge has to be steep: a master that rolls off near 22 kHz on its own is
+/// not an upsample, and neither is content that carries on to the
+/// container's own Nyquist.
+///
+/// Only a hi-res claim is judged, above [`HI_RES_ABOVE_HZ`]. A 48 kHz file
+/// shows 2 kHz of spectrum past 44.1 kHz's Nyquist, too little to tell a
+/// resampler's edge from the 20 kHz low-pass a mastering chain often ends
+/// on -- and 48 kHz is a rate records are made at, not an inflated claim.
 #[must_use]
-pub fn resampled_from(cutoff_hz: f64, sample_rate: u32) -> Option<u32> {
-    STANDARD_SAMPLE_RATES
-        .iter()
-        .copied()
-        .filter(|rate| *rate < sample_rate)
-        .find(|rate| {
-            let nyquist = f64::from(*rate) / 2.0;
-            nyquist - f64::from(RESAMPLER_MARGIN_HZ) <= cutoff_hz
-                && cutoff_hz <= nyquist + BAND_WIDTH_HZ as f64
+pub fn resampled_from(bands: &Bands, sample_rate: u32, tuning: &Tuning) -> Option<Resampled> {
+    if sample_rate <= HI_RES_ABOVE_HZ {
+        return None;
+    }
+    let nyquist = f64::from(sample_rate) / 2.0;
+    [tuning.noise_floor_db, RESAMPLER_FLOOR_DB]
+        .into_iter()
+        .find_map(|floor| {
+            let edge = find_cutoff(bands, floor);
+            if edge >= nyquist - f64::from(tuning.near_nyquist_margin_hz) {
+                return None;
+            }
+            let steepness = cliff_steepness(bands, edge, STEEPNESS_WINDOW_HZ);
+            if steepness < tuning.steep_db_per_khz {
+                return None;
+            }
+            let from_hz: Vec<u32> = STANDARD_SAMPLE_RATES
+                .iter()
+                .copied()
+                .filter(|rate| *rate < sample_rate)
+                .filter(|rate| {
+                    let old_nyquist = f64::from(*rate) / 2.0;
+                    old_nyquist - f64::from(RESAMPLER_MARGIN_HZ) <= edge
+                        && edge <= old_nyquist + f64::from(RESAMPLER_OVERSHOOT_HZ)
+                })
+                .collect();
+            (!from_hz.is_empty()).then_some(Resampled {
+                from_hz,
+                edge_hz: edge,
+                steepness_db_per_khz: steepness,
+            })
         })
 }
 
@@ -515,13 +570,35 @@ pub fn analyse(
     let cutoff = find_cutoff(&bands, tuning.noise_floor_db);
     let steepness = cliff_steepness(&bands, cutoff, STEEPNESS_WINDOW_HZ);
     let (verdict, detail) = match claim {
-        Claim::Lossless => classify(
-            cutoff,
-            steepness,
-            sample_rate,
-            tuning.steep_db_per_khz,
-            tuning.near_nyquist_margin_hz,
-        ),
+        Claim::Lossless => {
+            let judged = classify(
+                cutoff,
+                steepness,
+                sample_rate,
+                tuning.steep_db_per_khz,
+                tuning.near_nyquist_margin_hz,
+            );
+            match (judged.0, resampled_from(&bands, sample_rate, tuning)) {
+                (Verdict::Ok | Verdict::Suspect, Some(resampled)) => {
+                    let rates: Vec<String> = resampled
+                        .from_hz
+                        .iter()
+                        .map(|rate| format!("{rate}Hz"))
+                        .collect();
+                    (
+                        Verdict::Upsampled,
+                        format!(
+                            "{sample_rate}Hz container but content ends sharply at {:.0}Hz \
+                             ({:.0}dB/kHz), the limit of {} audio -- upsampled, not hi-res",
+                            resampled.edge_hz,
+                            resampled.steepness_db_per_khz,
+                            rates.join(" or ")
+                        ),
+                    )
+                }
+                _ => judged,
+            }
+        }
         Claim::Lossy {
             bitrate_kbps,
             is_vbr,

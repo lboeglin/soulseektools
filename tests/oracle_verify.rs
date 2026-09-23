@@ -101,23 +101,51 @@ fn undecodable(row: &Row) -> bool {
     row.codec == "flac" && row.bit_depth == "32"
 }
 
-/// The rows #16 deliberately changed.
+/// The rows #16 deliberately changed, by file name, with their new detail.
 ///
-/// Both files state 24 bits and use 16: every sample's low 8 bits are zero,
-/// which ffmpeg's `astats` confirms (`Bit depth: 16/16`). The Python never
-/// looked, so it called them OK on their spectrum alone; the padding is what
-/// `UPSAMPLED` exists to report. Every other field still has to match.
-const PADDED: &[&str] = &["01 ドーナツホール.flac", "01. ロストワンの号哭.flac"];
+/// The Python called all five OK. Two state 24 bits and use 16: every
+/// sample's low 8 bits are zero, which ffmpeg's `astats` confirms (`Bit
+/// depth: 16/16`). Three are 96 kHz files whose content ends in a steep edge
+/// near 22 kHz with next to nothing above it -- digital silence in one -- where
+/// the other 96 kHz files carry their converter's noise to 48 kHz. Every
+/// other field still has to match. `oracle/README.md` records the same five.
+const RECLASSIFIED: &[(&str, &str)] = &[
+    (
+        "01 ドーナツホール.flac",
+        "24-bit container holding 16-bit audio -- padded, not hi-res",
+    ),
+    (
+        "01. ロストワンの号哭.flac",
+        "24-bit container holding 16-bit audio -- padded, not hi-res",
+    ),
+    (
+        "01 - D+N+A.flac",
+        "96000Hz container but content ends sharply at 22800Hz (75dB/kHz), \
+         the limit of 44100Hz or 48000Hz audio -- upsampled, not hi-res",
+    ),
+    (
+        "02. Nonsense Bungaku.flac",
+        "96000Hz container but content ends sharply at 23250Hz (46dB/kHz), \
+         the limit of 44100Hz or 48000Hz audio -- upsampled, not hi-res",
+    ),
+    (
+        "22. Heat Abnormal.flac",
+        "96000Hz container but content ends sharply at 21150Hz (53dB/kHz), \
+         the limit of 44100Hz audio -- upsampled, not hi-res",
+    ),
+];
 
 fn as_now_judged(row: &Row) -> Row {
     let mut row = row.clone();
-    if row
-        .path
-        .file_name()
-        .is_some_and(|name| PADDED.iter().any(|padded| name == *padded))
-    {
+    let reclassified = row.path.file_name().and_then(|name| {
+        RECLASSIFIED
+            .iter()
+            .find(|(file, _)| name == *file)
+            .map(|(_, detail)| *detail)
+    });
+    if let Some(detail) = reclassified {
         "UPSAMPLED".clone_into(&mut row.verdict);
-        "24-bit container holding 16-bit audio -- padded, not hi-res".clone_into(&mut row.detail);
+        detail.clone_into(&mut row.detail);
     }
     row
 }

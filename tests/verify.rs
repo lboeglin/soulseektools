@@ -207,6 +207,19 @@ fn a_hi_res_file_resampled_and_padded_from_cd_audio_is_caught_on_both_counts() {
     );
 }
 
+/// The shape most upsampled FLACs have, from ffmpeg's default resampler: it
+/// fades through 22.05 kHz on a slope the ordinary floor calls a roll-off.
+#[test]
+fn a_hi_res_file_made_by_ffmpegs_default_resampler_is_caught() {
+    let result = verify_file(
+        &committed("noise-44k-as-96k.flac"),
+        &VerifySettings::default(),
+    );
+
+    assert_eq!(result.verdict, Verdict::Upsampled, "{}", result.detail);
+    assert!(result.detail.contains("44100Hz"), "{}", result.detail);
+}
+
 #[test]
 fn a_hi_res_file_resampled_from_48000_is_caught() {
     let scratch = Scratch::new("verify-hi-res-48");

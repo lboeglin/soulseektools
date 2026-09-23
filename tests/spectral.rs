@@ -26,8 +26,8 @@ use realfft::RealFftPlanner;
 
 use stk::audio::spectral::{
     analyse, average_spectrum_db, band_average, bitrate_tier, classify, classify_lossy,
-    cliff_steepness, cutoff_tier, find_cutoff, matched_bitrate, resampled_from, Claim, Tuning,
-    BAND_WIDTH_HZ, KNOWN_LOSSY_CUTOFFS, MIN_ANALYSABLE_CUTOFF_HZ,
+    cliff_steepness, cutoff_tier, find_cutoff, matched_bitrate, resampled_from, Bands, Claim,
+    Tuning, BAND_WIDTH_HZ, KNOWN_LOSSY_CUTOFFS, MIN_ANALYSABLE_CUTOFF_HZ,
 };
 use stk::models::Verdict;
 
@@ -484,53 +484,108 @@ fn a_lossy_claim_is_judged_by_its_bitrate_not_as_a_transcode() {
     assert_eq!(claimed(320), Verdict::Upsampled);
 }
 
-#[test]
-fn a_wall_at_a_lower_rates_nyquist_in_a_hi_res_container_is_an_upsample() {
-    for (sample_rate, cutoff, source) in [
-        (48000, 21900.0, "44100Hz"),
-        (96000, 21900.0, "44100Hz"),
-        (96000, 23850.0, "48000Hz"),
-        (192_000, 47850.0, "96000Hz"),
-    ] {
-        let (verdict, detail) = classify(cutoff, 90.0, sample_rate, 25.0, 1500);
+/// Bands across a whole spectrum, each at the level `shape` gives its lower edge.
+fn shaped_bands(sample_rate: u32, shape: impl Fn(f64) -> f64) -> Bands {
+    let lower_edges_hz: Vec<f64> = (0..(sample_rate as usize / 2).div_ceil(BAND_WIDTH_HZ))
+        .map(|band| (band * BAND_WIDTH_HZ) as f64)
+        .collect();
+    let db = lower_edges_hz.iter().map(|edge| shape(*edge)).collect();
+    Bands { lower_edges_hz, db }
+}
 
-        assert_eq!(
-            verdict,
-            Verdict::Upsampled,
-            "{sample_rate} at {cutoff}: {detail}"
-        );
-        assert!(detail.contains(source), "{detail}");
-    }
+/// A sharp resampler: full level, then silence from `wall_hz` up.
+fn walled(sample_rate: u32, wall_hz: f64) -> Bands {
+    shaped_bands(
+        sample_rate,
+        |edge| if edge < wall_hz { -20.0 } else { -140.0 },
+    )
 }
 
 #[test]
-fn a_resamplers_wall_short_of_the_nyquist_is_still_found() {
-    // ffmpeg's resampler stops its passband at 97% of the Nyquist it leaves.
-    assert_eq!(resampled_from(21400.0, 96000), Some(44100));
+fn a_sharp_wall_just_short_of_a_lower_nyquist_is_an_upsample() {
+    // soxr's passband ends at about 96% of the Nyquist it protects.
+    let resampled = resampled_from(&walled(96000, 21300.0), 96000, &tuning()).expect("an edge");
+
+    assert_eq!(resampled.from_hz, vec![44100]);
+    assert!(resampled.steepness_db_per_khz > 25.0);
 }
 
 #[test]
-fn a_hi_res_master_rolling_off_near_a_lower_nyquist_is_not_an_upsample() {
-    // Genuine 96 kHz recordings of material with nothing above 22 kHz exist;
-    // only the steepness tells them from an upsample.
-    let (verdict, detail) = classify(21900.0, 9.0, 96000, 25.0, 1500);
+fn every_rate_that_could_have_left_an_edge_is_named() {
+    let between = resampled_from(&walled(96000, 23850.0), 96000, &tuning()).expect("an edge");
+    let high = resampled_from(&walled(192_000, 47850.0), 192_000, &tuning()).expect("an edge");
 
-    assert_eq!(verdict, Verdict::Ok, "{detail}");
+    assert_eq!(between.from_hz, vec![44100, 48000]);
+    assert_eq!(high.from_hz, vec![96000]);
 }
 
 #[test]
-fn a_cd_rate_file_has_no_lower_rate_to_have_been_upsampled_from() {
-    assert_eq!(resampled_from(21900.0, 44100), None);
-    assert_ne!(
-        classify(20900.0, 90.0, 44100, 25.0, 1500).0,
-        Verdict::Upsampled
+fn a_soft_resamplers_tail_past_the_nyquist_is_found_at_the_deeper_floor() {
+    // ffmpeg's default: a gentle slope through the old Nyquist that the
+    // ordinary floor calls a roll-off, then a steep drop to silence 3 kHz on.
+    let soft = shaped_bands(96000, |edge| match edge {
+        edge if edge < 21000.0 => -20.0,
+        edge if edge < 24500.0 => -20.0 - (edge - 21000.0) / 1000.0 * 12.0,
+        edge if edge < 25500.0 => -62.0 - (edge - 24500.0) / 1000.0 * 60.0,
+        _ => -140.0,
+    });
+
+    let resampled = resampled_from(&soft, 96000, &tuning()).expect("an edge");
+
+    assert!(resampled.edge_hz > 24000.0, "{resampled:?}");
+    assert!(resampled.from_hz.contains(&44100), "{resampled:?}");
+}
+
+#[test]
+fn a_hi_res_master_fading_into_its_converters_noise_is_not_an_upsample() {
+    // Genuine 96 kHz recordings of material with nothing above 22 kHz exist:
+    // the content rolls off, and the converter's noise carries on to Nyquist.
+    let genuine = shaped_bands(96000, |edge| {
+        (-20.0 - (edge - 15000.0).max(0.0) / 1000.0 * 6.0).max(-75.0)
+    });
+
+    assert_eq!(resampled_from(&genuine, 96000, &tuning()), None);
+}
+
+#[test]
+fn a_wall_nowhere_near_a_lower_nyquist_is_not_an_upsample() {
+    assert_eq!(
+        resampled_from(&walled(96000, 35000.0), 96000, &tuning()),
+        None
     );
+    assert_eq!(
+        resampled_from(&walled(96000, 16000.0), 96000, &tuning()),
+        None
+    );
+}
+
+#[test]
+fn only_a_hi_res_claim_is_judged_by_its_spectrum() {
+    // A 48 kHz file shows too little past 44.1 kHz's Nyquist to tell a
+    // resampler from a mastering low-pass, and 48 kHz is no inflated claim.
+    assert_eq!(
+        resampled_from(&walled(48000, 21300.0), 48000, &tuning()),
+        None
+    );
+    assert_eq!(
+        resampled_from(&walled(44100, 16000.0), 44100, &tuning()),
+        None
+    );
+
+    let samples = brickwall(21300.0, 48000, DURATION_SECONDS);
+    let result =
+        analyse(&[samples], 48000, Claim::Lossless, &tuning()).expect("an analysable spectrum");
+    assert_ne!(result.verdict, Verdict::Upsampled, "{}", result.detail);
 }
 
 #[test]
 fn a_hi_res_wall_in_a_lossy_band_is_still_a_transcode() {
     // A lossy source resampled up is worse than a lossless one: it keeps FAKE.
-    assert_eq!(classify(19800.0, 60.0, 48000, 25.0, 1500).0, Verdict::Fake);
+    let samples = brickwall(19800.0, 96000, DURATION_SECONDS);
+    let result =
+        analyse(&[samples], 96000, Claim::Lossless, &tuning()).expect("an analysable spectrum");
+
+    assert_eq!(result.verdict, Verdict::Fake, "{}", result.detail);
 }
 
 #[test]
@@ -540,5 +595,10 @@ fn a_hi_res_file_resampled_from_44100_is_detected() {
         analyse(&[samples], 96000, Claim::Lossless, &tuning()).expect("an analysable spectrum");
 
     assert_eq!(result.verdict, Verdict::Upsampled, "{}", result.detail);
-    assert!(result.detail.contains("44100Hz audio"), "{}", result.detail);
+    assert!(result.detail.contains("44100Hz"), "{}", result.detail);
+    assert!(
+        result.detail.contains("upsampled, not hi-res"),
+        "{}",
+        result.detail
+    );
 }

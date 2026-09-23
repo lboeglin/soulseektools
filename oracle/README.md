@@ -75,14 +75,21 @@ too narrow to hold `2*mid + side`, so the Rust build refuses the file rather
 than believe the noise it decodes. The oracle's verdict for it stands, and
 nothing in the Rust build can check it. The other 257 rows match exactly.
 
-**Two `verify` rows are judged differently on purpose.** `hachi\01 ドーナツホール.flac`
-and `Neru\01. ロストワンの号哭.flac` state 24 bits and use 16: the low 8 bits of
-every sample are zero, which ffmpeg's `astats` confirms (`Bit depth: 16/16`).
-The Python judged the spectrum alone and called them OK; since #16 they are
-`UPSAMPLED`, "24-bit container holding 16-bit audio". The captured rows are
-left as the Python wrote them, and the gates in `oracle_verify.rs` and
-`oracle_cli.rs` name these two and expect the new verdict, with every other
-field unchanged.
+**Five `verify` rows are judged differently on purpose.** The Python called
+them OK; since #16 they are `UPSAMPLED`.
+
+- `hachi\01 ドーナツホール.flac` and `Neru\01. ロストワンの号哭.flac` state 24
+  bits and use 16: the low 8 bits of every sample are zero, which ffmpeg's
+  `astats` confirms (`Bit depth: 16/16`).
+- `Azari\01 - D+N+A.flac`, `Eve\02. Nonsense Bungaku.flac` and
+  `Iyowa\22. Heat Abnormal.flac` are 96 kHz files whose content ends in a steep
+  edge between 21 and 23.5 kHz with next to nothing above it: -164 dB, digital
+  silence, in the first; a flat -109 dB dither floor in the last. The other
+  96 kHz files carry their converter's noise out to 48 kHz.
+
+The captured rows are left as the Python wrote them, and the gates in
+`oracle_verify.rs` and `oracle_cli.rs` name these five and expect the new
+verdict and detail, with every other field unchanged.
 
 **`verify.csv` has been reviewed, but not exhaustively.** The 9 FAKE verdicts
 are specific and physically plausible — see the summary below — but the

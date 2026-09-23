@@ -66,4 +66,12 @@ ffmpeg -v error -y -f lavfi -i "$noise" -ac 2 -c:a libmp3lame -q:a 0 "$out/noise
 ffmpeg -v error -y -i "$out/noise-128k.mp3" -c:a libmp3lame -b:a 320k "$out/noise-128k-as-320k.mp3"
 ffmpeg -v error -y -i "$out/noise-128k.mp3" -c:a libmp3lame -abr 1 -b:a 320k "$out/noise-128k-as-vbr320.mp3"
 
+# 44.1 kHz noise through ffmpeg's own default resampler to 96 kHz. A sharp
+# wall is synthesised in the suite; this soft filter's shape -- a gentle slope
+# past 22.05 kHz, then a drop to silence 3 kHz on -- is what most upsampled
+# FLACs were made with, and it cannot be. Quiet enough not to clip, since the
+# distortion would fill the spectrum the check reads.
+ffmpeg -v error -y -f lavfi -i "anoisesrc=d=1.5:c=white:r=44100:a=0.25" \
+  -af aresample=96000 -c:a flac -sample_fmt s16 "$out/noise-44k-as-96k.flac"
+
 ls -l "$out"

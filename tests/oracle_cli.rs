@@ -248,18 +248,44 @@ fn undecodable(row: &str) -> bool {
     cells.len() > 5 && cells[cells.len() - 6] == "flac" && cells[cells.len() - 4] == "32"
 }
 
-/// A row as #16 judges it: two files the Python called OK state 24 bits and
-/// use 16, which is now `UPSAMPLED`. `oracle_verify.rs` names the same two
-/// and says how that was confirmed.
+/// A row as #16 judges it: five files the Python called OK are now
+/// `UPSAMPLED`. `oracle_verify.rs` names the same five and says why.
 fn as_now_judged(row: &str) -> String {
-    const PADDED: &[&str] = &["01 ドーナツホール.flac", "01. ロストワンの号哭.flac"];
-    if !PADDED.iter().any(|padded| row.contains(padded)) {
+    const RECLASSIFIED: &[(&str, &str)] = &[
+        (
+            "01 ドーナツホール.flac",
+            "24-bit container holding 16-bit audio -- padded, not hi-res",
+        ),
+        (
+            "01. ロストワンの号哭.flac",
+            "24-bit container holding 16-bit audio -- padded, not hi-res",
+        ),
+        (
+            "01 - D+N+A.flac",
+            "96000Hz container but content ends sharply at 22800Hz (75dB/kHz), \
+             the limit of 44100Hz or 48000Hz audio -- upsampled, not hi-res",
+        ),
+        (
+            "02. Nonsense Bungaku.flac",
+            "96000Hz container but content ends sharply at 23250Hz (46dB/kHz), \
+             the limit of 44100Hz or 48000Hz audio -- upsampled, not hi-res",
+        ),
+        (
+            "22. Heat Abnormal.flac",
+            "96000Hz container but content ends sharply at 21150Hz (53dB/kHz), \
+             the limit of 44100Hz audio -- upsampled, not hi-res",
+        ),
+    ];
+    let Some((_, detail)) = RECLASSIFIED
+        .iter()
+        .find(|(file, _)| row.contains(&format!("\\{file},")))
+    else {
         return row.to_owned();
-    }
+    };
     let verdict = row.find(",OK,\"").expect("an OK row");
     let detail_end = row[verdict + 5..].find("\",").expect("a quoted detail") + verdict + 5;
     format!(
-        "{},UPSAMPLED,\"24-bit container holding 16-bit audio -- padded, not hi-res\"{}",
+        "{},UPSAMPLED,\"{detail}\"{}",
         &row[..verdict],
         &row[detail_end + 1..]
     )
