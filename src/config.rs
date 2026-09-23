@@ -455,6 +455,27 @@ impl Default for OrganiseSettings {
     }
 }
 
+/// What `stk dupes resolve` is sure enough about to act on (#15).
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, default)]
+pub struct DupesSettings {
+    /// The lowest score a pair in a group may have for the group to be resolved.
+    ///
+    /// Stricter than the finders' own thresholds on purpose. A pair is a
+    /// judgement, not a fact -- a name match, or a fingerprint similar enough --
+    /// and reporting a doubtful one costs a glance where moving it costs a
+    /// track. A group with any pair below this is shown and left alone.
+    pub resolve_min_score: f64,
+}
+
+impl Default for DupesSettings {
+    fn default() -> Self {
+        Self {
+            resolve_min_score: 0.95,
+        }
+    }
+}
+
 /// What happens to a download's tags once it has arrived (#11).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, default)]
@@ -500,6 +521,7 @@ pub struct Settings {
     pub identify: IdentifySettings,
     pub genres: GenreSettings,
     pub organise: OrganiseSettings,
+    pub dupes: DupesSettings,
 }
 
 /// Where `platformdirs` puts application data, reproduced exactly.
@@ -852,6 +874,7 @@ impl Settings {
                 self.artwork.artist_match_threshold,
             ),
             ("identify.min_score", self.identify.min_score),
+            ("dupes.resolve_min_score", self.dupes.resolve_min_score),
             (
                 "identify.name_match_threshold",
                 self.identify.name_match_threshold,

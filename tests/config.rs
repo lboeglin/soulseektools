@@ -460,6 +460,43 @@ pattern = \"{nonsense}/{title}\"
 }
 
 #[test]
+fn dupes_resolve_min_score_defaults_to_near_certain_and_reads_from_the_file() {
+    let _guard = exclusive();
+    assert!((Settings::default().dupes.resolve_min_score - 0.95).abs() < f64::EPSILON);
+
+    let scratch = Scratch::new("config-dupes-min-score");
+    let path = scratch.join("stk.toml");
+    std::fs::write(
+        &path,
+        "[dupes]
+resolve_min_score = 0.99
+",
+    )
+    .expect("a written config");
+    assert!((load(Some(&path)).settings.dupes.resolve_min_score - 0.99).abs() < f64::EPSILON);
+}
+
+#[test]
+fn a_dupes_resolve_min_score_outside_zero_to_one_is_rejected() {
+    let _guard = exclusive();
+    let scratch = Scratch::new("config-dupes-min-score-range");
+    let path = scratch.join("stk.toml");
+    std::fs::write(
+        &path,
+        "[dupes]
+resolve_min_score = 1.5
+",
+    )
+    .expect("a written config");
+
+    let error = load_settings(Some(&path), &Overrides::default()).expect_err("a rejected config");
+    assert!(
+        error.to_string().contains("dupes.resolve_min_score"),
+        "{error}"
+    );
+}
+
+#[test]
 fn an_organise_pattern_that_could_escape_the_root_is_rejected() {
     let _guard = exclusive();
     let scratch = Scratch::new("config-organise-escape");
