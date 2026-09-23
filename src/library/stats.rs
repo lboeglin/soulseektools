@@ -10,7 +10,6 @@
 
 use std::collections::BTreeMap;
 
-use crate::library::scan::LOSSLESS_EXTENSIONS;
 use crate::models::{LibraryEntry, Verdict};
 
 /// One measurement of the library.
@@ -93,7 +92,7 @@ pub fn measure(
             .iter()
             .filter(|entry| !entry.tags.genres.is_empty())
             .count(),
-        lossless: entries.iter().filter(|entry| is_lossless(entry)).count(),
+        lossless: entries.iter().filter(|entry| entry.is_lossless()).count(),
         verified_clean: count(Verdict::Ok),
         flagged: count(Verdict::Fake) + count(Verdict::Suspect),
         with_replay_gain: Some(
@@ -103,16 +102,6 @@ pub fn measure(
                 .count(),
         ),
     }
-}
-
-fn is_lossless(entry: &LibraryEntry) -> bool {
-    entry
-        .path
-        .extension()
-        .and_then(|extension| extension.to_str())
-        .is_some_and(|extension| {
-            LOSSLESS_EXTENSIONS.contains(&format!(".{}", extension.to_lowercase()).as_str())
-        })
 }
 
 /// The day a measurement was taken, as `YYYY-MM-DD`.

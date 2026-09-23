@@ -7,6 +7,7 @@ use std::str::FromStr;
 
 use serde::{Deserialize, Serialize};
 
+use crate::library::scan::LOSSLESS_EXTENSIONS;
 use crate::matching::NameForms;
 
 /// The metadata fields this project reads or writes, container-independent.
@@ -117,6 +118,18 @@ impl LibraryEntry {
     #[must_use]
     pub fn is_level_matched(&self) -> bool {
         self.replay_gain.is_scanned()
+    }
+
+    /// Decided by the container, the same rule `stk verify` uses to choose
+    /// what to inspect.
+    #[must_use]
+    pub fn is_lossless(&self) -> bool {
+        self.path
+            .extension()
+            .and_then(|extension| extension.to_str())
+            .is_some_and(|extension| {
+                LOSSLESS_EXTENSIONS.contains(&format!(".{}", extension.to_lowercase()).as_str())
+            })
     }
 }
 
