@@ -369,6 +369,179 @@ fn dupes_on_an_empty_index_says_so() {
     drop(harness);
 }
 
+/// One track filed twice: the FLAC in its artist folder, a stray MP3 of it in
+/// a folder of its own, and an unrelated track beside the FLAC.
+fn duplicated(harness: &Harness) -> (PathBuf, PathBuf, PathBuf) {
+    let root = harness.join("Music");
+    let tags: &[(&str, &str)] = &[("artist", "DECO*27"), ("title", "Roki")];
+    let flac = encode(
+        &root.join("DECO_27").join("Roki.flac"),
+        &Encoded {
+            metadata: tags,
+            ..Encoded::default()
+        },
+    );
+    let mp3 = encode(
+        &root.join("Loose").join("Roki.mp3"),
+        &Encoded {
+            metadata: tags,
+            ..Encoded::default()
+        },
+    );
+    encode(
+        &root.join("DECO_27").join("Ghost.flac"),
+        &Encoded {
+            seconds: 6.0,
+            metadata: &[("artist", "DECO*27"), ("title", "Ghost Rule")],
+            ..Encoded::default()
+        },
+    );
+    (root, flac, mp3)
+}
+
+fn indexed(harness: &Harness) -> usize {
+    stk::library::index::LibraryIndex::open(&harness.join("library.db"))
+        .expect("the index")
+        .count()
+        .expect("a count")
+}
+
+fn with_min_score(harness: &Harness, score: f64) {
+    let path = harness.join("stk.toml");
+    let body = std::fs::read_to_string(&path).expect("a config");
+    std::fs::write(
+        &path,
+        format!("{body}\n[dupes]\nresolve_min_score = {score:?}\n"),
+    )
+    .expect("a written config");
+}
+
+#[test]
+fn dupes_resolve_without_the_flag_moves_nothing() {
+    let _guard = exclusive();
+    let harness = Harness::new("cli-dupes-resolve-dry");
+    let (root, flac, mp3) = duplicated(&harness);
+    harness.with_config(&root);
+    run(&["library", "scan"]);
+
+    assert_eq!(run(&["dupes", "resolve"]), 0);
+    assert_eq!(run(&["--json", "dupes", "resolve", "--keep", "largest"]), 0);
+
+    assert!(flac.is_file());
+    assert!(mp3.is_file());
+    assert!(!harness.join("quarantine").exists());
+    assert!(logged(&harness).is_empty());
+    assert_eq!(indexed(&harness), 3);
+    drop(harness);
+}
+
+#[test]
+fn dupes_resolve_quarantines_the_lossy_copy_and_undo_puts_it_back() {
+    let _guard = exclusive();
+    let harness = Harness::new("cli-dupes-resolve-apply");
+    let (root, flac, mp3) = duplicated(&harness);
+    harness.with_config(&root);
+    run(&["library", "scan"]);
+
+    assert_eq!(run(&["dupes", "resolve", "--apply"]), 0);
+
+    let parked = harness
+        .join("quarantine")
+        .join("1")
+        .join("Loose")
+        .join("Roki.mp3");
+    assert!(flac.is_file(), "the lossless copy is kept");
+    assert!(parked.is_file(), "the lossy copy is quarantined");
+    assert!(
+        !root.join("Loose").exists(),
+        "its emptied folder is removed"
+    );
+    assert_eq!(indexed(&harness), 2, "the index forgets the moved copy");
+    let rows = logged(&harness);
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].command, "dupes resolve");
+    assert_eq!(rows[0].field, "move");
+
+    assert_eq!(run(&["changes", "undo", "--last", "--apply"]), 0);
+
+    assert!(mp3.is_file());
+    assert!(!parked.exists());
+    assert_eq!(indexed(&harness), 3);
+    drop(harness);
+}
+
+#[test]
+fn dupes_resolve_keeps_the_copy_the_policy_names() {
+    let _guard = exclusive();
+    let harness = Harness::new("cli-dupes-resolve-largest");
+    let (root, flac, mp3) = duplicated(&harness);
+    harness.with_config(&root);
+    run(&["library", "scan"]);
+    let larger = if mp3.metadata().expect("a file").len() > flac.metadata().expect("a file").len() {
+        (&mp3, &flac)
+    } else {
+        (&flac, &mp3)
+    };
+
+    assert_eq!(
+        run(&["dupes", "resolve", "--keep", "largest", "--apply"]),
+        0
+    );
+
+    assert!(larger.0.is_file());
+    assert!(!larger.1.exists());
+    drop(harness);
+}
+
+#[test]
+fn dupes_resolve_leaves_a_group_below_the_minimum_score_alone() {
+    let _guard = exclusive();
+    let harness = Harness::new("cli-dupes-resolve-doubtful");
+    let root = harness.join("Music");
+    // Lengths too far apart for the audio pass, so the name match is the only
+    // evidence, and it is short of certain.
+    encode(
+        &root.join("DECO_27").join("Rolling Girl.flac"),
+        &Encoded {
+            metadata: &[("artist", "DECO*27"), ("title", "Rolling Girl")],
+            ..Encoded::default()
+        },
+    );
+    let near = encode(
+        &root.join("Loose").join("Rolling Girl Remix.flac"),
+        &Encoded {
+            seconds: 6.0,
+            metadata: &[("artist", "DECO*27"), ("title", "Rolling Girl Remix")],
+            ..Encoded::default()
+        },
+    );
+    harness.with_config(&root);
+    run(&["library", "scan"]);
+
+    assert_eq!(run(&["dupes", "resolve", "--apply"]), 0);
+    assert!(near.is_file(), "a doubtful group is shown, not resolved");
+    assert!(logged(&harness).is_empty());
+
+    with_min_score(&harness, 0.5);
+    assert_eq!(run(&["dupes", "resolve", "--apply"]), 0);
+    assert_eq!(
+        logged(&harness).len(),
+        1,
+        "the same pair clears a lower minimum"
+    );
+    drop(harness);
+}
+
+#[test]
+fn dupes_resolve_rejects_an_unknown_keep_policy() {
+    let _guard = exclusive();
+    let harness = Harness::new("cli-dupes-resolve-keep");
+    harness.with_config(&harness.join("Music"));
+    assert_eq!(run(&["dupes", "resolve", "--keep", "biggest"]), 2);
+    assert_eq!(run(&["dupes", "resolve"]), 0, "an empty index says so");
+    drop(harness);
+}
+
 #[test]
 fn art_check_reports_what_needs_a_cover() {
     let _guard = exclusive();
