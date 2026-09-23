@@ -68,7 +68,7 @@ impl LibrarySnapshot {
 ///
 /// `lossless` is decided by the container, the same rule `stk verify` uses to
 /// choose what to analyse, so the two figures describe one set of files.
-/// `flagged` is everything `verify` doubted -- FAKE and SUSPECT together --
+/// `flagged` is everything `verify` doubted -- FAKE, SUSPECT and UPSAMPLED --
 /// because a library owner chasing them down treats them the same way.
 /// `with_replay_gain` counts files carrying a track gain, whoever scanned them:
 /// the point of the figure is to notice a fetch that left new files behind, not
@@ -94,7 +94,7 @@ pub fn measure(
             .count(),
         lossless: entries.iter().filter(|entry| entry.is_lossless()).count(),
         verified_clean: count(Verdict::Ok),
-        flagged: count(Verdict::Fake) + count(Verdict::Suspect),
+        flagged: count(Verdict::Fake) + count(Verdict::Suspect) + count(Verdict::Upsampled),
         with_replay_gain: Some(
             entries
                 .iter()

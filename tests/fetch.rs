@@ -7,7 +7,7 @@
 
 mod support;
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 use stk::config::Settings;
@@ -21,7 +21,7 @@ use stk::retag::TagPolicy;
 use stk::review::albums;
 use stk::review::store::ReviewStore;
 use stk::soulseek::base::{SoulseekClient, Transfer, TransferState};
-use support::{encode, noise_source, transcode_to_flac, Encoded, Scratch};
+use support::{committed, encode, noise_source, transcode_to_flac, Encoded, Scratch};
 
 #[derive(Default)]
 struct FakeClient {
@@ -651,29 +651,103 @@ fn verification_can_be_skipped() {
     assert!(outcome.verdict.is_none());
 }
 
-#[test]
-fn a_lossy_download_is_not_put_through_the_lossless_check() {
-    let scratch = Scratch::new("fetch-lossy");
-    let settings = settings(&scratch);
-    let mut store = store(&scratch);
+/// A lossy file queued under `filename`, then reported downloaded with
+/// `arrived` copied to where slskd would have put it.
+fn lossy_download(
+    scratch: &Scratch,
+    settings: &Settings,
+    store: &mut ReviewStore,
+    filename: &str,
+    arrived: &Path,
+) -> fetch::CollectOutcome {
+    let remote = format!("@@peerA\\Music\\{filename}");
     store.add(&[roki()]).expect("an added track");
-    let client = FakeClient::with_candidates(vec![candidate("@@peerA\\Music\\Roki.mp3")]);
-    fetch::search_pending(&mut store, &client, &settings, None).expect("a search");
+    let client = FakeClient::with_candidates(vec![candidate(&remote)]);
+    fetch::search_pending(store, &client, settings, None).expect("a search");
     let track_id = store.tracks(&[], None).expect("tracks")[0].id;
     store.approve(track_id, 1).expect("an approval");
-    fetch::enqueue_approved(&mut store, &FakeClient::default(), None, 1000.0).expect("an enqueue");
+    fetch::enqueue_approved(store, &FakeClient::default(), None, 1000.0).expect("an enqueue");
 
-    encode(
-        &scratch.join("downloads").join("DECO_27").join("Roki.mp3"),
-        &Encoded::default(),
+    let destination = scratch.join("downloads").join("DECO_27").join(filename);
+    std::fs::create_dir_all(destination.parent().expect("a parent")).expect("a directory");
+    std::fs::copy(arrived, &destination).expect("a copied file");
+
+    let finished =
+        FakeClient::with_transfers(vec![transfer(&remote, TransferState::Completed, "")]);
+    collect(store, &finished, settings, true)
+        .expect("a collect")
+        .remove(0)
+}
+
+#[test]
+fn a_downloaded_mp3_is_held_to_its_bitrate() {
+    let scratch = Scratch::new("fetch-mp3-genuine");
+    let settings = settings(&scratch);
+    let mut store = store(&scratch);
+
+    let outcome = lossy_download(
+        &scratch,
+        &settings,
+        &mut store,
+        "Roki.mp3",
+        &committed("noise-320k.mp3"),
     );
 
-    let finished = FakeClient::with_transfers(vec![transfer(
-        "@@peerA\\Music\\Roki.mp3",
-        TransferState::Completed,
-        "",
-    )]);
-    let outcome = &collect(&mut store, &finished, &settings, true).expect("a collect")[0];
+    assert_eq!(
+        outcome.verdict.as_ref().expect("a verdict").verdict,
+        Verdict::Ok
+    );
+    let entry = store
+        .track(outcome.track_id)
+        .expect("a lookup")
+        .expect("the track");
+    assert_eq!(entry.detail, "downloaded, verified");
+}
+
+/// #16: a peer shipping upsampled MP3s is caught on the first one.
+#[test]
+fn a_downloaded_upsampled_mp3_is_caught_and_counts_as_going_wrong() {
+    let scratch = Scratch::new("fetch-mp3-upsampled");
+    let settings = settings(&scratch);
+    let mut store = store(&scratch);
+
+    let outcome = lossy_download(
+        &scratch,
+        &settings,
+        &mut store,
+        "Roki.mp3",
+        &committed("noise-128k-as-320k.mp3"),
+    );
+
+    assert_eq!(
+        outcome.verdict.as_ref().expect("a verdict").verdict,
+        Verdict::Upsampled
+    );
+    let entry = store
+        .track(outcome.track_id)
+        .expect("a lookup")
+        .expect("the track");
+    assert!(entry.detail.contains("UPSAMPLED"), "{}", entry.detail);
+    let waited = fetch::Waited {
+        collected: vec![outcome],
+        ..fetch::Waited::default()
+    };
+    assert!(waited.went_wrong());
+}
+
+#[test]
+fn a_lossy_download_verify_has_no_bitrate_table_for_is_left_unjudged() {
+    let scratch = Scratch::new("fetch-ogg");
+    let settings = settings(&scratch);
+    let mut store = store(&scratch);
+
+    let outcome = lossy_download(
+        &scratch,
+        &settings,
+        &mut store,
+        "Roki.ogg",
+        &committed("tone.ogg"),
+    );
 
     assert!(outcome.verdict.is_none());
 }

@@ -1,4 +1,4 @@
-//! `stk verify` -- check that lossless files really hold lossless audio.
+//! `stk verify` -- check that files really hold the audio their container claims.
 
 use std::path::{Path, PathBuf};
 
@@ -9,7 +9,9 @@ use crate::audio::{spectrogram, verify::verify_files};
 use crate::cli::context::{show, table, unix_now, AppContext};
 use crate::errors::{Error, Result};
 use crate::library::index::LibraryIndex;
-use crate::library::scan::{iter_audio_files, Excludes, LOSSLESS_EXTENSIONS};
+use crate::library::scan::{
+    iter_audio_files, Excludes, LOSSLESS_EXTENSIONS, LOSSY_VERIFIED_EXTENSIONS,
+};
 use crate::models::{Verdict, VerifyResult};
 
 pub const REPORT_FIELDS: &[&str] = &[
@@ -24,6 +26,8 @@ pub const REPORT_FIELDS: &[&str] = &[
     "steepness_db_per_khz",
 ];
 
+// Independent switches, each typed on its own, as `get.rs` explains.
+#[allow(clippy::struct_excessive_bools)]
 #[derive(Args, Debug)]
 pub struct VerifyArgs {
     /// File or folder to check. Defaults to the whole library.
@@ -37,25 +41,37 @@ pub struct VerifyArgs {
     #[arg(long)]
     pub spectrograms: bool,
 
-    /// Print only SUSPECT and FAKE results.
+    /// Print only SUSPECT, FAKE and UPSAMPLED results.
     #[arg(long)]
     pub only_flagged: bool,
 
     /// Analyse only files the index has no current verdict for.
     #[arg(long)]
     pub changed: bool,
+
+    /// Include MP3s in a sweep of the library, checked against their bitrate.
+    #[arg(long)]
+    pub lossy: bool,
 }
 
-/// Analyse the frequency spectrum of every lossless file and report the verdicts.
+/// Analyse the frequency spectrum of every file in scope and report the verdicts.
 ///
 /// `--changed` is opt-in rather than the default because the report carries
 /// `detail`, the cutoff and the steepness, none of which the two stored columns
 /// can reproduce: skipping by default would quietly turn "the library" into
 /// "whatever moved since last time".
+///
+/// So is `--lossy` for the library: a sweep has always meant the lossless
+/// files, and `library stats` counts its verdicts against them. A file or
+/// folder named on the command line is checked whatever it holds.
+///
+/// Only FAKE fails the run. UPSAMPLED audio is intact -- the file is merely
+/// bigger than it needs to be -- and a library holding one has nothing to
+/// fix in a hurry.
 pub fn run(context: &AppContext, args: &VerifyArgs) -> Result<i32> {
-    let all = targets(context, args.target.as_deref())?;
+    let all = targets(context, args.target.as_deref(), args.lossy)?;
     if all.is_empty() {
-        context.say("No lossless files to check.");
+        context.say("No files to check.");
         return Ok(0);
     }
 
@@ -121,26 +137,31 @@ pub fn run(context: &AppContext, args: &VerifyArgs) -> Result<i32> {
 fn already_judged(index: &LibraryIndex, path: &Path) -> Result<bool> {
     Ok(matches!(
         index.current_verdict(path)?,
-        Some(Verdict::Ok | Verdict::Suspect | Verdict::Fake)
+        Some(Verdict::Ok | Verdict::Suspect | Verdict::Fake | Verdict::Upsampled)
     ))
 }
 
-fn targets(context: &AppContext, target: Option<&Path>) -> Result<Vec<PathBuf>> {
+fn targets(context: &AppContext, target: Option<&Path>, lossy: bool) -> Result<Vec<PathBuf>> {
+    let checked = |also_lossy: bool| -> Vec<&str> {
+        let mut extensions = LOSSLESS_EXTENSIONS.to_vec();
+        if also_lossy {
+            extensions.extend(LOSSY_VERIFIED_EXTENSIONS);
+        }
+        extensions
+    };
     match target {
         None => {
             let exclude = context.excludes()?;
             Ok(context
                 .require_library_roots()?
                 .iter()
-                .flat_map(|root| iter_audio_files(root, LOSSLESS_EXTENSIONS, &exclude))
+                .flat_map(|root| iter_audio_files(root, &checked(lossy), &exclude))
                 .collect())
         }
         Some(path) if path.is_file() => Ok(vec![path.to_path_buf()]),
-        Some(path) if path.is_dir() => Ok(iter_audio_files(
-            path,
-            LOSSLESS_EXTENSIONS,
-            &Excludes::default(),
-        )),
+        Some(path) if path.is_dir() => {
+            Ok(iter_audio_files(path, &checked(true), &Excludes::default()))
+        }
         Some(path) => Err(Error::Config(format!(
             "no such file or folder: {}",
             show(path)
@@ -148,9 +169,16 @@ fn targets(context: &AppContext, target: Option<&Path>) -> Result<Vec<PathBuf>> 
     }
 }
 
+fn is_flagged(verdict: Verdict) -> bool {
+    matches!(
+        verdict,
+        Verdict::Fake | Verdict::Suspect | Verdict::Upsampled
+    )
+}
+
 fn render_spectrograms(context: &AppContext, results: &[VerifyResult]) {
     for result in results {
-        if !matches!(result.verdict, Verdict::Fake | Verdict::Suspect) {
+        if !is_flagged(result.verdict) {
             continue;
         }
         let destination = result.path.with_extension("spectrogram.png");
@@ -233,9 +261,7 @@ fn as_row(result: &VerifyResult) -> serde_json::Value {
 fn print_table(context: &AppContext, results: &[VerifyResult], only_flagged: bool) {
     let shown: Vec<&VerifyResult> = results
         .iter()
-        .filter(|result| {
-            !only_flagged || matches!(result.verdict, Verdict::Fake | Verdict::Suspect)
-        })
+        .filter(|result| !only_flagged || is_flagged(result.verdict))
         .collect();
 
     if !shown.is_empty() {

@@ -142,12 +142,13 @@ fn a_file_with_no_extension_is_not_lossless() {
 
 #[test]
 fn everything_verify_doubted_is_counted_as_flagged() {
-    // FAKE and SUSPECT go in one column because anyone chasing them down treats
-    // them the same way.
+    // FAKE, SUSPECT and UPSAMPLED go in one column because anyone chasing
+    // them down treats them the same way.
     let verdicts: BTreeMap<Verdict, usize> = [
         (Verdict::Ok, 10),
         (Verdict::Fake, 2),
         (Verdict::Suspect, 3),
+        (Verdict::Upsampled, 4),
         (Verdict::Error, 1),
     ]
     .into_iter()
@@ -156,7 +157,7 @@ fn everything_verify_doubted_is_counted_as_flagged() {
     let measured = measure(&[], &verdicts, 0.0);
 
     assert_eq!(measured.verified_clean, 10);
-    assert_eq!(measured.flagged, 5);
+    assert_eq!(measured.flagged, 9);
 }
 
 #[test]

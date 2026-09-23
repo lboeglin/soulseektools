@@ -18,7 +18,7 @@ use crate::audio::verify::verify_file;
 use crate::config::Settings;
 use crate::library::changes::ChangeLog;
 use crate::library::index::LibraryIndex;
-use crate::library::scan::LOSSLESS_EXTENSIONS;
+use crate::library::scan::{LOSSLESS_EXTENSIONS, LOSSY_VERIFIED_EXTENSIONS};
 use crate::models::{ScoredCandidate, TrackStatus, Verdict, VerifyResult};
 use crate::retag::{self, Retagged};
 use crate::review::store::{ReviewStore, ReviewTrack};
@@ -463,17 +463,20 @@ pub struct Waited {
 impl Waited {
     /// Whether anything needs owning up to: a track that could not be queued,
     /// one that failed with no candidate left to try, or a download `verify`
-    /// calls fake. A failure the retry picked up is not one, and neither is a
-    /// timeout -- what is still on its way has not failed.
+    /// calls fake or upsampled. A failure the retry picked up is not one, and
+    /// neither is a timeout -- what is still on its way has not failed.
+    ///
+    /// An upsample counts here where a library sweep lets it pass: the peer
+    /// lied about what they were sending, and that is worth knowing before
+    /// taking anything else from them.
     #[must_use]
     pub fn went_wrong(&self) -> bool {
         self.queued.iter().any(|outcome| !outcome.queued)
             || self.collected.iter().any(|outcome| {
                 (!outcome.error.is_empty() && outcome.retried_with_rank.is_none())
-                    || outcome
-                        .verdict
-                        .as_ref()
-                        .is_some_and(|verdict| verdict.verdict == Verdict::Fake)
+                    || outcome.verdict.as_ref().is_some_and(|verdict| {
+                        matches!(verdict.verdict, Verdict::Fake | Verdict::Upsampled)
+                    })
             })
     }
 }
@@ -570,25 +573,40 @@ pub fn downloaded_path(settings: &Settings, artist: &str, transfer: &Transfer) -
     )
 }
 
+/// Check whatever arrived that `verify` can judge, so a peer shipping
+/// upsampled MP3s is caught on the first one (#16).
 fn verify_downloaded(local_path: Option<&Path>, settings: &Settings) -> Option<VerifyResult> {
     let path = local_path?;
     if !path.is_file() {
         return None;
     }
-    let suffix = path
-        .extension()
-        .and_then(|extension| extension.to_str())
-        .map(|extension| format!(".{}", extension.to_lowercase()))?;
-    if !LOSSLESS_EXTENSIONS.contains(&suffix.as_str()) {
+    let suffix = suffix(path)?;
+    if !LOSSLESS_EXTENSIONS.contains(&suffix.as_str())
+        && !LOSSY_VERIFIED_EXTENSIONS.contains(&suffix.as_str())
+    {
         return None;
     }
     Some(verify_file(path, &settings.verify))
 }
 
+fn suffix(path: &Path) -> Option<String> {
+    path.extension()
+        .and_then(|extension| extension.to_str())
+        .map(|extension| format!(".{}", extension.to_lowercase()))
+}
+
 fn describe(verdict: Option<&VerifyResult>) -> String {
     match verdict {
         None => "downloaded".to_owned(),
-        Some(result) if result.verdict == Verdict::Ok => "downloaded, verified lossless".to_owned(),
+        Some(result) if result.verdict == Verdict::Ok => {
+            let lossless = suffix(&result.path)
+                .is_some_and(|suffix| LOSSLESS_EXTENSIONS.contains(&suffix.as_str()));
+            if lossless {
+                "downloaded, verified lossless".to_owned()
+            } else {
+                "downloaded, verified".to_owned()
+            }
+        }
         Some(result) => format!("downloaded, {}: {}", result.verdict, result.detail),
     }
 }

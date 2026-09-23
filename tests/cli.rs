@@ -14,7 +14,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
 use serde_json::Value;
-use support::{encode, noise_source, Encoded, Scratch};
+use support::{committed, encode, noise_source, Encoded, Scratch};
 
 fn exclusive() -> MutexGuard<'static, ()> {
     static LOCK: Mutex<()> = Mutex::new(());
@@ -803,6 +803,86 @@ fn verify_changed_comes_back_to_a_file_that_moved() {
 
     let written = std::fs::read_to_string(&report).expect("a report");
     assert!(written.contains("Noise.flac"), "{written}");
+    drop(harness);
+}
+
+/// A verifiable library holding an upsampled MP3 beside its FLAC.
+fn library_with_an_upsampled_mp3(harness: &Harness) -> PathBuf {
+    let root = verifiable_library(harness);
+    let mp3 = root.join("ZUN").join("Upsampled.mp3");
+    std::fs::copy(committed("noise-128k-as-320k.mp3"), &mp3).expect("a copied fixture");
+    root
+}
+
+fn reported(harness: &Harness, arguments: &[&str]) -> (i32, String) {
+    let report = harness.join("verify.csv");
+    let _ = std::fs::remove_file(&report);
+    let mut full = arguments.to_vec();
+    let destination = report.display().to_string();
+    full.extend(["--report", &destination]);
+    let code = run(&full);
+    (code, std::fs::read_to_string(&report).unwrap_or_default())
+}
+
+/// #16: only FAKE fails a library sweep; an upsample is reported and recorded.
+#[test]
+fn verify_reports_an_upsampled_mp3_in_a_folder_without_failing() {
+    let _guard = exclusive();
+    let harness = Harness::new("cli-verify-upsampled");
+    let root = library_with_an_upsampled_mp3(&harness);
+    harness.with_config(&root);
+
+    let (code, report) = reported(&harness, &["verify", &root.display().to_string()]);
+
+    assert_eq!(code, 0);
+    assert!(report.contains("Upsampled.mp3,UPSAMPLED,"), "{report}");
+    assert!(report.contains("Noise.flac,OK,"), "{report}");
+    drop(harness);
+}
+
+#[test]
+fn a_library_sweep_checks_mp3s_only_when_asked() {
+    let _guard = exclusive();
+    let harness = Harness::new("cli-verify-lossy");
+    let root = library_with_an_upsampled_mp3(&harness);
+    harness.with_config(&root);
+    run(&["library", "scan"]);
+
+    let (_, lossless) = reported(&harness, &["verify"]);
+    assert!(!lossless.contains("Upsampled.mp3"), "{lossless}");
+    assert!(lossless.contains("Noise.flac"), "{lossless}");
+
+    let (code, everything) = reported(&harness, &["verify", "--lossy"]);
+    assert_eq!(code, 0);
+    assert!(
+        everything.contains("Upsampled.mp3,UPSAMPLED,"),
+        "{everything}"
+    );
+
+    let index = stk::library::index::LibraryIndex::open(&harness.join("library.db"))
+        .expect("the index the scan wrote");
+    assert_eq!(
+        index
+            .verdict(&root.join("ZUN").join("Upsampled.mp3"))
+            .expect("a lookup"),
+        Some(stk::models::Verdict::Upsampled)
+    );
+    drop(harness);
+}
+
+#[test]
+fn verify_changed_skips_a_file_already_judged_upsampled() {
+    let _guard = exclusive();
+    let harness = Harness::new("cli-verify-changed-upsampled");
+    let root = library_with_an_upsampled_mp3(&harness);
+    harness.with_config(&root);
+    run(&["library", "scan"]);
+    run(&["verify", "--lossy"]);
+
+    let (code, report) = reported(&harness, &["verify", "--lossy", "--changed"]);
+
+    assert_eq!(code, 0);
+    assert!(report.is_empty(), "{report}");
     drop(harness);
 }
 

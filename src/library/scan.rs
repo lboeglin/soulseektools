@@ -25,6 +25,10 @@ pub const AUDIO_EXTENSIONS: &[&str] = &[
 /// Containers that can hold lossless audio, and so are worth verifying.
 pub const LOSSLESS_EXTENSIONS: &[&str] = &[".flac", ".wav", ".aiff", ".aif", ".alac", ".m4a"];
 
+/// The lossy containers `stk verify` can hold to their bitrate (#16): the
+/// cutoffs it knows are LAME's.
+pub const LOSSY_VERIFIED_EXTENSIONS: &[&str] = &[".mp3"];
+
 /// Containers a loudness scan can both decode and write its result to.
 ///
 /// [`TAGGABLE_EXTENSIONS`] less Opus, which is the one container this crate can

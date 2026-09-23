@@ -51,7 +51,7 @@ pub enum Command {
     /// Report whether the environment can run every command.
     Doctor,
 
-    /// Analyse the frequency spectrum of every lossless file and report the verdicts.
+    /// Check that files hold the audio their container claims: lossless, hi-res, or an MP3's bitrate.
     Verify(commands::verify::VerifyArgs),
 
     /// Search for tracks by name -- one, several, or a list -- and fetch them.
