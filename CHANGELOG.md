@@ -11,6 +11,31 @@ a set of ad-hoc scripts and a Nicotine+ plugin, and was then rewritten in Rust.
 
 ### Added
 
+- `stk verify` catches upsampled files, not only transcodes (#16). A 128 kbps
+  MP3 re-encoded at 320 and a 44.1 kHz/16-bit master padded out to 96 kHz/24-bit
+  both got through: the first was never looked at, since only lossless
+  containers were, and the second's cutoff at 22.05 kHz matched no encoder, so
+  it came out `SUSPECT` or `OK`.
+
+  Neither is a transcode -- the audio is intact, the file is merely bigger than
+  it needs to be -- so both get a new verdict, `UPSAMPLED`. An MP3 is judged
+  against its header bitrate: a brickwall a band or more below where that
+  bitrate would put it is an upsample, with a VBR average discounted to three
+  quarters first. A file above 48 kHz whose content ends in a steep edge at a
+  lower standard rate's Nyquist is an upsample from that rate. The edge is
+  sought at the ordinary noise floor, where a sharp resampler walls content
+  off, and at -85 dB, where ffmpeg's softer default drops it to silence a
+  few kHz past. A 24-bit file whose samples use 16 bits is an upsample on that
+  alone, read off the decoded samples at no extra cost.
+
+  `--lossy` adds MP3s to a library sweep, which otherwise still means the
+  lossless files; a named file or folder is checked whatever it holds. `stk
+  fetch` checks every MP3 that arrives, and counts `UPSAMPLED` as a failure
+  there. A verify run still fails only on `FAKE`. `library stats` counts
+  `UPSAMPLED` as flagged. In the reference library, two files turned out to be
+  16-bit audio in 24-bit containers, which ffmpeg confirms, and three 96 kHz
+  files turned out to end at 21-23.5 kHz over digital silence.
+
 - `stk dupes resolve`, which keeps one copy of each duplicated track and moves
   the rest into a quarantine beside the index (#15). `dupes titles` and `dupes
   content` were the only maintenance commands that stopped at a report, handing

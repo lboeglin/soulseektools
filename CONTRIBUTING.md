@@ -64,8 +64,11 @@ No change lands without tests for its behaviour.
   `tests/data/audio` instead: there is no pure-Rust encoder for MP3, AAC,
   Vorbis or Opus, and the transcode check needs audio a real lossy encoder
   produced, since the brickwall it recognises is LAME's and an authentic one
-  cannot be synthesised. `scripts/make-fixtures.sh` regenerates those files
-  with ffmpeg; no test runs it.
+  cannot be synthesised. The upsampled MP3s are committed for the same reason:
+  they are LAME's 128 kbps wall under a 320 kbps header. The hi-res fakes are
+  not -- `hi_res_flac` writes 24-bit, padded or brickwalled FLAC at any rate.
+  `scripts/make-fixtures.sh` regenerates the committed files with ffmpeg; no
+  test runs it.
 - **`scripts/word_chars.py` is a fixture generator, not a build step.** It dumps
   the characters Python's `\w` and `\s` match, and `character_classes.rs` checks
   the crate's own predicates against that dump: Rust's `\w` would otherwise take

@@ -406,7 +406,7 @@ turned out to be a transcode.
 ## Keeping the library clean
 
 ```bash
-stk verify                 # find FLACs that are really transcoded MP3s
+stk verify                 # find FLACs that are really transcoded MP3s, and fake hi-res
 stk dupes titles           # the same song under two spellings of an artist
 stk dupes content          # the same audio under unrelated names
 stk dupes resolve --apply  # keep one copy of each, quarantine the rest
@@ -441,9 +441,9 @@ Measured    Files      Tagged     Artwork     Genre      Lossless  Verified    F
 A scan that found exactly what the last one found records nothing, so scanning
 four times on a quiet afternoon leaves one point rather than four. `Verified`
 and `Flagged` both come from `stk verify` -- what it cleared, and what it
-doubted, `FAKE` and `SUSPECT` together -- and stay empty until you have run it. A
-column a measurement predates reads `-` rather than zero: that scan did not
-count it, which is not the same as having counted none.
+doubted, `FAKE`, `SUSPECT` and `UPSAMPLED` together -- and stay empty until you
+have run it. A column a measurement predates reads `-` rather than zero: that
+scan did not count it, which is not the same as having counted none.
 
 ### Organising files
 
@@ -666,7 +666,7 @@ week's fetch dropped forty un-scanned files into the library.
 Every write is logged, so `stk changes undo --last --apply` takes a whole run
 back, and a file that had no gain before has none again.
 
-### Finding fake lossless files
+### Finding fake lossless and upsampled files
 
 `stk verify` looks at where a file's audio actually stops in the frequency
 spectrum, and at *how abruptly*. A lossy encoder leaves a brickwall — tens of dB
@@ -680,10 +680,50 @@ masters roll off early and would be flagged wholesale.
 ```bash
 stk verify --report verify.csv --spectrograms --only-flagged
 stk verify --changed                    # only files with no current verdict
+stk verify --lossy                      # MP3s too, checked against their bitrate
 ```
 
 Verdicts are `OK`, `SUSPECT` (sharp cutoff at no standard bitrate — look at it
-yourself), `FAKE` and `ERROR`. The command exits non-zero if any file is `FAKE`.
+yourself), `FAKE`, `UPSAMPLED` and `ERROR`.
+
+`FAKE` is a transcode: a lossy file re-encoded as lossless, audio thrown away and
+a lossless container claiming otherwise. `UPSAMPLED` is a file stretched into a
+bigger container than its audio needs. Nothing was lost -- the audio is intact --
+but the file is several times larger than it has to be, and the peer's claim
+about it was false. Three things earn it:
+
+- **An MP3 whose cutoff is below its bitrate.** A 128 kbps file re-encoded at 320
+  keeps the 16 kHz wall of the 128 under a 320 kbps header. The wall has to sit a
+  band or more below where the header's bitrate would put it. A VBR header is an
+  average, so it is held to three quarters of its figure before it is compared.
+- **A hi-res file cut off at a lower rate's limit.** A 44.1 kHz master resampled
+  to 96 kHz has nothing past 22.05 kHz, the most 44.1 kHz audio can hold; 48 kHz
+  has nothing past 24 kHz. A sharp resampler walls the content off just below
+  that limit. ffmpeg's default one lets it fade a little past it and then drops
+  it to silence, so the check looks for the edge at a much deeper level too. As
+  with a transcode, only a steep edge counts: a genuine 96 kHz recording of
+  material with nothing above 22 kHz rolls off into its converter's noise, which
+  carries on to 48 kHz. When an edge could come from either rate -- 23 kHz is as
+  far past 22.05 as a soft resampler reaches and as far short of 24 as a sharp
+  one stops -- the verdict names both.
+
+  Only a hi-res claim, above 48 kHz, is judged this way. A 48 kHz file shows too
+  little spectrum past 22.05 kHz to tell a resampler from the steep 20 kHz
+  low-pass many masters end on, so a 44.1 kHz master delivered at 48 kHz passes.
+  48 kHz is a rate records are made at, and resampling to it costs a tenth of the
+  space, not four times.
+- **A 24-bit file using 16 bits.** A 16-bit master padded to 24 leaves the low 8
+  bits of every sample zero, and the samples say so directly.
+
+A hi-res file whose wall sits at a lossy encoder's cutoff is still `FAKE`: the
+source was lossy, which is the graver finding.
+
+A library sweep covers the lossless files unless `--lossy` adds the MP3s; a file
+or folder named on the command line is checked whatever it holds. The command
+exits non-zero if any file is `FAKE`, and not for `UPSAMPLED`, whose audio is
+fine where it is. The check `stk fetch` runs on each download covers MP3s as well
+as lossless files, and there `UPSAMPLED` counts as a failure like `FAKE`: a
+peer who lied about one file is worth knowing about before taking the next.
 
 Every run records its verdicts in the index, and `--changed` then skips the
 files that still carry one. This is the slowest command here, and on a second
