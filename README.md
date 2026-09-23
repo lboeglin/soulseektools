@@ -128,6 +128,7 @@ The settings worth knowing about:
 | `organise.pattern` | Where a file belongs, from its tags. Default `{artist}/{album}/{track} - {title}`. |
 | `organise.track_number_width` | How many digits a track number is padded to. Default 2. |
 | `organise.destination` | Consolidate everything here. Unset means each file stays under its own root. |
+| `dupes.resolve_min_score` | How sure a duplicate pair must be for `dupes resolve` to act on it. Default 0.95. |
 
 ## Getting tracks by name
 
@@ -408,6 +409,7 @@ turned out to be a transcode.
 stk verify                 # find FLACs that are really transcoded MP3s
 stk dupes titles           # the same song under two spellings of an artist
 stk dupes content          # the same audio under unrelated names
+stk dupes resolve --apply  # keep one copy of each, quarantine the rest
 stk art check              # files with no cover, or a broken one
 stk art fetch --apply      # look art up and embed the verified matches
 stk genre check            # genres in use, and artists your map does not cover
@@ -702,8 +704,34 @@ Two passes, because they fail in different directions:
   a prefilter; the fingerprint decides. Grouping by duration and file size alone
   produces coincidental matches between unrelated tracks of similar length.
 
-Neither deletes anything. They report pairs, largest copy first, for you to
+Neither changes anything. They report pairs, largest copy first, for you to
 judge.
+
+`stk dupes resolve` acts on them. It runs both passes, merges the pairs into
+groups -- three copies of a track come back as three pairs -- and keeps one copy
+per group:
+
+```bash
+stk dupes resolve                  # see the plan: the keeper, and why each other copy goes
+stk dupes resolve --apply          # move the others into quarantine
+stk dupes resolve --keep tagged    # keep the best-tagged copy instead
+```
+
+`--keep` is `lossless` by default: a lossless container, then the largest. The
+FLAC and its own MP3 that `dupes content` finds are exactly the pair where the
+lossy copy can be the larger one, so `largest` is there but not the default.
+`tagged` keeps the copy with the most of artist, album, title and cover filled
+in, and `oldest` the one whose modification time is earliest.
+
+A pair is a judgement, not a fact, so a group is resolved only if every pair in
+it scores at least `dupes.resolve_min_score` (0.95 by default). A weaker group is
+listed and left alone.
+
+Nothing is deleted. The copies not kept are moved to
+`<index dir>/quarantine/<run>/`, keeping their path below the library root, the
+index forgets them, and folders the move emptied are removed if they are
+genuinely empty. Every move is logged, so `stk changes undo --last --apply` puts
+them all back. Empty the quarantine by hand once you are sure.
 
 ### Cover art
 

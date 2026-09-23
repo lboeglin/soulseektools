@@ -11,6 +11,21 @@ a set of ad-hoc scripts and a Nicotine+ plugin, and was then rewritten in Rust.
 
 ### Added
 
+- `stk dupes resolve`, which keeps one copy of each duplicated track and moves
+  the rest into a quarantine beside the index (#15). `dupes titles` and `dupes
+  content` were the only maintenance commands that stopped at a report, handing
+  over a list to take to the file manager.
+
+  Both passes run and their pairs are merged into groups, since three copies of
+  a track come back as three pairs. `--keep` picks the copy that stays --
+  `lossless` by default, then `largest`, `tagged` or `oldest` -- and the plan
+  names each other copy with the reason it lost. A group with any pair below
+  `dupes.resolve_min_score` (0.95) is shown and left alone. `--apply` moves the
+  losers to `<index dir>/quarantine/<run>/`, keeping their path below the root;
+  nothing is deleted. Each move is logged, so `changes undo --last --apply` puts
+  them back, the index forgets them so `stats` stops counting them, and folders
+  the move emptied are removed only if genuinely empty.
+
 - `stk sync`, which runs the recurring loop -- scan, diff, search, pick,
   download, organise, scan again -- as one command under one `--apply` (#14).
   Every step already existed on its own, but keeping a library in step with a
