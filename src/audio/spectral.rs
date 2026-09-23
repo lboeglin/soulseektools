@@ -1,4 +1,10 @@
-//! Detecting lossless files that were really transcoded from a lossy source.
+//! Detecting files whose audio is less than their container claims.
+//!
+//! Two claims are checked. A lossless file claims its source was lossless: an
+//! MP3 re-encoded as FLAC is a transcode, [`Verdict::Fake`]. An MP3 claims its
+//! header bitrate: a 128 kbps file re-encoded at 320 is an upsample,
+//! [`Verdict::Upsampled`]. Either lie leaves the first encoder's low-pass
+//! behind, and that edge is what this module finds.
 //!
 //! A genuine CD-sourced lossless file carries content out to near the Nyquist
 //! frequency. An MP3 or AAC re-encoded as FLAC keeps the lossy encoder's low-pass
@@ -52,18 +58,27 @@ const SILENCE_MAGNITUDE: f64 = 1e-9;
 /// more than the spectrum supports.
 pub const MIN_ANALYSABLE_CUTOFF_HZ: u32 = 8000;
 
-/// Frequency bands where common encoders place their low-pass, and what they imply.
+/// Frequency bands where common encoders place their low-pass, what they imply,
+/// and the lowest bitrate each band's encodes are made at.
 ///
 /// Measured from LAME stereo transcodes, which land at roughly 16.6, 18.8 and
 /// 20.1 kHz. The bands are wider than those nominal values and deliberately
 /// contiguous: encoders differ, and band averaging quantises the measured cutoff.
 /// A gap between them would only downgrade a real transcode to SUSPECT for being
 /// 150 Hz off.
-pub const KNOWN_LOSSY_CUTOFFS: &[(u32, u32, &str)] = &[
-    (15000, 16800, "~128kbps source"),
-    (16800, 19000, "~160-192kbps source"),
-    (19000, 20600, "~256-320kbps source"),
+pub const KNOWN_LOSSY_CUTOFFS: &[(u32, u32, &str, u32)] = &[
+    (15000, 16800, "~128kbps source", 128),
+    (16800, 19000, "~160-192kbps source", 160),
+    (19000, 20600, "~256-320kbps source", 256),
 ];
+
+/// How much of a VBR file's average bitrate counts as its claim.
+///
+/// A CBR header is a setting; a VBR one is an average of what the content
+/// needed, which runs above the quality's nominal rate on dense material and
+/// below it on sparse. Discounting it keeps a V0 encode that averaged 260 kbps
+/// from being held to a 320 kbps low-pass it never promised.
+pub const VBR_BITRATE_CREDIT: f64 = 0.75;
 
 /// An averaged spectrum, in fixed-width frequency bands relative to the peak.
 #[derive(Debug, Clone, PartialEq)]
@@ -91,6 +106,13 @@ pub struct SpectralAnalysis {
     pub steepness_db_per_khz: f64,
     pub verdict: Verdict,
     pub detail: String,
+}
+
+/// What a file's container says its audio is, which the spectrum is judged against.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Claim {
+    Lossless,
+    Lossy { bitrate_kbps: u32, is_vbr: bool },
 }
 
 /// Tuning for [`analyse`], mirroring the `verify` config section.
@@ -280,8 +302,28 @@ pub fn cliff_steepness(bands: &Bands, cutoff_hz: f64, window_hz: usize) -> f64 {
 pub fn matched_bitrate(cutoff_hz: f64) -> Option<&'static str> {
     KNOWN_LOSSY_CUTOFFS
         .iter()
-        .find(|(low, high, _)| f64::from(*low) <= cutoff_hz && cutoff_hz <= f64::from(*high))
-        .map(|(_, _, label)| *label)
+        .find(|(low, high, ..)| f64::from(*low) <= cutoff_hz && cutoff_hz <= f64::from(*high))
+        .map(|(_, _, label, _)| *label)
+}
+
+/// How many of the known encoder bands a cutoff clears: 0 inside or below the
+/// lowest, one more than the last band's index above it.
+#[must_use]
+pub fn cutoff_tier(cutoff_hz: f64) -> usize {
+    KNOWN_LOSSY_CUTOFFS
+        .iter()
+        .filter(|(_, high, ..)| cutoff_hz > f64::from(*high))
+        .count()
+}
+
+/// The band a header bitrate promises a cutoff in, or `None` below the lowest.
+#[must_use]
+pub fn bitrate_tier(bitrate_kbps: f64) -> Option<usize> {
+    KNOWN_LOSSY_CUTOFFS
+        .iter()
+        .filter(|(.., nominal)| f64::from(*nominal) <= bitrate_kbps)
+        .count()
+        .checked_sub(1)
 }
 
 /// Judge a cutoff and its sharpness.
@@ -348,21 +390,109 @@ pub fn classify(
     )
 }
 
-/// Run the whole check over decoded samples.
+/// Judge a lossy file's cutoff against the bitrate its header claims.
+///
+/// Only a brickwall is evidence: a gradual roll-off is the master's, and an
+/// encoder at any bitrate passes it through. A wall is an upsample when it
+/// sits in a lower band than the header's bitrate would put it -- a tier or
+/// more, with a VBR average discounted by [`VBR_BITRATE_CREDIT`] first. A
+/// header below the lowest band promises nothing to fall short of.
 #[must_use]
-pub fn analyse(chunks: &[Vec<f32>], sample_rate: u32, tuning: &Tuning) -> Option<SpectralAnalysis> {
+pub fn classify_lossy(
+    cutoff_hz: f64,
+    steepness_db_per_khz: f64,
+    sample_rate: u32,
+    bitrate_kbps: u32,
+    is_vbr: bool,
+    steep_db_per_khz: f64,
+    near_nyquist_margin_hz: u32,
+) -> (Verdict, String) {
+    let nyquist = f64::from(sample_rate) / 2.0;
+    let vbr = if is_vbr { " VBR" } else { "" };
+    let claimed = format!("{bitrate_kbps}kbps{vbr}");
+
+    if cutoff_hz >= nyquist - f64::from(near_nyquist_margin_hz) {
+        return (
+            Verdict::Ok,
+            "content extends to near the Nyquist limit -- nothing was cut away".to_owned(),
+        );
+    }
+    if cutoff_hz < f64::from(MIN_ANALYSABLE_CUTOFF_HZ) {
+        return (
+            Verdict::Error,
+            format!(
+                "content stops at {cutoff_hz:.0}Hz, below any encoder cutoff \
+                 -- too band-limited to judge"
+            ),
+        );
+    }
+
+    let measured = format!("{cutoff_hz:.0}Hz ({steepness_db_per_khz:.0}dB/kHz)");
+    if steepness_db_per_khz < steep_db_per_khz {
+        return (
+            Verdict::Ok,
+            format!(
+                "gradual roll-off from {measured} -- consistent with mastering, not an upsample"
+            ),
+        );
+    }
+
+    let credited = if is_vbr {
+        f64::from(bitrate_kbps) * VBR_BITRATE_CREDIT
+    } else {
+        f64::from(bitrate_kbps)
+    };
+    match bitrate_tier(credited) {
+        Some(promised) if cutoff_tier(cutoff_hz) < promised => {
+            let source = matched_bitrate(cutoff_hz).unwrap_or("source below any standard bitrate");
+            (
+                Verdict::Upsampled,
+                format!(
+                    "{claimed} header but brickwall at {measured} matches a {source} -- upsampled"
+                ),
+            )
+        }
+        _ => (
+            Verdict::Ok,
+            format!("cutoff at {measured} fits a {claimed} encode"),
+        ),
+    }
+}
+
+/// Run the whole check over decoded samples, against what the container claims.
+#[must_use]
+pub fn analyse(
+    chunks: &[Vec<f32>],
+    sample_rate: u32,
+    claim: Claim,
+    tuning: &Tuning,
+) -> Option<SpectralAnalysis> {
     let (frequencies, db) = average_spectrum_db(chunks, sample_rate, tuning.fft_size)?;
 
     let bands = band_average(&frequencies, &db, BAND_WIDTH_HZ);
     let cutoff = find_cutoff(&bands, tuning.noise_floor_db);
     let steepness = cliff_steepness(&bands, cutoff, STEEPNESS_WINDOW_HZ);
-    let (verdict, detail) = classify(
-        cutoff,
-        steepness,
-        sample_rate,
-        tuning.steep_db_per_khz,
-        tuning.near_nyquist_margin_hz,
-    );
+    let (verdict, detail) = match claim {
+        Claim::Lossless => classify(
+            cutoff,
+            steepness,
+            sample_rate,
+            tuning.steep_db_per_khz,
+            tuning.near_nyquist_margin_hz,
+        ),
+        Claim::Lossy {
+            bitrate_kbps,
+            is_vbr,
+        } => classify_lossy(
+            cutoff,
+            steepness,
+            sample_rate,
+            bitrate_kbps,
+            is_vbr,
+            tuning.steep_db_per_khz,
+            tuning.near_nyquist_margin_hz,
+        ),
+    };
 
     Some(SpectralAnalysis {
         cutoff_hz: cutoff,

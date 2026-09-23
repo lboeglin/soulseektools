@@ -747,3 +747,21 @@ fn a_url_item_comes_back_as_a_url() {
     tags::write_extras(&path, &extras).expect("restored extras");
     assert_eq!(tags::read_extras(&path).expect("readable extras"), extras);
 }
+
+#[test]
+fn a_vbr_mp3_is_told_from_a_cbr_one_by_its_first_frame() {
+    assert!(tags::mp3_is_vbr(&committed("noise-v0.mp3")));
+    assert!(tags::mp3_is_vbr(&committed("noise-128k-as-vbr320.mp3")));
+    assert!(!tags::mp3_is_vbr(&committed("noise-320k.mp3")));
+    assert!(!tags::mp3_is_vbr(&committed("tagged.mp3")));
+}
+
+#[test]
+fn a_file_that_is_not_an_mp3_is_not_called_vbr() {
+    let scratch = Scratch::new("tags-vbr-absent");
+    let text = scratch.join("notes.mp3");
+    std::fs::write(&text, b"ID3").expect("a written file");
+
+    assert!(!tags::mp3_is_vbr(&text));
+    assert!(!tags::mp3_is_vbr(&scratch.join("missing.mp3")));
+}

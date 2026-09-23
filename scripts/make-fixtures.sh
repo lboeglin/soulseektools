@@ -56,4 +56,14 @@ for bitrate in 128k 192k 320k; do
     "$out/noise-$bitrate.mp3"
 done
 
+# A genuine VBR encode, and the 128 kbps file re-encoded at a higher claim:
+# what an upsampled MP3 is, LAME's own 128 kbps brickwall under a 320 kbps
+# header. Derived from the committed MP3 rather than from fresh noise, so the
+# lie is the only thing that differs. The VBR one is ABR rather than V0: V0
+# spends only what the content needs, so a band-limited source averages too
+# little to claim a higher tier at all.
+ffmpeg -v error -y -f lavfi -i "$noise" -ac 2 -c:a libmp3lame -q:a 0 "$out/noise-v0.mp3"
+ffmpeg -v error -y -i "$out/noise-128k.mp3" -c:a libmp3lame -b:a 320k "$out/noise-128k-as-320k.mp3"
+ffmpeg -v error -y -i "$out/noise-128k.mp3" -c:a libmp3lame -abr 1 -b:a 320k "$out/noise-128k-as-vbr320.mp3"
+
 ls -l "$out"

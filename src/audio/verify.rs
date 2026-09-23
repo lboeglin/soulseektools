@@ -5,18 +5,22 @@ use std::path::{Path, PathBuf};
 use rayon::prelude::*;
 
 use crate::audio::decode::{probe_windows, Audio, StreamInfo};
-use crate::audio::spectral;
+use crate::audio::spectral::{self, Claim};
 use crate::config::VerifySettings;
-use crate::errors::Result;
+use crate::errors::{Error, Result};
+use crate::library::tags;
 use crate::models::{Verdict, VerifyResult};
 
-/// Decide whether a lossless container really holds lossless audio.
+/// Decide whether a file really holds what its container claims.
 ///
-/// Decoding failures are reported as [`Verdict::Error`] rather than returned as
+/// An MP3 is judged against its header bitrate; every other file against the
+/// claim of being lossless, as it always was. Decoding failures are reported as [`Verdict::Error`] rather than returned as
 /// an error, so one unreadable file cannot abort a library-wide run.
 #[must_use]
 pub fn verify_file(path: &Path, settings: &VerifySettings) -> VerifyResult {
-    let (stream, chunks) = match sample(path, settings) {
+    let sampled = sample(path, settings)
+        .and_then(|(stream, chunks)| Ok((claim(path, &stream)?, stream, chunks)));
+    let (claim, stream, chunks) = match sampled {
         Ok(sampled) => sampled,
         Err(error) => {
             return VerifyResult {
@@ -33,7 +37,8 @@ pub fn verify_file(path: &Path, settings: &VerifySettings) -> VerifyResult {
         }
     };
 
-    let Some(analysis) = spectral::analyse(&chunks, stream.sample_rate, &settings.tuning()) else {
+    let Some(analysis) = spectral::analyse(&chunks, stream.sample_rate, claim, &settings.tuning())
+    else {
         return VerifyResult {
             path: path.to_path_buf(),
             verdict: Verdict::Error,
@@ -59,6 +64,24 @@ pub fn verify_file(path: &Path, settings: &VerifySettings) -> VerifyResult {
         nyquist_hz: Some(round_half_even(nyquist)),
         steepness_db_per_khz: Some(round_half_even_to(analysis.steepness_db_per_khz, 1)),
     }
+}
+
+/// What the file says it is.
+///
+/// Only an MP3 is held to its bitrate: the cutoffs [`spectral`] knows are
+/// LAME's, and an AAC or Vorbis encoder places its low-pass elsewhere.
+fn claim(path: &Path, stream: &StreamInfo) -> Result<Claim> {
+    if stream.codec != "mp3" {
+        return Ok(Claim::Lossless);
+    }
+    let bitrate_kbps = tags::read_stream_info(path)?
+        .bitrate
+        .filter(|bitrate| *bitrate != 0)
+        .ok_or_else(|| Error::Audio(format!("{}: no bitrate in the header", path.display())))?;
+    Ok(Claim::Lossy {
+        bitrate_kbps,
+        is_vbr: tags::mp3_is_vbr(path),
+    })
 }
 
 /// The stream's properties and a few windows of its audio, from one open.

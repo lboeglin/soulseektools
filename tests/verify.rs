@@ -12,7 +12,7 @@ mod support;
 use stk::audio::verify::verify_file;
 use stk::config::VerifySettings;
 use stk::models::Verdict;
-use support::{noise_source, silence, transcode_to_flac, Scratch};
+use support::{committed, noise_source, silence, transcode_to_flac, Scratch};
 
 fn source(scratch: &Scratch) -> std::path::PathBuf {
     noise_source(&scratch.join("source.flac"), 8, 44100)
@@ -128,4 +128,58 @@ fn probe_settings_are_honoured() {
     );
 
     assert_eq!(result.verdict, Verdict::Ok, "{}", result.detail);
+}
+
+#[test]
+fn a_genuine_mp3_is_held_to_its_bitrate_and_passes() {
+    for name in [
+        "noise-128k.mp3",
+        "noise-192k.mp3",
+        "noise-320k.mp3",
+        "noise-v0.mp3",
+    ] {
+        let result = verify_file(&committed(name), &VerifySettings::default());
+
+        assert_eq!(result.verdict, Verdict::Ok, "{name}: {}", result.detail);
+        assert_eq!(result.codec, "mp3");
+    }
+}
+
+#[test]
+fn a_128kbps_mp3_re_encoded_at_320_is_caught() {
+    let result = verify_file(
+        &committed("noise-128k-as-320k.mp3"),
+        &VerifySettings::default(),
+    );
+
+    assert_eq!(result.verdict, Verdict::Upsampled, "{}", result.detail);
+    assert!(
+        result.detail.contains("~128kbps source"),
+        "{}",
+        result.detail
+    );
+}
+
+#[test]
+fn a_128kbps_mp3_re_encoded_as_vbr_is_caught_despite_the_wider_tolerance() {
+    let result = verify_file(
+        &committed("noise-128k-as-vbr320.mp3"),
+        &VerifySettings::default(),
+    );
+
+    assert_eq!(result.verdict, Verdict::Upsampled, "{}", result.detail);
+    assert!(result.detail.contains("VBR"), "{}", result.detail);
+}
+
+#[test]
+fn an_mp3_is_not_judged_as_a_lossless_transcode() {
+    // The lossless check would call a 128 kbps wall FAKE; an MP3 claiming
+    // 128 kbps is exactly what it says it is.
+    let result = verify_file(&committed("noise-128k.mp3"), &VerifySettings::default());
+
+    assert!(
+        result.detail.contains("128kbps encode"),
+        "{}",
+        result.detail
+    );
 }

@@ -109,6 +109,60 @@ pub fn read_stream_info(path: &Path) -> Result<StreamInfo> {
     Ok(stream_info_of(&read_file(path)?))
 }
 
+/// Whether an MP3 was encoded at a variable bitrate.
+///
+/// Its header bitrate is then an average rather than a setting, which
+/// `stk verify` has to allow for. An encoder marks a VBR stream by opening it
+/// with a `Xing` or `VBRI` frame; `Info` is the same frame on a CBR stream,
+/// and no frame at all means CBR. lofty reads that frame and does not say
+/// which it found.
+#[must_use]
+pub fn mp3_is_vbr(path: &Path) -> bool {
+    use std::io::Read as _;
+
+    const ID3_HEADER: usize = 10;
+    const FRAME_HEADER_SPAN: usize = 64;
+
+    let Ok(mut file) = std::fs::File::open(path) else {
+        return false;
+    };
+    let mut head = vec![0; ID3_HEADER];
+    if file.read_exact(&mut head).is_err() {
+        return false;
+    }
+    let skipped = if head.starts_with(b"ID3") {
+        let size = head[6..10]
+            .iter()
+            .fold(0_usize, |size, byte| size << 7 | usize::from(byte & 0x7f));
+        ID3_HEADER + size
+    } else {
+        0
+    };
+
+    let mut rest = Vec::new();
+    if file
+        .take((skipped + 4096) as u64)
+        .read_to_end(&mut rest)
+        .is_err()
+    {
+        return false;
+    }
+    head.extend(rest);
+
+    let Some(sync) = head.get(skipped..).and_then(|audio| {
+        audio
+            .windows(2)
+            .position(|pair| pair[0] == 0xff && pair[1] & 0xe0 == 0xe0)
+    }) else {
+        return false;
+    };
+    let start = skipped + sync;
+    let frame = &head[start..head.len().min(start + FRAME_HEADER_SPAN)];
+    frame
+        .windows(4)
+        .any(|marker| marker == b"Xing" || marker == b"VBRI")
+}
+
 fn stream_info_of(file: &TaggedFile) -> StreamInfo {
     let properties = file.properties();
     StreamInfo {
