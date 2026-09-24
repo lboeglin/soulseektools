@@ -1594,6 +1594,55 @@ fn wantlist_diff_queues_what_is_missing() {
 }
 
 #[test]
+fn a_scrobble_log_queues_only_what_was_played_often_enough() {
+    let _guard = exclusive();
+    let harness = Harness::new("cli-wantlist-min-plays");
+    let root = library(&harness);
+    harness.with_config(&root);
+    run(&["library", "scan"]);
+
+    let export = harness.join("scrobbles.csv");
+    std::fs::write(
+        &export,
+        "Hatsune Miku,,Senbonzakura,31 Jan 2021 12:34
+         Ado,,Usseewa,31 Jan 2021 12:30
+         Hatsune Miku,,Senbonzakura,30 Jan 2021 09:02
+",
+    )
+    .expect("a written export");
+
+    assert_eq!(
+        run(&[
+            "wantlist",
+            "diff",
+            &export.display().to_string(),
+            "--min-plays",
+            "2",
+        ]),
+        0
+    );
+
+    let store = stk::review::store::ReviewStore::open(&harness.join("review.db"))
+        .expect("the review queue");
+    let tracks = store.tracks(&[], None).expect("tracks");
+    assert_eq!(tracks.len(), 1);
+    assert_eq!(tracks[0].track.query(), "Hatsune Miku - Senbonzakura");
+    drop(harness);
+}
+
+#[test]
+fn an_unknown_format_is_refused_by_the_parser() {
+    let _guard = exclusive();
+    let harness = Harness::new("cli-wantlist-bad-format");
+    harness.with_config(&harness.join("Music"));
+    assert_ne!(
+        run(&["wantlist", "diff", "export.csv", "--format", "xls"]),
+        0
+    );
+    drop(harness);
+}
+
+#[test]
 fn wantlist_diff_can_skip_queueing() {
     let _guard = exclusive();
     let harness = Harness::new("cli-wantlist-no-queue");

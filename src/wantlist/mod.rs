@@ -1,4 +1,9 @@
-//! Reading a streaming-service export and working out what is missing.
+//! Reading a wantlist and working out what is missing.
+//!
+//! A wantlist is any list of songs someone wants: a streaming-service export,
+//! a Last.fm scrobble log, a YouTube Takeout. Each shape has its own reader,
+//! and every reader produces the same [`Track`]s, with the source's own fields
+//! kept in `source_row` for `--missing` and for tagging a download (#11).
 //!
 //! The ownership test is deliberately asymmetric. A track is dropped from the
 //! wantlist only when a library file is convincingly the same song; anything
@@ -6,7 +11,9 @@
 //! megabytes and silently skipping a track loses it.
 
 use std::collections::{HashMap, HashSet};
+use std::fmt;
 use std::path::Path;
+use std::str::FromStr;
 
 use crate::errors::Result;
 use crate::matching::{blocking_keys, score_track, MatchThresholds, NameForms};
@@ -20,9 +27,12 @@ pub const ARTIST_COLUMNS: &[&str] = &[
     "artist",
     "artists",
     "album artist",
+    "artist name 1",
 ];
-pub const TITLE_COLUMNS: &[&str] = &["track name", "title", "name", "song"];
-pub const ALBUM_COLUMNS: &[&str] = &["album name", "album"];
+/// `track` comes last: Last.fm's own export names the title so, but elsewhere
+/// it is as likely to be a track number.
+pub const TITLE_COLUMNS: &[&str] = &["track name", "title", "name", "song", "song title", "track"];
+pub const ALBUM_COLUMNS: &[&str] = &["album name", "album", "album title"];
 pub const DURATION_COLUMNS: &[&str] = &[
     "duration (ms)",
     "duration_ms",
@@ -55,13 +65,82 @@ impl WantlistDiff {
     }
 }
 
-/// The en and em dashes are deliberate: a track name pasted out of a browser or
-/// a music player usually carries one rather than a plain hyphen.
-pub const SEPARATORS: &[&str] = &[" - ", " \u{2013} ", " \u{2014} "];
+/// The shapes a wantlist is read from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Format {
+    /// A delimited export, recognised by its header, or a headerless Last.fm log.
+    Csv,
+}
 
-/// Read a streaming-service CSV export into tracks.
-pub fn read_export(path: &Path) -> Result<Vec<Track>> {
-    delimited::read(path)
+impl Format {
+    pub const ALL: [Self; 1] = [Self::Csv];
+
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Csv => "csv",
+        }
+    }
+
+    /// What `path` holds, judged by its content first and its extension second.
+    pub fn detect(_path: &Path) -> Result<Self> {
+        Ok(Self::Csv)
+    }
+}
+
+impl fmt::Display for Format {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(self.as_str())
+    }
+}
+
+impl FromStr for Format {
+    type Err = String;
+
+    fn from_str(text: &str) -> std::result::Result<Self, Self::Err> {
+        Self::ALL
+            .into_iter()
+            .find(|format| format.as_str() == text)
+            .ok_or_else(|| {
+                format!(
+                    "unknown format: {text}; known: {}",
+                    Self::ALL.map(Self::as_str).join(", ")
+                )
+            })
+    }
+}
+
+/// Read a wantlist into tracks, as `format`, or as whatever it looks like.
+pub fn read_export(path: &Path, format: Option<Format>) -> Result<Vec<Track>> {
+    let format = match format {
+        Some(format) => format,
+        None => Format::detect(path)?,
+    };
+    match format {
+        Format::Csv => delimited::read(path),
+    }
+}
+
+/// The tracks listed at least `min_plays` times, once each, in first-seen order.
+///
+/// A scrobble log lists every play, so read whole it is every song ever heard
+/// once; the repeats are what say which ones are wanted.
+#[must_use]
+pub fn keep_played(tracks: Vec<Track>, min_plays: usize) -> Vec<Track> {
+    let key = |track: &Track| track.query().to_lowercase();
+    let mut plays: HashMap<String, usize> = HashMap::new();
+    for track in &tracks {
+        *plays.entry(key(track)).or_default() += 1;
+    }
+
+    let mut kept = HashSet::new();
+    tracks
+        .into_iter()
+        .filter(|track| {
+            let key = key(track);
+            plays[&key] >= min_plays && kept.insert(key)
+        })
+        .collect()
 }
 
 /// Split wanted tracks into those already owned and those still missing.
@@ -130,6 +209,10 @@ fn candidates(
     ordered.sort_unstable();
     ordered
 }
+
+/// The en and em dashes are deliberate: a track name pasted out of a browser or
+/// a music player usually carries one rather than a plain hyphen.
+pub const SEPARATORS: &[&str] = &[" - ", " \u{2013} ", " \u{2014} "];
 
 /// Split `artist - title` into its parts, tolerating either being absent.
 ///

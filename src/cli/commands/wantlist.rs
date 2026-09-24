@@ -1,21 +1,47 @@
-//! `stk wantlist` -- what a streaming export contains that the library does not.
+//! `stk wantlist` -- what a wantlist contains that the library does not.
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
-use clap::Subcommand;
+use clap::{Args, Subcommand};
 use serde_json::json;
 
 use crate::cli::context::{show, table, AppContext};
 use crate::errors::{Error, Result};
-use crate::wantlist::{self, WantlistDiff};
+use crate::models::Track;
+use crate::wantlist::{self, Format, WantlistDiff};
+
+/// Where the wanted tracks come from, shared by every command that reads them.
+#[derive(Args, Debug)]
+pub struct ExportArgs {
+    /// A streaming-service or Last.fm CSV, or a YouTube Takeout.
+    pub export: PathBuf,
+
+    /// Read the export as this format (csv) instead of guessing from its content.
+    #[arg(long, value_name = "FORMAT")]
+    pub format: Option<Format>,
+
+    /// Keep only tracks listed at least this many times, once each, as in a scrobble log.
+    #[arg(long, value_name = "N")]
+    pub min_plays: Option<usize>,
+}
+
+impl ExportArgs {
+    pub fn read(&self) -> Result<Vec<Track>> {
+        let tracks = wantlist::read_export(&self.export, self.format)?;
+        Ok(match self.min_plays {
+            Some(min_plays) => wantlist::keep_played(tracks, min_plays),
+            None => tracks,
+        })
+    }
+}
 
 #[derive(Subcommand, Debug)]
 pub enum WantlistCommand {
     /// List the tracks in an export that the library does not already hold.
     Diff {
-        /// CSV exported from a streaming service.
-        export: PathBuf,
+        #[command(flatten)]
+        export: ExportArgs,
         /// Add the missing tracks to the review queue.
         #[arg(long, default_value_t = true, action = clap::ArgAction::Set)]
         queue: bool,
@@ -55,13 +81,13 @@ pub fn run(context: &AppContext, command: WantlistCommand) -> Result<i32> {
 /// download costs a few megabytes, a track dropped by mistake is simply gone.
 fn diff(
     context: &AppContext,
-    export: &Path,
+    export: &ExportArgs,
     queue: bool,
     missing_csv: Option<&Path>,
     owned_csv: Option<&Path>,
     only_new: bool,
 ) -> Result<i32> {
-    let tracks = match wantlist::read_export(export) {
+    let tracks = match export.read() {
         Ok(tracks) => tracks,
         Err(error) => {
             eprintln!("error: {error}");

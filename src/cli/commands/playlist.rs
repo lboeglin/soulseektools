@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 use clap::Subcommand;
 use serde_json::json;
 
+use crate::cli::commands::wantlist::ExportArgs;
 use crate::cli::context::{show, AppContext};
 use crate::errors::{Error, Result};
 use crate::genres::TrackKey;
@@ -15,10 +16,10 @@ use crate::wantlist;
 
 #[derive(Subcommand, Debug)]
 pub enum PlaylistCommand {
-    /// Write the tracks of a streaming export the library holds, in its order.
+    /// Write the tracks of an export the library holds, in its order.
     Export {
-        /// CSV exported from a streaming service.
-        export: PathBuf,
+        #[command(flatten)]
+        export: ExportArgs,
         #[command(flatten)]
         output: OutputArgs,
     },
@@ -99,8 +100,8 @@ fn line(entry: &LibraryEntry) -> PlaylistEntry {
 ///
 /// `wantlist::diff` preserves the export order in `owned`, which is the whole
 /// point: the order was in the export and nowhere else.
-fn exported(context: &AppContext, export: &Path) -> Result<Option<Vec<PlaylistEntry>>> {
-    let tracks = match wantlist::read_export(export) {
+fn exported(context: &AppContext, export: &ExportArgs) -> Result<Option<Vec<PlaylistEntry>>> {
+    let tracks = match export.read() {
         Ok(tracks) => tracks,
         Err(error) => {
             eprintln!("error: {error}");

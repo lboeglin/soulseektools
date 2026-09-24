@@ -18,6 +18,7 @@ use clap::Args;
 use serde_json::json;
 
 use crate::cli::commands::library::{self, Scanned};
+use crate::cli::commands::wantlist::ExportArgs;
 use crate::cli::commands::{fetch as fetch_command, organise as organise_command};
 use crate::cli::context::{show, unix_now, AppContext};
 use crate::errors::{Error, Result};
@@ -35,8 +36,8 @@ const POLL_SECONDS: f64 = 15.0;
 
 #[derive(Args, Debug)]
 pub struct SyncArgs {
-    /// CSV exported from a streaming service.
-    pub export: PathBuf,
+    #[command(flatten)]
+    pub export: ExportArgs,
 
     /// Download and organise. Without this, only the index and the review queue change.
     #[arg(long)]
@@ -110,7 +111,7 @@ pub fn run(context: &AppContext, args: &SyncArgs) -> Result<i32> {
 
     let target = target(context, args.apply)?;
     let pattern = Pattern::parse(&context.settings().organise.pattern)?;
-    let export = match wantlist::read_export(&args.export) {
+    let export = match args.export.read() {
         Ok(tracks) => tracks,
         Err(error) => {
             eprintln!("error: {error}");

@@ -85,15 +85,19 @@ pub struct RowTags {
 
 impl RowTags {
     /// The track number comes back out of the export's own columns, by the
-    /// same header tolerance `wantlist::read_export` reads them with.
+    /// same header tolerance `wantlist::read_export` reads them with. A column
+    /// holding the title is not one: Last.fm calls its title `track`, and a
+    /// song named "22" is not track 22.
     #[must_use]
     pub fn of(track: &Track) -> Self {
+        let title = track.title.trim();
         Self {
             artist: track.artist.trim().to_owned(),
-            title: track.title.trim().to_owned(),
+            title: title.to_owned(),
             album: track.album.trim().to_owned(),
             track_number: track
                 .source_value(TRACK_NUMBER_COLUMNS)
+                .filter(|value| *value != title)
                 .and_then(tags::leading_number),
             title_guessed: track.title_guessed,
         }

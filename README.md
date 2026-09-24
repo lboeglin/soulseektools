@@ -233,6 +233,27 @@ scores, so you can check the decisions rather than trust them.
 
 Missing tracks are added to the review queue.
 
+**What an export can be.** Anything that lists the songs you want. The format
+is recognised from the file itself; `--format` overrides the guess, and every
+command that reads an export (`wantlist diff`, `playlist export`, `sync`)
+takes the same flags.
+
+- **A CSV** from Exportify, TuneMyMusic, or your own hand, with any common
+  spelling of the artist, title, album and duration columns.
+- **A Last.fm export**, with a header (`artist`, `album`, `track`) or in the
+  headerless `artist,album,title,date` shape `lastfm-to-csv` writes. A
+  scrobble log lists every play, so read whole it is every song ever heard
+  once: `--min-plays 3` keeps the tracks played at least three times, once
+  each, and `--min-plays 1` only collapses the repeats. It works on any
+  export.
+- **A YouTube Music Takeout** (`music library songs.csv`). A list of video
+  titles with no artist column is also read, each title split on ` - ` as
+  `stk get` splits a query; the split is a guess, so a download's own title
+  tag is trusted over it.
+
+A Discogs collection export lists releases rather than tracks and is not
+read; `stk get --album` fetches one release at a time.
+
 Re-run the same diff against a grown export and it reports everything missing
 all over again, including the tracks a previous run searched for and gave up on
 — they are, after all, still missing. `--new` reports only the tracks the review

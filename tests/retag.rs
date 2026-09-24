@@ -213,3 +213,13 @@ fn the_row_carries_whether_the_queue_called_its_title_a_guess() {
     assert!(!RowTags::of(&asked_for).title_guessed);
     assert!(RowTags::of(&guessed).title_guessed);
 }
+
+#[test]
+fn a_track_column_holding_the_title_is_not_a_track_number() {
+    let track = Track {
+        source_row: vec![("track".to_owned(), "22".to_owned())],
+        ..Track::new("Taylor Swift", "22")
+    };
+
+    assert_eq!(RowTags::of(&track).track_number, None);
+}
