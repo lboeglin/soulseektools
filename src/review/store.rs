@@ -281,32 +281,7 @@ impl ReviewStore {
             .map_err(|error| sqlite_error(&error))?;
 
         for (index, scored) in candidates.iter().enumerate() {
-            let candidate = &scored.candidate;
-            transaction
-                .execute(
-                    "INSERT INTO candidates (track_id, rank, score, title_ratio, flags, username, \
-                     remote_path, size, bitrate, sample_rate, bit_depth, is_vbr, free_slots, \
-                     queue_length, duration_seconds) \
-                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
-                    params![
-                        track_id,
-                        i64::try_from(index + 1).unwrap_or(i64::MAX),
-                        scored.score,
-                        scored.title_ratio,
-                        serde_json::to_string(&scored.flags).unwrap_or_else(|_| "[]".to_owned()),
-                        candidate.username,
-                        candidate.remote_path,
-                        i64::try_from(candidate.size).unwrap_or(i64::MAX),
-                        candidate.bitrate,
-                        candidate.sample_rate,
-                        candidate.bit_depth,
-                        i64::from(candidate.is_vbr),
-                        i64::from(candidate.free_upload_slots),
-                        candidate.queue_length,
-                        candidate.duration_seconds,
-                    ],
-                )
-                .map_err(|error| sqlite_error(&error))?;
+            insert_candidate(&transaction, track_id, dense_rank(index), scored, false)?;
         }
 
         let (status, detail) = if candidates.is_empty() {
@@ -431,6 +406,52 @@ impl ReviewStore {
         Ok(Some(next))
     }
 
+    /// The candidates nobody has tried yet, best first.
+    pub fn untried(&self, track_id: i64) -> Result<Vec<ScoredCandidate>> {
+        self.candidate_rows(track_id, "AND attempted = 0")
+    }
+
+    /// Put the untried candidates in a new order, behind the tried ones (#17).
+    ///
+    /// The one place a stored list is reordered after its ranks were written,
+    /// which [`crate::soulseek::ranking::prefer_one_uploader`] otherwise forbids:
+    /// an approval points at a rank, and renumbering under it would repoint it
+    /// at a different file. Here the approval is being discarded -- its peer
+    /// stalled -- so every approval on the track is cleared, the tried rows keep
+    /// their `attempted` mark so the retry never offers them back, and the ranks
+    /// stay dense from 1 for [`ReviewTrack::approved`]'s positional lookup.
+    /// Whatever is approved next has to be written after this, not before.
+    pub fn reorder_untried(&mut self, track_id: i64, untried: &[ScoredCandidate]) -> Result<()> {
+        let tried = self.candidate_rows(track_id, "AND attempted = 1")?;
+        let transaction = self
+            .connection
+            .transaction()
+            .map_err(|error| sqlite_error(&error))?;
+        transaction
+            .execute(
+                "DELETE FROM candidates WHERE track_id = ?1",
+                params![track_id],
+            )
+            .map_err(|error| sqlite_error(&error))?;
+        let rows = tried
+            .iter()
+            .map(|scored| (scored, true))
+            .chain(untried.iter().map(|scored| (scored, false)));
+        for (index, (scored, attempted)) in rows.enumerate() {
+            insert_candidate(&transaction, track_id, dense_rank(index), scored, attempted)?;
+        }
+        transaction.commit().map_err(|error| sqlite_error(&error))
+    }
+
+    fn candidate_rows(&self, track_id: i64, filter: &str) -> Result<Vec<ScoredCandidate>> {
+        self.connection
+            .prepare(&format!(
+                "SELECT * FROM candidates WHERE track_id = ?1 {filter} ORDER BY rank"
+            ))
+            .and_then(|mut statement| statement.query_map(params![track_id], to_scored)?.collect())
+            .map_err(|error| sqlite_error(&error))
+    }
+
     /// Mark a track queued, recording when, so a stall becomes visible (#2).
     ///
     /// Nothing recorded *when* a track entered `QUEUED` before, so a transfer
@@ -529,6 +550,44 @@ fn add_missing_columns(
                 .map_err(|error| sqlite_error(&error))?;
         }
     }
+    Ok(())
+}
+
+fn dense_rank(index: usize) -> i64 {
+    i64::try_from(index + 1).unwrap_or(i64::MAX)
+}
+
+fn insert_candidate(
+    transaction: &Transaction<'_>,
+    track_id: i64,
+    rank: i64,
+    scored: &ScoredCandidate,
+    attempted: bool,
+) -> Result<()> {
+    let candidate = &scored.candidate;
+    transaction
+        .execute(
+            "INSERT INTO candidates (track_id, rank, score, title_ratio, flags, username,              remote_path, size, bitrate, sample_rate, bit_depth, is_vbr, free_slots,              queue_length, duration_seconds, attempted)              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
+            params![
+                track_id,
+                rank,
+                scored.score,
+                scored.title_ratio,
+                serde_json::to_string(&scored.flags).unwrap_or_else(|_| "[]".to_owned()),
+                candidate.username,
+                candidate.remote_path,
+                i64::try_from(candidate.size).unwrap_or(i64::MAX),
+                candidate.bitrate,
+                candidate.sample_rate,
+                candidate.bit_depth,
+                i64::from(candidate.is_vbr),
+                i64::from(candidate.free_upload_slots),
+                candidate.queue_length,
+                candidate.duration_seconds,
+                i64::from(attempted),
+            ],
+        )
+        .map_err(|error| sqlite_error(&error))?;
     Ok(())
 }
 

@@ -416,6 +416,11 @@ fn organise_downloads(
 fn download_json(waited: &Waited) -> serde_json::Value {
     json!({
         "stalled": waited.stalled.iter().map(fetch_command::stall_row).collect::<Vec<_>>(),
+        "stalled_peers": waited
+            .stalled_peers
+            .iter()
+            .map(fetch_command::peer_stall_row)
+            .collect::<Vec<_>>(),
         "queued": waited.queued.iter().map(fetch_command::enqueue_row).collect::<Vec<_>>(),
         "collected": waited.collected.iter().map(fetch_command::collect_row).collect::<Vec<_>>(),
         "rounds": waited.rounds,
@@ -444,7 +449,7 @@ fn organise_json(organised: &Organised) -> serde_json::Value {
 }
 
 fn report_download(context: &AppContext, waited: &Waited) {
-    fetch_command::report_stalled(context, &waited.stalled);
+    fetch_command::report_stalled(context, &waited.stalled, &waited.stalled_peers);
     fetch_command::report_queued(context, &waited.queued);
     fetch_command::report_collected(context, &waited.collected);
     context.say(&format!(

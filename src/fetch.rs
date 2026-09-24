@@ -15,7 +15,7 @@ use rayon::prelude::*;
 use std::path::{Path, PathBuf};
 
 use crate::audio::verify::verify_file;
-use crate::config::Settings;
+use crate::config::{Settings, UploaderSettings};
 use crate::library::changes::ChangeLog;
 use crate::library::index::LibraryIndex;
 use crate::library::scan::{LOSSLESS_EXTENSIONS, LOSSY_VERIFIED_EXTENSIONS};
@@ -192,6 +192,30 @@ pub struct StallOutcome {
     /// The rank promoted in its place, absent when the candidates ran out.
     pub retried_with_rank: Option<i64>,
     pub error: String,
+    /// The preferred peer whose whole group this track was moved with (#17).
+    pub peer_group: String,
+}
+
+/// A preferred peer that went down, and where the tracks steered to it went (#17).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PeerStall {
+    pub username: String,
+    /// The peer the group's remaining candidates settled on, if one covered
+    /// enough of it.
+    pub moved_to: Option<String>,
+    /// Tracks now approved from `moved_to`.
+    pub moved: usize,
+    /// Tracks that fell to their own next candidate instead.
+    pub individually: usize,
+    /// Tracks with nothing left to try, now failed.
+    pub exhausted: usize,
+}
+
+/// Everything one stall pass gave up on.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Stalled {
+    pub tracks: Vec<StallOutcome>,
+    pub peers: Vec<PeerStall>,
 }
 
 /// Give up on transfers that have sat in the queue too long, and try the next
@@ -206,54 +230,230 @@ pub struct StallOutcome {
 /// The stalled transfer is cancelled rather than left in place. A peer that
 /// wakes up hours later would otherwise deliver the file a second time, beside
 /// the copy the retry already fetched.
+///
+/// A stall on a candidate the batch pass steered to one peer is a stall of that
+/// peer, not of the file, once more than one of its tracks has stalled or slskd
+/// reports it offline. Retrying each track on its own would then scatter the
+/// batch over one peer per track -- the outcome the preference exists to avoid
+/// -- so the peer's whole group is cancelled and moved together (#17). A peer
+/// that stalls on one file and delivers the rest is not down, and a group
+/// member it is already uploading is left alone.
 pub fn retry_stalled(
     store: &mut ReviewStore,
     client: &dyn SoulseekClient,
     settings: &Settings,
     now: f64,
-) -> crate::errors::Result<Vec<StallOutcome>> {
+) -> crate::errors::Result<Stalled> {
     let stalled = store.stalled(now, settings.slskd.stall_after_seconds)?;
     if stalled.is_empty() {
-        return Ok(Vec::new());
+        return Ok(Stalled::default());
     }
 
-    let unfinished: HashMap<String, Transfer> = client
-        .transfers()?
-        .into_iter()
-        .filter(|transfer| !transfer.state.finished())
-        .map(|transfer| (transfer.remote_path.clone(), transfer))
+    let transfers = client.transfers()?;
+    let by_path: HashMap<&str, &Transfer> = transfers
+        .iter()
+        .map(|transfer| (transfer.remote_path.as_str(), transfer))
         .collect();
 
-    let mut outcomes = Vec::new();
-    for entry in stalled {
+    let mut outcome = Stalled::default();
+    let mut moved: HashSet<i64> = HashSet::new();
+    let mut peers: Vec<&str> = Vec::new();
+    for peer in stalled.iter().filter_map(preferred_peer) {
+        if !peers.contains(&peer) {
+            peers.push(peer);
+        }
+    }
+    if !peers.is_empty() {
+        let stalled_ids: HashSet<i64> = stalled.iter().map(|entry| entry.id).collect();
+        let queued = store.tracks(&[TrackStatus::Queued], None)?;
+        for peer in peers {
+            let group: Vec<&ReviewTrack> = queued
+                .iter()
+                .filter(|entry| preferred_peer(entry) == Some(peer))
+                .filter(|entry| {
+                    entry
+                        .approved()
+                        .and_then(|approved| by_path.get(approved.candidate.remote_path.as_str()))
+                        .is_none_or(|transfer| transfer.state == TransferState::Queued)
+                })
+                .collect();
+            let stalled_in_group = group
+                .iter()
+                .filter(|entry| stalled_ids.contains(&entry.id))
+                .count();
+            if stalled_in_group < 2 && !reported_offline(&transfers, peer) {
+                continue;
+            }
+            moved.extend(group.iter().map(|entry| entry.id));
+            let group = Group {
+                username: peer,
+                tracks: &group,
+            };
+            outcome.peers.push(move_group(
+                store,
+                client,
+                settings,
+                &by_path,
+                &group,
+                now,
+                &mut outcome.tracks,
+            )?);
+        }
+    }
+
+    for entry in stalled.iter().filter(|entry| !moved.contains(&entry.id)) {
         let Some(approved) = entry.approved() else {
             continue;
         };
-
-        let mut error = String::new();
-        if let Some(transfer) = unfinished.get(&approved.candidate.remote_path) {
-            if let Err(reason) = client.cancel(&transfer.username, &transfer.id) {
-                error = reason.to_string();
-            }
-        }
-
-        let retried = store.next_candidate(entry.id)?;
-        if retried.is_none() {
-            store.mark(
-                entry.id,
-                TrackStatus::Failed,
-                "stalled, and no candidates left",
-            )?;
-        }
-        outcomes.push(StallOutcome {
-            track_id: entry.id,
-            query: entry.track.query(),
-            waited_seconds: entry.queued_at.map_or(0.0, |queued| now - queued),
-            retried_with_rank: retried,
-            error,
-        });
+        let error = cancel(client, &by_path, approved);
+        let retried = retry_next(store, entry.id)?;
+        outcome
+            .tracks
+            .push(stall_outcome(entry, now, retried, error, String::new()));
     }
-    Ok(outcomes)
+    Ok(outcome)
+}
+
+/// The peer the batch pass steered this track to, if its approval is theirs.
+fn preferred_peer(entry: &ReviewTrack) -> Option<&str> {
+    entry
+        .approved()
+        .filter(|approved| {
+            approved
+                .flags
+                .iter()
+                .any(|flag| flag == ranking::PREFERRED_FLAG)
+        })
+        .map(|approved| approved.candidate.username.as_str())
+}
+
+/// Whether slskd has failed anything from this peer for being offline.
+///
+/// Soulseek.NET raises "User X appears to be offline", which slskd passes on
+/// as the transfer's exception; nothing else in a transfer says so.
+fn reported_offline(transfers: &[Transfer], username: &str) -> bool {
+    transfers.iter().any(|transfer| {
+        transfer.username == username && transfer.error.to_lowercase().contains("offline")
+    })
+}
+
+/// The queued tracks a stalled preferred peer was steered, as one unit.
+struct Group<'a> {
+    username: &'a str,
+    tracks: &'a [&'a ReviewTrack],
+}
+
+/// Cancel a stalled peer's whole group and send it on together where the
+/// remaining candidates allow (#17).
+///
+/// The preference is re-run over the group's untried candidates, so a second
+/// peer covering most of it takes the batch as a unit. Any peer covering two of
+/// its tracks qualifies, whatever `minimum_coverage` says: that floor is sized
+/// for a whole batch, and against a group of three it would scatter one a
+/// second peer covers two thirds of.
+fn move_group(
+    store: &mut ReviewStore,
+    client: &dyn SoulseekClient,
+    settings: &Settings,
+    by_path: &HashMap<&str, &Transfer>,
+    group: &Group<'_>,
+    now: f64,
+    outcomes: &mut Vec<StallOutcome>,
+) -> crate::errors::Result<PeerStall> {
+    let mut errors = Vec::with_capacity(group.tracks.len());
+    let mut lists = Vec::with_capacity(group.tracks.len());
+    for entry in group.tracks {
+        errors.push(
+            entry
+                .approved()
+                .map_or_else(String::new, |approved| cancel(client, by_path, approved)),
+        );
+        lists.push(store.untried(entry.id)?);
+    }
+
+    let regroup = UploaderSettings {
+        minimum_coverage: 2,
+        ..settings.uploader
+    };
+    let moved_to = ranking::prefer_one_uploader(&mut lists, &regroup).map(|peer| peer.username);
+
+    let mut peer = PeerStall {
+        username: group.username.to_owned(),
+        moved_to: moved_to.clone(),
+        moved: 0,
+        individually: 0,
+        exhausted: 0,
+    };
+    for ((entry, list), error) in group.tracks.iter().zip(lists).zip(errors) {
+        let taken = moved_to.as_deref().is_some_and(|to| {
+            list.first().is_some_and(|first| {
+                first.candidate.username == to
+                    && first
+                        .flags
+                        .iter()
+                        .any(|flag| flag == ranking::PREFERRED_FLAG)
+            })
+        });
+        store.reorder_untried(entry.id, &list)?;
+        let retried = retry_next(store, entry.id)?;
+        match retried {
+            None => peer.exhausted += 1,
+            Some(_) if taken => peer.moved += 1,
+            Some(_) => peer.individually += 1,
+        }
+        outcomes.push(stall_outcome(
+            entry,
+            now,
+            retried,
+            error,
+            group.username.to_owned(),
+        ));
+    }
+    Ok(peer)
+}
+
+/// Cancel the transfer still pending for this candidate, returning why that
+/// failed, if it did.
+fn cancel(
+    client: &dyn SoulseekClient,
+    by_path: &HashMap<&str, &Transfer>,
+    approved: &ScoredCandidate,
+) -> String {
+    by_path
+        .get(approved.candidate.remote_path.as_str())
+        .filter(|transfer| !transfer.state.finished())
+        .and_then(|transfer| client.cancel(&transfer.username, &transfer.id).err())
+        .map_or_else(String::new, |reason| reason.to_string())
+}
+
+/// Promote the next untried candidate, failing the track when there is none.
+fn retry_next(store: &mut ReviewStore, track_id: i64) -> crate::errors::Result<Option<i64>> {
+    let retried = store.next_candidate(track_id)?;
+    if retried.is_none() {
+        store.mark(
+            track_id,
+            TrackStatus::Failed,
+            "stalled, and no candidates left",
+        )?;
+    }
+    Ok(retried)
+}
+
+fn stall_outcome(
+    entry: &ReviewTrack,
+    now: f64,
+    retried_with_rank: Option<i64>,
+    error: String,
+    peer_group: String,
+) -> StallOutcome {
+    StallOutcome {
+        track_id: entry.id,
+        query: entry.track.query(),
+        waited_seconds: entry.queued_at.map_or(0.0, |queued| now - queued),
+        retried_with_rank,
+        error,
+        peer_group,
+    }
 }
 
 /// Queue every approved pick, sorting each into a folder named for its artist.
@@ -453,6 +653,8 @@ pub struct Patience {
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Waited {
     pub stalled: Vec<StallOutcome>,
+    /// Preferred peers whose whole group was moved at once (#17).
+    pub stalled_peers: Vec<PeerStall>,
     pub queued: Vec<EnqueueOutcome>,
     pub collected: Vec<CollectOutcome>,
     pub rounds: usize,
@@ -529,9 +731,9 @@ pub fn wait_for_downloads(
         waited
             .collected
             .extend(collect(store, client, settings, index, roots, now, true)?);
-        waited
-            .stalled
-            .extend(retry_stalled(store, client, settings, now)?);
+        let stalled = retry_stalled(store, client, settings, now)?;
+        waited.stalled.extend(stalled.tracks);
+        waited.stalled_peers.extend(stalled.peers);
         let promoted: Vec<ReviewTrack> = store
             .tracks(&[TrackStatus::Approved], None)?
             .into_iter()

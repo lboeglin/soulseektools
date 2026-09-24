@@ -949,7 +949,9 @@ fn a_stalled_transfer_is_cancelled_and_the_next_candidate_promoted() {
         "",
     )]);
     let now = 1000.0 + settings.slskd.stall_after_seconds + 1.0;
-    let outcomes = fetch::retry_stalled(&mut store, &client, &settings, now).expect("a retry");
+    let outcomes = fetch::retry_stalled(&mut store, &client, &settings, now)
+        .expect("a retry")
+        .tracks;
 
     assert_eq!(outcomes.len(), 1);
     assert_eq!(outcomes[0].retried_with_rank, Some(2));
@@ -977,7 +979,9 @@ fn a_transfer_still_inside_its_grace_period_is_left_alone() {
         "",
     )]);
     let now = 1000.0 + settings.slskd.stall_after_seconds - 1.0;
-    let outcomes = fetch::retry_stalled(&mut store, &client, &settings, now).expect("a retry");
+    let outcomes = fetch::retry_stalled(&mut store, &client, &settings, now)
+        .expect("a retry")
+        .tracks;
 
     assert!(outcomes.is_empty());
     assert!(client
@@ -1004,7 +1008,9 @@ fn a_stalled_track_with_nothing_left_to_try_fails() {
         "",
     )]);
     let now = 1000.0 + settings.slskd.stall_after_seconds + 1.0;
-    let outcomes = fetch::retry_stalled(&mut store, &client, &settings, now).expect("a retry");
+    let outcomes = fetch::retry_stalled(&mut store, &client, &settings, now)
+        .expect("a retry")
+        .tracks;
 
     assert_eq!(outcomes.len(), 1);
     assert_eq!(outcomes[0].retried_with_rank, None);
@@ -1208,6 +1214,359 @@ fn turning_the_preference_off_leaves_the_scores_in_charge() {
         .all(|outcome| outcome.preferred_uploader.is_empty()));
     for entry in store.tracks(&[], None).expect("the queued tracks") {
         assert!(entry.candidates[0].candidate.username.starts_with("solo"));
+    }
+}
+
+/// The batch the group-stall tests start from (#17): each track won by its own
+/// `solo` peer, `bulk` a close second on every one and so preferred for all of
+/// them, and `bulk2` a slightly further third on the tracks named in `second`.
+fn steered_client(second: &[&str]) -> PerTrackClient {
+    PerTrackClient {
+        lists: BATCH
+            .iter()
+            .enumerate()
+            .map(|(index, title)| {
+                let mut list = vec![
+                    from_peer(&format!("solo{index}"), title, 0, true),
+                    from_peer("bulk", title, 0, false),
+                ];
+                if second.contains(title) {
+                    list.push(from_peer("bulk2", title, 100, false));
+                }
+                ((*title).to_owned(), list)
+            })
+            .collect(),
+    }
+}
+
+/// The batch searched, every track approved at its first candidate -- `bulk`'s
+/// -- and the first `first` of them queued at 1000, the rest at `later`.
+fn steered_and_queued(
+    store: &mut ReviewStore,
+    settings: &Settings,
+    client: &PerTrackClient,
+    first: usize,
+    later: f64,
+) -> Vec<i64> {
+    queued_with(store, &batch_tracks());
+    fetch::search_pending(store, client, settings, None).expect("a search");
+    let ids: Vec<i64> = store
+        .tracks(&[], None)
+        .expect("tracks")
+        .iter()
+        .map(|entry| entry.id)
+        .collect();
+    for id in &ids {
+        store.approve(*id, 1).expect("an approval");
+        assert_eq!(approved_peer(store, *id), "bulk");
+    }
+    fetch::enqueue_approved(store, &FakeClient::default(), Some(first), 1000.0)
+        .expect("an enqueue");
+    fetch::enqueue_approved(store, &FakeClient::default(), None, later).expect("an enqueue");
+    ids
+}
+
+fn batch_transfer(username: &str, title: &str, state: TransferState, error: &str) -> Transfer {
+    Transfer {
+        id: format!("{username}:{title}"),
+        username: username.to_owned(),
+        ..transfer(&format!(r"@@{username}\Music\{title}.flac"), state, error)
+    }
+}
+
+fn every_batch_transfer(username: &str, state: TransferState) -> Vec<Transfer> {
+    BATCH
+        .iter()
+        .map(|title| batch_transfer(username, title, state, ""))
+        .collect()
+}
+
+fn approved_candidate(store: &ReviewStore, track_id: i64) -> ScoredCandidate {
+    store
+        .track(track_id)
+        .expect("a lookup")
+        .expect("the track")
+        .approved()
+        .expect("an approval")
+        .clone()
+}
+
+fn approved_peer(store: &ReviewStore, track_id: i64) -> String {
+    approved_candidate(store, track_id).candidate.username
+}
+
+fn cancelled_ids(client: &FakeClient) -> Vec<String> {
+    client
+        .cancelled
+        .lock()
+        .expect("the fake is not poisoned")
+        .iter()
+        .map(|(_, id)| id.clone())
+        .collect()
+}
+
+fn stalled_after(settings: &Settings, queued_at: f64) -> f64 {
+    queued_at + settings.slskd.stall_after_seconds + 1.0
+}
+
+#[test]
+fn a_preferred_peer_stalling_on_every_file_moves_its_whole_group_together() {
+    let scratch = Scratch::new("fetch-group-stall");
+    let settings = settings(&scratch);
+    let mut store = store(&scratch);
+    let ids = steered_and_queued(&mut store, &settings, &steered_client(&BATCH), 3, 1000.0);
+    let client = FakeClient::with_transfers(every_batch_transfer("bulk", TransferState::Queued));
+
+    let stalled = fetch::retry_stalled(
+        &mut store,
+        &client,
+        &settings,
+        stalled_after(&settings, 1000.0),
+    )
+    .expect("a retry");
+
+    assert_eq!(
+        stalled.peers,
+        vec![fetch::PeerStall {
+            username: "bulk".to_owned(),
+            moved_to: Some("bulk2".to_owned()),
+            moved: 3,
+            individually: 0,
+            exhausted: 0,
+        }]
+    );
+    assert_eq!(cancelled_ids(&client).len(), 3);
+    assert_eq!(stalled.tracks.len(), 3);
+    for (outcome, id) in stalled.tracks.iter().zip(&ids) {
+        assert_eq!(outcome.peer_group, "bulk");
+        // The tried `bulk` row is renumbered first, so the move lands on rank 2
+        // and the positional lookup still finds the file it names.
+        assert_eq!(outcome.retried_with_rank, Some(2));
+        let approved = approved_candidate(&store, *id);
+        assert_eq!(approved.candidate.username, "bulk2");
+        assert!(approved
+            .flags
+            .iter()
+            .any(|flag| flag == stk::soulseek::ranking::PREFERRED_FLAG));
+        assert_eq!(status(&store, *id), TrackStatus::Approved);
+    }
+}
+
+#[test]
+fn a_group_moves_together_as_far_as_the_next_peer_covers_it() {
+    let scratch = Scratch::new("fetch-group-partial");
+    let settings = settings(&scratch);
+    let mut store = store(&scratch);
+    let ids = steered_and_queued(
+        &mut store,
+        &settings,
+        &steered_client(&BATCH[..2]),
+        3,
+        1000.0,
+    );
+    let client = FakeClient::with_transfers(every_batch_transfer("bulk", TransferState::Queued));
+
+    let stalled = fetch::retry_stalled(
+        &mut store,
+        &client,
+        &settings,
+        stalled_after(&settings, 1000.0),
+    )
+    .expect("a retry");
+
+    assert_eq!(stalled.peers.len(), 1);
+    assert_eq!(stalled.peers[0].moved_to.as_deref(), Some("bulk2"));
+    assert_eq!(stalled.peers[0].moved, 2);
+    assert_eq!(stalled.peers[0].individually, 1);
+    assert_eq!(approved_peer(&store, ids[0]), "bulk2");
+    assert_eq!(approved_peer(&store, ids[1]), "bulk2");
+    assert_eq!(approved_peer(&store, ids[2]), "solo2");
+}
+
+#[test]
+fn a_peer_stalling_on_one_file_while_delivering_the_rest_is_not_down() {
+    let scratch = Scratch::new("fetch-group-one-stall");
+    let settings = settings(&scratch);
+    let mut store = store(&scratch);
+    let ids = steered_and_queued(&mut store, &settings, &steered_client(&BATCH), 3, 1000.0);
+    let client = FakeClient::with_transfers(vec![
+        batch_transfer("bulk", BATCH[0], TransferState::Queued, ""),
+        batch_transfer("bulk", BATCH[1], TransferState::Completed, ""),
+        batch_transfer("bulk", BATCH[2], TransferState::Completed, ""),
+    ]);
+    collect(&mut store, &client, &settings, false).expect("a collect");
+
+    let stalled = fetch::retry_stalled(
+        &mut store,
+        &client,
+        &settings,
+        stalled_after(&settings, 1000.0),
+    )
+    .expect("a retry");
+
+    assert!(stalled.peers.is_empty());
+    assert_eq!(stalled.tracks.len(), 1);
+    assert!(stalled.tracks[0].peer_group.is_empty());
+    assert_eq!(cancelled_ids(&client), vec![format!("bulk:{}", BATCH[0])]);
+    assert_eq!(approved_peer(&store, ids[0]), "solo0");
+}
+
+#[test]
+fn a_peer_slskd_reports_offline_moves_its_group_on_a_single_stall() {
+    let scratch = Scratch::new("fetch-group-offline");
+    let settings = settings(&scratch);
+    let mut store = store(&scratch);
+    let now = stalled_after(&settings, 1000.0);
+    let ids = steered_and_queued(
+        &mut store,
+        &settings,
+        &steered_client(&BATCH),
+        1,
+        now - 10.0,
+    );
+    let offline = FakeClient::with_transfers(vec![
+        batch_transfer("bulk", BATCH[0], TransferState::Queued, ""),
+        batch_transfer("bulk", BATCH[1], TransferState::Queued, ""),
+        batch_transfer(
+            "bulk",
+            BATCH[2],
+            TransferState::Failed,
+            "User bulk appears to be offline",
+        ),
+    ]);
+
+    let stalled = fetch::retry_stalled(&mut store, &offline, &settings, now).expect("a retry");
+
+    assert_eq!(stalled.peers.len(), 1);
+    assert_eq!(stalled.peers[0].moved, 2);
+    assert_eq!(
+        cancelled_ids(&offline),
+        vec![format!("bulk:{}", BATCH[0]), format!("bulk:{}", BATCH[1])]
+    );
+    assert_eq!(approved_peer(&store, ids[0]), "bulk2");
+    assert_eq!(approved_peer(&store, ids[1]), "bulk2");
+    // A failed transfer is `collect`'s to retry, not the stall pass's.
+    assert_eq!(status(&store, ids[2]), TrackStatus::Queued);
+}
+
+#[test]
+fn one_stall_with_no_word_of_the_peer_being_offline_stays_per_track() {
+    let scratch = Scratch::new("fetch-group-not-offline");
+    let settings = settings(&scratch);
+    let mut store = store(&scratch);
+    let now = stalled_after(&settings, 1000.0);
+    let ids = steered_and_queued(
+        &mut store,
+        &settings,
+        &steered_client(&BATCH),
+        1,
+        now - 10.0,
+    );
+    let client = FakeClient::with_transfers(every_batch_transfer("bulk", TransferState::Queued));
+
+    let stalled = fetch::retry_stalled(&mut store, &client, &settings, now).expect("a retry");
+
+    assert!(stalled.peers.is_empty());
+    assert_eq!(stalled.tracks.len(), 1);
+    assert_eq!(approved_peer(&store, ids[0]), "solo0");
+    assert_eq!(status(&store, ids[1]), TrackStatus::Queued);
+    assert_eq!(status(&store, ids[2]), TrackStatus::Queued);
+}
+
+#[test]
+fn a_moved_group_never_goes_back_to_the_peer_that_stalled() {
+    let scratch = Scratch::new("fetch-group-no-return");
+    let settings = settings(&scratch);
+    let mut store = store(&scratch);
+    let ids = steered_and_queued(&mut store, &settings, &steered_client(&BATCH), 3, 1000.0);
+    let first = stalled_after(&settings, 1000.0);
+    fetch::retry_stalled(
+        &mut store,
+        &FakeClient::with_transfers(every_batch_transfer("bulk", TransferState::Queued)),
+        &settings,
+        first,
+    )
+    .expect("a retry");
+
+    // `bulk2` stalls in turn: only each track's own `solo` peer is left, and
+    // none of them covers two tracks, so the group scatters as it must.
+    fetch::enqueue_approved(&mut store, &FakeClient::default(), None, first).expect("an enqueue");
+    let second = stalled_after(&settings, first);
+    let stalled = fetch::retry_stalled(
+        &mut store,
+        &FakeClient::with_transfers(every_batch_transfer("bulk2", TransferState::Queued)),
+        &settings,
+        second,
+    )
+    .expect("a retry");
+    assert_eq!(stalled.peers[0].username, "bulk2");
+    assert_eq!(stalled.peers[0].moved_to, None);
+    assert_eq!(stalled.peers[0].individually, 3);
+    for (index, id) in ids.iter().enumerate() {
+        assert_eq!(approved_peer(&store, *id), format!("solo{index}"));
+    }
+
+    // And once those stall too there is nothing left: `bulk` is never offered
+    // back.
+    fetch::enqueue_approved(&mut store, &FakeClient::default(), None, second).expect("an enqueue");
+    let solos = FakeClient::with_transfers(
+        BATCH
+            .iter()
+            .enumerate()
+            .map(|(index, title)| {
+                batch_transfer(&format!("solo{index}"), title, TransferState::Queued, "")
+            })
+            .collect(),
+    );
+    let stalled = fetch::retry_stalled(
+        &mut store,
+        &solos,
+        &settings,
+        stalled_after(&settings, second),
+    )
+    .expect("a retry");
+    assert!(stalled.peers.is_empty());
+    assert!(stalled
+        .tracks
+        .iter()
+        .all(|outcome| outcome.retried_with_rank.is_none()));
+    for id in &ids {
+        assert_eq!(status(&store, *id), TrackStatus::Failed);
+    }
+}
+
+#[test]
+fn an_unflagged_stall_is_retried_on_its_own() {
+    let scratch = Scratch::new("fetch-group-off");
+    let mut settings = settings(&scratch);
+    settings.uploader.prefer_one = false;
+    let mut store = store(&scratch);
+    queued_with(&mut store, &batch_tracks());
+    fetch::search_pending(&mut store, &steered_client(&BATCH), &settings, None).expect("a search");
+    let ids: Vec<i64> = store
+        .tracks(&[], None)
+        .expect("tracks")
+        .iter()
+        .map(|entry| entry.id)
+        .collect();
+    for id in &ids {
+        store.approve(*id, 2).expect("an approval");
+    }
+    fetch::enqueue_approved(&mut store, &FakeClient::default(), None, 1000.0).expect("an enqueue");
+    let client = FakeClient::with_transfers(every_batch_transfer("bulk", TransferState::Queued));
+
+    let stalled = fetch::retry_stalled(
+        &mut store,
+        &client,
+        &settings,
+        stalled_after(&settings, 1000.0),
+    )
+    .expect("a retry");
+
+    assert!(stalled.peers.is_empty());
+    assert_eq!(stalled.tracks.len(), 3);
+    for (index, id) in ids.iter().enumerate() {
+        assert_eq!(approved_peer(&store, *id), format!("solo{index}"));
     }
 }
 
@@ -1849,6 +2208,38 @@ fn a_stall_during_the_wait_sends_the_next_candidate_in_the_same_wait() {
     );
     assert_eq!(waited.unfinished, 0);
     assert_eq!(status(&store, track_id), TrackStatus::Downloaded);
+}
+
+#[test]
+fn a_group_moved_off_a_stalled_peer_is_sent_to_its_new_peer_in_the_same_wait() {
+    let scratch = Scratch::new("fetch-wait-group");
+    let settings = settings(&scratch);
+    let mut store = store(&scratch);
+    let ids = steered_and_queued(&mut store, &settings, &steered_client(&BATCH), 3, 1000.0);
+    let client = LiveClient::default();
+    client.show(every_batch_transfer("bulk", TransferState::Queued));
+    let mut clock = TickingClock::new(|sleeps| {
+        if sleeps == 2 {
+            client.show(every_batch_transfer("bulk2", TransferState::Completed));
+        }
+    });
+    let patience = fetch::Patience {
+        timeout_seconds: 3.0 * settings.slskd.stall_after_seconds,
+        poll_seconds: settings.slskd.stall_after_seconds + 1.0,
+    };
+
+    let waited = wait(&mut store, &client, &settings, None, patience, &mut clock);
+
+    assert_eq!(waited.stalled_peers.len(), 1);
+    assert_eq!(waited.stalled_peers[0].moved, 3);
+    assert_eq!(
+        *client.enqueued.lock().expect("the fake is not poisoned"),
+        vec!["bulk2".to_owned(); 3]
+    );
+    assert_eq!(waited.unfinished, 0);
+    for id in ids {
+        assert_eq!(status(&store, id), TrackStatus::Downloaded);
+    }
 }
 
 #[test]

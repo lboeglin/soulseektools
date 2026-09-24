@@ -256,6 +256,15 @@ or content, so it can never buy a lossy file or a live recording — and a
 promoted result is flagged `preferred-uploader` in the review list, so the
 reordering is never silent. `uploader.prefer_one = false` turns it off.
 
+If that peer then goes quiet, its tracks move on together. Once more than one
+of them has stalled, or slskd reports the peer offline, every track still
+queued with them is cancelled and the same preference is run again over what
+is left, so a second peer covering the batch takes it as a unit rather than
+each track falling to a different uploader. The download report says so in one
+line — `bulk stalled; 7 track(s) moved to other; 1 fell back individually`. A
+peer that stalls on one file and delivers the rest is left to the ordinary
+per-track retry.
+
 Each result is scored on format, bitrate, uploader availability, how well the
 name matches — and on its **full remote path**. That last part matters: a file
 named exactly right is still, often enough, a live recording or an orchestral
@@ -384,7 +393,8 @@ It scans the library, queues what the export has that the library does not,
 searches for everything waiting to be searched -- leftovers from earlier runs
 included -- and walks the review queue with the same prompt as `stk review
 pick`. With `--apply` it then queues the approved picks and **waits**: it keeps
-collecting what finishes and retrying what stalls with the next candidate, until
+collecting what finishes and retrying what stalls with the next candidate (a
+stalled preferred peer's whole group at once), until
 nothing it sent is still on its way or `--timeout` passes (twice
 `slskd.stall_after_seconds` by default, long enough for a stalled transfer to be
 retried once). What is still downloading then is not abandoned; the next sync,

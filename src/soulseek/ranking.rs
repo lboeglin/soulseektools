@@ -360,7 +360,8 @@ pub const PREFERRED_FLAG: &str = "preferred-uploader";
 /// Each list is reordered in place, best first. This must run *before* the
 /// ranks are written: `set_candidates` numbers them densely from the order it
 /// is handed, and reordering a stored list would repoint an existing approval
-/// at a different file.
+/// at a different file. The one exception is a stalled peer's group, whose
+/// approvals are discarded anyway: see `ReviewStore::reorder_untried` (#17).
 pub fn prefer_one_uploader(
     batch: &mut [Vec<ScoredCandidate>],
     settings: &UploaderSettings,

@@ -461,6 +461,52 @@ fn a_transfer_sitting_too_long_is_reported_as_stalled() {
     assert_eq!(store.stalled(9000.0, 3600.0).expect("stalled").len(), 1);
 }
 
+#[test]
+fn only_candidates_nobody_has_tried_are_untried() {
+    let scratch = Scratch::new("review-untried");
+    let mut store = store(&scratch);
+    let track_id = reviewable(&mut store);
+    store.approve(track_id, 2).expect("an approval");
+
+    let untried = store.untried(track_id).expect("the untried candidates");
+
+    assert_eq!(untried, vec![scored(1, &[]), scored(3, &[])]);
+}
+
+/// A stalled peer's group is reordered after its ranks were written (#17), so
+/// the renumbering has to keep what was tried marked and leave ranks dense.
+#[test]
+fn reordering_the_untried_candidates_keeps_the_tried_ones_first_and_tried() {
+    let scratch = Scratch::new("review-reorder");
+    let mut store = store(&scratch);
+    let track_id = reviewable(&mut store);
+    store.approve(track_id, 2).expect("an approval");
+
+    store
+        .reorder_untried(track_id, &[scored(3, &["moved"]), scored(1, &[])])
+        .expect("a reorder");
+
+    let entry = store.track(track_id).expect("a lookup").expect("the track");
+    assert_eq!(entry.approved_rank, None);
+    assert_eq!(
+        entry.candidates,
+        vec![scored(2, &[]), scored(3, &["moved"]), scored(1, &[])]
+    );
+    assert_eq!(store.untried(track_id).expect("untried").len(), 2);
+    assert_eq!(store.next_candidate(track_id).expect("a retry"), Some(2));
+    assert_eq!(
+        store
+            .track(track_id)
+            .expect("a lookup")
+            .expect("the track")
+            .approved()
+            .expect("an approval")
+            .candidate
+            .username,
+        "peer3"
+    );
+}
+
 /// v3 adds `attempted` to a table an existing database already holds rows in,
 /// so the column has to arrive without disturbing them (#6).
 #[test]

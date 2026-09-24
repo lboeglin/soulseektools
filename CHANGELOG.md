@@ -11,6 +11,22 @@ a set of ad-hoc scripts and a Nicotine+ plugin, and was then rewritten in Rust.
 
 ### Added
 
+- A stalled preferred uploader takes its whole group with it (#17). The batch
+  pass steers a batch to one peer, but the stall retry worked one track at a
+  time: when that peer went offline, each of its tracks timed out on its own
+  and fell to its own next candidate -- a different peer per track, since the
+  preference had reordered the lists. Eight tracks from one uploader became
+  eight uploaders, the outcome the preference exists to avoid, reached slowly.
+
+  Now, once more than one of a preferred peer's tracks has stalled, or slskd
+  reports the peer offline, every track still queued with them is cancelled
+  and the preference is run again over their untried candidates, so a second
+  peer covering two or more of them takes them together. `fetch download` and
+  `sync` report it as one line -- which peer stalled, how many tracks moved and
+  to whom, how many fell back individually -- and under `--json` as
+  `stalled_peers`. A peer stalling on one file while delivering the rest, or a
+  stall on a candidate that was never preferred, keeps the per-track retry.
+
 - `stk verify` catches upsampled files, not only transcodes (#16). A 128 kbps
   MP3 re-encoded at 320 and a 44.1 kHz/16-bit master padded out to 96 kHz/24-bit
   both got through: the first was never looked at, since only lossless

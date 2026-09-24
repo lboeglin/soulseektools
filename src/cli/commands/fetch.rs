@@ -87,7 +87,7 @@ fn download(context: &AppContext, limit: Option<usize>, collect_only: bool) -> R
     // Before queueing, so a promoted candidate goes out in this same run.
     // `--collect` queues nothing new, stalls included.
     let (stalled, queued) = if collect_only {
-        (Vec::new(), Vec::new())
+        (fetch::Stalled::default(), Vec::new())
     } else {
         (
             fetch::retry_stalled(&mut store, &client, context.settings(), now)?,
@@ -106,14 +106,15 @@ fn download(context: &AppContext, limit: Option<usize>, collect_only: bool) -> R
 
     if context.as_json {
         context.emit(&json!({
-            "stalled": stalled.iter().map(stall_row).collect::<Vec<_>>(),
+            "stalled": stalled.tracks.iter().map(stall_row).collect::<Vec<_>>(),
+            "stalled_peers": stalled.peers.iter().map(peer_stall_row).collect::<Vec<_>>(),
             "queued": queued.iter().map(enqueue_row).collect::<Vec<_>>(),
             "collected": collected.iter().map(collect_row).collect::<Vec<_>>(),
         }));
         return Ok(0);
     }
 
-    report_stalled(context, &stalled);
+    report_stalled(context, &stalled.tracks, &stalled.peers);
     report_queued(context, &queued);
     report_collected(context, &collected);
 
@@ -121,7 +122,7 @@ fn download(context: &AppContext, limit: Option<usize>, collect_only: bool) -> R
         "Queued {} track(s); recorded {} finished transfer(s);          gave up on {} stalled one(s)",
         queued.iter().filter(|outcome| outcome.queued).count(),
         collected.len(),
-        stalled.len()
+        stalled.tracks.len()
     ));
     Ok(0)
 }
@@ -158,6 +159,17 @@ pub(crate) fn stall_row(outcome: &fetch::StallOutcome) -> serde_json::Value {
         "waited_seconds": outcome.waited_seconds,
         "retried_with_rank": outcome.retried_with_rank,
         "error": outcome.error,
+        "peer_group": outcome.peer_group,
+    })
+}
+
+pub(crate) fn peer_stall_row(outcome: &fetch::PeerStall) -> serde_json::Value {
+    json!({
+        "username": outcome.username,
+        "moved_to": outcome.moved_to,
+        "moved": outcome.moved,
+        "individually": outcome.individually,
+        "exhausted": outcome.exhausted,
     })
 }
 
@@ -224,7 +236,14 @@ fn describe_tags(retagged: &Retagged) -> String {
     note
 }
 
-pub(crate) fn report_stalled(context: &AppContext, stalled: &[fetch::StallOutcome]) {
+pub(crate) fn report_stalled(
+    context: &AppContext,
+    stalled: &[fetch::StallOutcome],
+    peers: &[fetch::PeerStall],
+) {
+    for peer in peers {
+        context.say(&describe_peer_stall(peer));
+    }
     if stalled.is_empty() {
         return;
     }
@@ -232,6 +251,10 @@ pub(crate) fn report_stalled(context: &AppContext, stalled: &[fetch::StallOutcom
         .iter()
         .map(|outcome| {
             let note = match outcome.retried_with_rank {
+                Some(rank) if !outcome.peer_group.is_empty() => format!(
+                    "moved with {}'s group to candidate {rank}",
+                    outcome.peer_group
+                ),
                 Some(rank) => format!("retrying with candidate {rank}"),
                 None => "no candidates left".to_owned(),
             };
@@ -244,6 +267,21 @@ pub(crate) fn report_stalled(context: &AppContext, stalled: &[fetch::StallOutcom
         })
         .collect();
     context.say(&table(&["Stalled", "Waited", "Note", "Error"], &rows));
+}
+
+/// "peer X stalled; N tracks moved to peer Y, M fell back individually" (#17).
+fn describe_peer_stall(peer: &fetch::PeerStall) -> String {
+    let mut line = format!("{} stalled", peer.username);
+    if let Some(to) = peer.moved_to.as_deref().filter(|_| peer.moved > 0) {
+        let _ = write!(line, "; {} track(s) moved to {to}", peer.moved);
+    }
+    if peer.individually > 0 {
+        let _ = write!(line, "; {} fell back individually", peer.individually);
+    }
+    if peer.exhausted > 0 {
+        let _ = write!(line, "; {} had nothing left to try", peer.exhausted);
+    }
+    line
 }
 
 pub(crate) fn report_queued(context: &AppContext, queued: &[fetch::EnqueueOutcome]) {
