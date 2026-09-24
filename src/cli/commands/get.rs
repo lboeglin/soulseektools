@@ -28,10 +28,7 @@ use crate::soulseek::base::SoulseekClient;
 use crate::soulseek::ranking;
 use crate::soulseek::slskd::{HttpTransport, SlskdClient};
 use crate::text::normalize::{flatten, normalize};
-
-/// The en and em dashes are deliberate: a track name pasted out of a browser or
-/// a music player usually carries one rather than a plain hyphen.
-pub const SEPARATORS: &[&str] = &[" - ", " \u{2013} ", " \u{2014} "];
+use crate::wantlist::split_query;
 
 // Four switches, which `clippy::pedantic` reads as a struct wanting a state
 // machine. This is a command line: each one is something someone types, and an
@@ -73,20 +70,6 @@ pub struct GetArgs {
     /// How many candidates to offer, or folders under `--album`.
     #[arg(short = 'n', long, default_value_t = 5)]
     pub limit: usize,
-}
-
-/// Split `artist - title` into its parts, tolerating either being absent.
-///
-/// A query with no separator is treated as a title: searching for a title alone
-/// works, searching for a bare artist does not.
-#[must_use]
-pub fn split_query(query: &str) -> (String, String) {
-    for separator in SEPARATORS {
-        if let Some((artist, title)) = query.split_once(separator) {
-            return (artist.trim().to_owned(), title.trim().to_owned());
-        }
-    }
-    (String::new(), query.trim().to_owned())
 }
 
 /// Read the wanted tracks from the arguments and from `--from`.

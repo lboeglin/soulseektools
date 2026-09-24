@@ -4,16 +4,15 @@
 //! wantlist only when a library file is convincingly the same song; anything
 //! uncertain stays in the list, because downloading a duplicate costs a few
 //! megabytes and silently skipping a track loses it.
-//!
-//! Column names vary between exporters, so the reader accepts the common
-//! spellings rather than requiring one exact header.
 
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
-use crate::errors::{Error, Result};
+use crate::errors::Result;
 use crate::matching::{blocking_keys, score_track, MatchThresholds, NameForms};
 use crate::models::{LibraryEntry, Track};
+
+mod delimited;
 
 pub const ARTIST_COLUMNS: &[&str] = &[
     "artist name",
@@ -56,74 +55,13 @@ impl WantlistDiff {
     }
 }
 
+/// The en and em dashes are deliberate: a track name pasted out of a browser or
+/// a music player usually carries one rather than a plain hyphen.
+pub const SEPARATORS: &[&str] = &[" - ", " \u{2013} ", " \u{2014} "];
+
 /// Read a streaming-service CSV export into tracks.
 pub fn read_export(path: &Path) -> Result<Vec<Track>> {
-    let mut reader = csv::Reader::from_path(path)
-        .map_err(|error| Error::Config(format!("{}: {error}", path.display())))?;
-
-    let headers = reader
-        .headers()
-        .map_err(|error| Error::Config(format!("{}: {error}", path.display())))?
-        .clone();
-    if headers.is_empty() {
-        return Err(Error::Config(format!("{}: file is empty", path.display())));
-    }
-
-    let lowered: Vec<String> = headers
-        .iter()
-        .map(|name| name.trim().to_lowercase())
-        .collect();
-    let position = |names: &[&str]| {
-        names
-            .iter()
-            .find_map(|wanted| lowered.iter().position(|name| name == wanted))
-    };
-
-    let (Some(artist_at), Some(title_at)) = (position(ARTIST_COLUMNS), position(TITLE_COLUMNS))
-    else {
-        return Err(Error::Config(format!(
-            "{}: need an artist and a title column, found {}",
-            path.display(),
-            lowered.join(", ")
-        )));
-    };
-    let album_at = position(ALBUM_COLUMNS);
-    let duration_at = position(DURATION_COLUMNS);
-
-    let mut tracks = Vec::new();
-    for record in reader.records() {
-        let record =
-            record.map_err(|error| Error::Config(format!("{}: {error}", path.display())))?;
-        let cell = |at: Option<usize>| {
-            at.and_then(|at| record.get(at))
-                .unwrap_or("")
-                .trim()
-                .to_owned()
-        };
-
-        let artist = cell(Some(artist_at));
-        let title = cell(Some(title_at));
-        if artist.is_empty() && title.is_empty() {
-            continue;
-        }
-
-        tracks.push(Track {
-            artist,
-            title,
-            album: cell(album_at),
-            duration_seconds: duration_at
-                .and_then(|at| record.get(at))
-                .and_then(parse_duration),
-            title_guessed: false,
-            source_row: headers
-                .iter()
-                .zip(record.iter())
-                .filter(|(key, _)| !key.is_empty())
-                .map(|(key, value)| (key.to_owned(), value.to_owned()))
-                .collect(),
-        });
-    }
-    Ok(tracks)
+    delimited::read(path)
 }
 
 /// Split wanted tracks into those already owned and those still missing.
@@ -193,8 +131,22 @@ fn candidates(
     ordered
 }
 
+/// Split `artist - title` into its parts, tolerating either being absent.
+///
+/// A query with no separator is treated as a title: searching for a title alone
+/// works, searching for a bare artist does not.
+#[must_use]
+pub fn split_query(query: &str) -> (String, String) {
+    for separator in SEPARATORS {
+        if let Some((artist, title)) = query.split_once(separator) {
+            return (artist.trim().to_owned(), title.trim().to_owned());
+        }
+    }
+    (String::new(), query.trim().to_owned())
+}
+
 /// Read a duration, accepting both milliseconds and `m:ss`.
-fn parse_duration(raw: &str) -> Option<f64> {
+pub(crate) fn parse_duration(raw: &str) -> Option<f64> {
     let text = raw.trim();
     if text.is_empty() {
         return None;

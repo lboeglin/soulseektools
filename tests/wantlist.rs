@@ -6,7 +6,7 @@ use std::path::PathBuf;
 
 use stk::matching::{MatchThresholds, NameForms};
 use stk::models::{LibraryEntry, ReplayGainTags, Track, TrackTags};
-use stk::wantlist::{diff, read_export, WantlistDiff};
+use stk::wantlist::{diff, read_export, split_query, WantlistDiff};
 use support::Scratch;
 
 fn entry(artist: &str, title: &str) -> LibraryEntry {
@@ -255,4 +255,19 @@ fn an_empty_cell_reads_as_no_value() {
         track.source_value(stk::wantlist::TRACK_NUMBER_COLUMNS),
         None
     );
+}
+
+#[test]
+fn a_query_splits_on_a_hyphen_or_either_dash() {
+    for query in [
+        "DECO*27 - Roki",
+        "DECO*27 \u{2013} Roki",
+        "DECO*27 \u{2014} Roki",
+    ] {
+        assert_eq!(
+            split_query(query),
+            ("DECO*27".to_owned(), "Roki".to_owned())
+        );
+    }
+    assert_eq!(split_query("Roki"), (String::new(), "Roki".to_owned()));
 }

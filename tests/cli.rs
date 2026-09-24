@@ -2021,25 +2021,6 @@ fn get_with_nothing_to_search_for_is_rejected() {
 }
 
 #[test]
-fn get_splits_an_artist_from_a_title() {
-    use stk::cli::commands::get::split_query;
-
-    assert_eq!(
-        split_query("DECO*27 - Roki"),
-        ("DECO*27".to_owned(), "Roki".to_owned())
-    );
-    assert_eq!(
-        split_query("DECO*27 \u{2013} Roki"),
-        ("DECO*27".to_owned(), "Roki".to_owned())
-    );
-    assert_eq!(
-        split_query("DECO*27 \u{2014} Roki"),
-        ("DECO*27".to_owned(), "Roki".to_owned())
-    );
-    assert_eq!(split_query("Roki"), (String::new(), "Roki".to_owned()));
-}
-
-#[test]
 fn the_library_flag_overrides_the_configured_root() {
     let _guard = exclusive();
     let harness = Harness::new("cli-library-flag");
