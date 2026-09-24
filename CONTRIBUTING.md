@@ -19,7 +19,7 @@ cargo clippy --all-targets -- -D warnings
 cargo test
 ```
 
-CI runs all three on Linux and Windows.
+CI runs all three on Linux, macOS and Windows.
 
 The tests that diff against `oracle/` -- reference output from the original
 Python build, captured against a real library -- skip when it is absent, which is
