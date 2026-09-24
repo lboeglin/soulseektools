@@ -1,0 +1,25 @@
+{
+  "lovedtracks": {
+    "track": [
+      {
+        "artist": {"url": "https://www.last.fm/music/DECO*27", "name": "DECO*27", "mbid": ""},
+        "date": {"uts": "1612096440", "#text": "31 Jan 2021, 12:34"},
+        "mbid": "",
+        "url": "https://www.last.fm/music/DECO*27/_/Rabbit+Hole",
+        "name": "Rabbit Hole",
+        "image": [{"size": "small", "#text": "https://lastfm.freetls.fastly.net/i/u/34s/2a96cbd8b46e442fc41c2b86b821562f.png"}],
+        "streamable": {"fulltrack": "0", "#text": "0"}
+      },
+      {
+        "artist": {"url": "https://www.last.fm/music/Ado", "name": "Ado", "mbid": ""},
+        "date": {"uts": "1612010040", "#text": "30 Jan 2021, 12:34"},
+        "mbid": "",
+        "url": "https://www.last.fm/music/Ado/_/%E3%81%86%E3%81%A3%E3%81%9B%E3%81%87%E3%82%8F",
+        "name": "うっせぇわ",
+        "image": [{"size": "small", "#text": "https://lastfm.freetls.fastly.net/i/u/34s/2a96cbd8b46e442fc41c2b86b821562f.png"}],
+        "streamable": {"fulltrack": "0", "#text": "0"}
+      }
+    ],
+    "@attr": {"user": "rj", "totalPages": "2", "page": "1", "perPage": "2", "total": "3"}
+  }
+}

@@ -16,7 +16,7 @@ use serde_json::{json, Value};
 use stk::errors::{Error, Result};
 use stk::services::ServiceHttp;
 use stk::wantlist::discogs::{MIN_INTERVAL_SECONDS, MIN_INTERVAL_WITH_TOKEN_SECONDS, RELEASE_URL};
-use stk::wantlist::{read_export, Discogs, Format, Remote, TRACK_NUMBER_COLUMNS};
+use stk::wantlist::{read_export, Discogs, Format, LastFm, Remote, TRACK_NUMBER_COLUMNS};
 use support::Scratch;
 
 const HEADER: &str = "Catalog#,Artist,Title,Label,Format,Rating,Released,release_id,\
@@ -110,7 +110,16 @@ fn discogs(scratch: &Scratch, token: Option<&str>) -> Discogs {
 }
 
 fn read(path: &Path, http: &Recorded, discogs: &Discogs) -> Result<Vec<stk::models::Track>> {
-    read_export(path, None, Some(&Remote { http, discogs }))
+    let lastfm = LastFm::new(None, 0.0);
+    read_export(
+        path,
+        None,
+        Some(&Remote {
+            http,
+            discogs,
+            lastfm: &lastfm,
+        }),
+    )
 }
 
 #[test]

@@ -85,8 +85,8 @@ Settings resolve in this order, first match winning:
 5. the built-in defaults
 
 Secrets are the exception and are never read from the file: export
-`SLSKD_API_KEY`, and `DISCOGS_TOKEN` if you read a Discogs collection,
-instead. `stk config show` prints the effective settings with
+`SLSKD_API_KEY` instead, and `DISCOGS_TOKEN` or `LASTFM_API_KEY` if you read a
+wantlist from Discogs or Last.fm. `stk config show` prints the effective settings with
 secrets omitted, so the output is safe to paste.
 
 Music on two drives, with the folders you would rather not index left out:
@@ -259,7 +259,6 @@ takes the same flags.
   titles with no artist column is also read, each title split on ` - ` as
   `stk get` splits a query; the split is a guess, so a download's own title
   tag is trusted over it.
-
 - **A Discogs collection export** (Collection > Export). It lists releases,
   not songs, so each release's tracklist is looked up through the Discogs
   API and every song on it is wanted -- credited to its own artist on a
@@ -271,6 +270,17 @@ takes the same flags.
 
   ```bash
   stk wantlist diff "me-collection-20260924.csv"
+  ```
+
+- **A Last.fm profile**, named as `lastfm:<user>` where the file would go.
+  Its loved tracks are the wantlist; `--min-plays 20` adds every track the
+  user has played at least twenty times. Last.fm answers nothing without an
+  API key, public profile or not: create one at
+  <https://www.last.fm/api/account/create> and export it as
+  `LASTFM_API_KEY`.
+
+  ```bash
+  stk wantlist diff lastfm:rj --min-plays 20
   ```
 
 Re-run the same diff against a grown export and it reports everything missing

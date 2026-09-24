@@ -1,0 +1,18 @@
+{
+  "toptracks": {
+    "track": [
+      {
+        "streamable": {"fulltrack": "0", "#text": "0"},
+        "mbid": "",
+        "name": "ヴァンパイア",
+        "image": [{"size": "small", "#text": "https://lastfm.freetls.fastly.net/i/u/34s/2a96cbd8b46e442fc41c2b86b821562f.png"}],
+        "artist": {"url": "https://www.last.fm/music/DECO*27", "name": "DECO*27", "mbid": ""},
+        "url": "https://www.last.fm/music/DECO*27/_/%E3%83%B4%E3%82%A1%E3%83%B3%E3%83%91%E3%82%A4%E3%82%A2",
+        "duration": "171",
+        "@attr": {"rank": "4"},
+        "playcount": "3"
+      }
+    ],
+    "@attr": {"user": "rj", "totalPages": "40", "page": "2", "perPage": "3", "total": "120"}
+  }
+}

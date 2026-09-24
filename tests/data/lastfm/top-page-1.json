@@ -1,0 +1,40 @@
+{
+  "toptracks": {
+    "track": [
+      {
+        "streamable": {"fulltrack": "0", "#text": "0"},
+        "mbid": "",
+        "name": "Rabbit Hole",
+        "image": [{"size": "small", "#text": "https://lastfm.freetls.fastly.net/i/u/34s/2a96cbd8b46e442fc41c2b86b821562f.png"}],
+        "artist": {"url": "https://www.last.fm/music/DECO*27", "name": "DECO*27", "mbid": ""},
+        "url": "https://www.last.fm/music/DECO*27/_/Rabbit+Hole",
+        "duration": "154",
+        "@attr": {"rank": "1"},
+        "playcount": "212"
+      },
+      {
+        "streamable": {"fulltrack": "0", "#text": "0"},
+        "mbid": "",
+        "name": "Ghost Rule",
+        "image": [{"size": "small", "#text": "https://lastfm.freetls.fastly.net/i/u/34s/2a96cbd8b46e442fc41c2b86b821562f.png"}],
+        "artist": {"url": "https://www.last.fm/music/DECO*27", "name": "DECO*27", "mbid": ""},
+        "url": "https://www.last.fm/music/DECO*27/_/Ghost+Rule",
+        "duration": "0",
+        "@attr": {"rank": "2"},
+        "playcount": "57"
+      },
+      {
+        "streamable": {"fulltrack": "0", "#text": "0"},
+        "mbid": "",
+        "name": "Roki",
+        "image": [{"size": "small", "#text": "https://lastfm.freetls.fastly.net/i/u/34s/2a96cbd8b46e442fc41c2b86b821562f.png"}],
+        "artist": {"url": "https://www.last.fm/music/Mikito-P", "name": "みきとP", "mbid": ""},
+        "url": "https://www.last.fm/music/Mikito-P/_/Roki",
+        "duration": "215",
+        "@attr": {"rank": "3"},
+        "playcount": "9"
+      }
+    ],
+    "@attr": {"user": "rj", "totalPages": "40", "page": "1", "perPage": "3", "total": "120"}
+  }
+}

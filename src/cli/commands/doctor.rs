@@ -87,6 +87,16 @@ fn checks(context: &AppContext) -> Vec<Check> {
             },
             required: false,
         },
+        Check {
+            name: "lastfm api key",
+            ok: settings.wantlist.lastfm_api_key.is_some(),
+            detail: if settings.wantlist.lastfm_api_key.is_some() {
+                "set".to_owned()
+            } else {
+                "export LASTFM_API_KEY to read lastfm:<user>".to_owned()
+            },
+            required: false,
+        },
     ]
 }
 

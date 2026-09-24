@@ -421,8 +421,9 @@ impl Default for IdentifySettings {
 
 /// Reading a wantlist from a web service rather than a file (#20).
 ///
-/// The Discogs token is absent from the serialised form, as the slskd key is:
-/// it comes from `DISCOGS_TOKEN` only, so a config file stays safe to commit.
+/// The Discogs token and the Last.fm key are absent from the serialised form,
+/// as the slskd key is: they come from `DISCOGS_TOKEN` and `LASTFM_API_KEY`
+/// only, so a config file stays safe to commit.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, default)]
 pub struct WantlistSettings {
@@ -436,6 +437,10 @@ pub struct WantlistSettings {
     /// Optional: Discogs answers without it, at 25 requests a minute rather than 60.
     #[serde(skip)]
     pub discogs_token: Option<String>,
+    /// Required for `lastfm:<user>`: Last.fm refuses any request without one,
+    /// public profile or not.
+    #[serde(skip)]
+    pub lastfm_api_key: Option<String>,
 }
 
 impl Default for WantlistSettings {
@@ -444,6 +449,7 @@ impl Default for WantlistSettings {
             request_timeout_seconds: 15.0,
             discogs_cache: default_data_path("discogs.json"),
             discogs_token: None,
+            lastfm_api_key: None,
         }
     }
 }
@@ -602,6 +608,7 @@ pub const APP_NAME: &str = "soulseektools";
 pub const CONFIG_FILENAME: &str = "stk.toml";
 pub const API_KEY_ENV_VAR: &str = "SLSKD_API_KEY";
 pub const DISCOGS_TOKEN_ENV_VAR: &str = "DISCOGS_TOKEN";
+pub const LASTFM_API_KEY_ENV_VAR: &str = "LASTFM_API_KEY";
 const ENV_PREFIX: &str = "STK_";
 const ENV_NESTED_DELIMITER: &str = "__";
 
@@ -763,6 +770,7 @@ pub fn load_settings(config_path: Option<&Path>, overrides: &Overrides) -> Resul
     settings.validate(&location)?;
     settings.slskd.api_key = secret(API_KEY_ENV_VAR);
     settings.wantlist.discogs_token = secret(DISCOGS_TOKEN_ENV_VAR);
+    settings.wantlist.lastfm_api_key = secret(LASTFM_API_KEY_ENV_VAR);
 
     Ok(Resolved {
         settings,
@@ -860,8 +868,8 @@ pub fn write_config(path: &Path, settings: &Settings) -> Result<PathBuf> {
     }
 
     let header = "# SoulseekTools configuration.\n\
-                  # Secrets are never read from this file: export SLSKD_API_KEY\n\
-                  # and DISCOGS_TOKEN instead.\n\n";
+                  # Secrets are never read from this file: export SLSKD_API_KEY,\n\
+                  # DISCOGS_TOKEN and LASTFM_API_KEY instead.\n\n";
     std::fs::write(path, format!("{header}{}", render_toml(settings)?))
         .map_err(|error| Error::Config(format!("{}: {error}", path.display())))?;
     Ok(path.to_path_buf())

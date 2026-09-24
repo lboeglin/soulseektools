@@ -17,7 +17,7 @@ use serde_json::Value;
 use support::{committed, encode, noise_source, Encoded, Scratch};
 
 /// The variables secrets are read from, which a test must neither inherit nor leak.
-const SECRETS: &[&str] = &["SLSKD_API_KEY", "DISCOGS_TOKEN"];
+const SECRETS: &[&str] = &["SLSKD_API_KEY", "DISCOGS_TOKEN", "LASTFM_API_KEY"];
 
 fn exclusive() -> MutexGuard<'static, ()> {
     static LOCK: Mutex<()> = Mutex::new(());
@@ -1707,6 +1707,43 @@ fn an_unknown_format_is_refused_by_the_parser() {
         run(&["wantlist", "diff", "export.csv", "--format", "xls"]),
         0
     );
+    drop(harness);
+}
+
+#[test]
+fn a_lastfm_profile_without_an_api_key_is_refused_before_any_request() {
+    let _guard = exclusive();
+    let harness = Harness::new("cli-wantlist-lastfm-no-key");
+    let root = library(&harness);
+    harness.with_config(&root);
+
+    assert_eq!(run(&["wantlist", "diff", "lastfm:rj"]), 1);
+    assert_eq!(run(&["sync", "lastfm:rj"]), 1);
+    assert_eq!(run(&["playlist", "export", "lastfm:rj"]), 1);
+    drop(harness);
+}
+
+#[test]
+fn a_format_for_a_lastfm_profile_is_refused() {
+    let _guard = exclusive();
+    let harness = Harness::new("cli-wantlist-lastfm-format");
+    let root = library(&harness);
+    harness.with_config(&root);
+    unsafe { std::env::set_var("LASTFM_API_KEY", "k3y") };
+
+    let code = run(&["wantlist", "diff", "lastfm:rj", "--format", "csv"]);
+
+    unsafe { std::env::remove_var("LASTFM_API_KEY") };
+    assert_eq!(code, 1);
+    drop(harness);
+}
+
+#[test]
+fn a_lastfm_source_without_a_user_is_refused_by_the_parser() {
+    let _guard = exclusive();
+    let harness = Harness::new("cli-wantlist-lastfm-no-user");
+    harness.with_config(&harness.join("Music"));
+    assert_eq!(run(&["wantlist", "diff", "lastfm:"]), 2);
     drop(harness);
 }
 

@@ -11,6 +11,14 @@ a set of ad-hoc scripts and a Nicotine+ plugin, and was then rewritten in Rust.
 
 ### Added
 
+- A Last.fm profile is read as a wantlist, named `lastfm:<user>` wherever an
+  export file goes (#20). Its loved tracks are wanted, and `--min-plays N`
+  adds every track the user has played at least N times, read from their
+  top tracks until the play counts drop below N. Last.fm needs an API key
+  even for a public profile; it is read from `LASTFM_API_KEY`, and a read
+  without one is refused before any request is made. `stk doctor` reports
+  whether it is set.
+
 - A Discogs collection export is read as a wantlist (#20). It lists releases,
   so each one's tracklist is looked up through the Discogs API, paced to 25
   requests a minute or to 60 with a `DISCOGS_TOKEN`, and kept in

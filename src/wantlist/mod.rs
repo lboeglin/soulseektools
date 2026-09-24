@@ -2,7 +2,7 @@
 //!
 //! A wantlist is any list of songs someone wants: a streaming-service export,
 //! a Last.fm scrobble log, a YouTube Takeout, an Apple Music library, a
-//! playlist, a Discogs collection. Each shape has its own reader, and every reader produces the same
+//! playlist, a Discogs collection, a Last.fm profile. Each shape has its own reader, and every reader produces the same
 //! [`Track`]s, with the source's own fields kept in `source_row` for
 //! `--missing` and for tagging a download (#11).
 //!
@@ -14,7 +14,7 @@
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::io::Read as _;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
 use crate::errors::{Error, Result};
@@ -23,11 +23,16 @@ use crate::models::{LibraryEntry, Track};
 use crate::services::ServiceHttp;
 
 pub use discogs::Discogs;
+pub use lastfm::LastFm;
 
 mod apple;
 mod delimited;
 pub mod discogs;
+pub mod lastfm;
 mod m3u;
+
+/// The prefix naming a Last.fm user where an export file would go.
+pub const LASTFM_PREFIX: &str = "lastfm:";
 
 pub const ARTIST_COLUMNS: &[&str] = &[
     "artist name",
@@ -152,10 +157,63 @@ impl FromStr for Format {
     }
 }
 
+/// Where a wantlist is read from: a file, or a Last.fm user's profile.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Source {
+    File(PathBuf),
+    LastFm(String),
+}
+
+impl FromStr for Source {
+    type Err = String;
+
+    fn from_str(text: &str) -> std::result::Result<Self, Self::Err> {
+        match text.strip_prefix(LASTFM_PREFIX) {
+            Some(user) if user.trim().is_empty() => Err(format!(
+                "{LASTFM_PREFIX} needs a username, as in {LASTFM_PREFIX}rj"
+            )),
+            Some(user) => Ok(Self::LastFm(user.trim().to_owned())),
+            None => Ok(Self::File(PathBuf::from(text))),
+        }
+    }
+}
+
 /// The web services a wantlist may be read through, beyond the file itself.
 pub struct Remote<'a> {
     pub http: &'a dyn ServiceHttp,
     pub discogs: &'a Discogs,
+    pub lastfm: &'a LastFm,
+}
+
+/// Read a wantlist from wherever it is, keeping under `min_plays` only what
+/// was played that often.
+///
+/// A file lists a play per row, so `min_plays` counts its repeats. A Last.fm
+/// profile counts its own plays, so there `min_plays` adds the tracks played
+/// that often to the loved ones.
+pub fn read_source(
+    source: &Source,
+    format: Option<Format>,
+    min_plays: Option<usize>,
+    remote: &Remote<'_>,
+) -> Result<Vec<Track>> {
+    match source {
+        Source::File(path) => {
+            let tracks = read_export(path, format, Some(remote))?;
+            Ok(match min_plays {
+                Some(min_plays) => keep_played(tracks, min_plays),
+                None => tracks,
+            })
+        }
+        Source::LastFm(user) => {
+            if let Some(format) = format {
+                return Err(Error::Config(format!(
+                    "--format {format} reads a file, and {LASTFM_PREFIX}{user} is a Last.fm profile"
+                )));
+            }
+            remote.lastfm.read(remote.http, user, min_plays)
+        }
+    }
 }
 
 /// Read a wantlist into tracks, as `format`, or as whatever it looks like.

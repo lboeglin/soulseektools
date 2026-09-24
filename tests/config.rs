@@ -17,7 +17,7 @@ use stk::config::{
 use support::Scratch;
 
 /// The variables secrets are read from, which a test must neither inherit nor leak.
-const SECRETS: &[&str] = &["SLSKD_API_KEY", "DISCOGS_TOKEN"];
+const SECRETS: &[&str] = &["SLSKD_API_KEY", "DISCOGS_TOKEN", "LASTFM_API_KEY"];
 
 /// Environment and working directory are process-wide; only one test may hold
 /// them at a time.
@@ -356,6 +356,21 @@ fn the_discogs_token_is_read_from_the_environment_and_never_rendered() {
     let rendered = render_toml(&settings).expect("rendered config");
     assert!(!rendered.contains("s3cret"), "{rendered}");
     assert!(!rendered.contains("token"), "{rendered}");
+}
+
+#[test]
+fn the_lastfm_api_key_is_read_from_the_environment_and_never_rendered() {
+    let _guard = exclusive();
+    let scratch = Scratch::new("config-lastfm-key");
+    let environment = CleanEnvironment::enter(scratch.path());
+    assert_eq!(load(None).settings.wantlist.lastfm_api_key, None);
+    environment.set("LASTFM_API_KEY", "s3cret");
+
+    let settings = load(None).settings;
+    assert_eq!(settings.wantlist.lastfm_api_key.as_deref(), Some("s3cret"));
+    let rendered = render_toml(&settings).expect("rendered config");
+    assert!(!rendered.contains("s3cret"), "{rendered}");
+    assert!(!rendered.contains("api_key"), "{rendered}");
 }
 
 #[test]

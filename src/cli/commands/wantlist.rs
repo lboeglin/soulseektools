@@ -11,19 +11,19 @@ use crate::config::Settings;
 use crate::errors::{Error, Result};
 use crate::models::Track;
 use crate::services::HttpTransport;
-use crate::wantlist::{self, Discogs, Format, Remote, WantlistDiff};
+use crate::wantlist::{self, lastfm, Discogs, Format, LastFm, Remote, Source, WantlistDiff};
 
 /// Where the wanted tracks come from, shared by every command that reads them.
 #[derive(Args, Debug)]
 pub struct ExportArgs {
-    /// A streaming-service or Last.fm CSV, a YouTube Takeout, an Apple Music Library.xml, an M3U playlist, or a Discogs collection CSV.
-    pub export: PathBuf,
+    /// A streaming-service or Last.fm CSV, a YouTube Takeout, an Apple Music Library.xml, an M3U playlist, a Discogs collection CSV, or lastfm:<user> for a Last.fm user's loved tracks.
+    pub export: Source,
 
     /// Read the export as this format (csv, apple, m3u, discogs) instead of guessing from its content.
     #[arg(long, value_name = "FORMAT")]
     pub format: Option<Format>,
 
-    /// Keep only tracks listed at least this many times, once each, as in a scrobble log.
+    /// Keep only tracks listed at least this many times, once each, as in a scrobble log; with lastfm:<user>, also want every track played this many times.
     #[arg(long, value_name = "N")]
     pub min_plays: Option<usize>,
 }
@@ -37,16 +37,16 @@ impl ExportArgs {
             Discogs::min_interval_seconds(wantlist.discogs_token.as_deref()),
             wantlist.discogs_cache.clone(),
         );
+        let lastfm = LastFm::new(
+            wantlist.lastfm_api_key.clone(),
+            lastfm::MIN_INTERVAL_SECONDS,
+        );
         let remote = Remote {
             http: &http,
             discogs: &discogs,
+            lastfm: &lastfm,
         };
-
-        let tracks = wantlist::read_export(&self.export, self.format, Some(&remote))?;
-        Ok(match self.min_plays {
-            Some(min_plays) => wantlist::keep_played(tracks, min_plays),
-            None => tracks,
-        })
+        wantlist::read_source(&self.export, self.format, self.min_plays, &remote)
     }
 }
 
