@@ -82,6 +82,26 @@ pub trait ServiceHttp {
     fn get_bytes(&self, url: &str) -> Result<Vec<u8>>;
 }
 
+/// A refusal in the service's own words, where its error body has them.
+///
+/// Last.fm answers a bad key with a 403 and Discogs a deleted release with a
+/// 404, each with a JSON `message` saying which; the status alone says neither.
+fn refused(
+    url: &reqwest::Url,
+    status: reqwest::StatusCode,
+    response: reqwest::blocking::Response,
+) -> String {
+    let message = response.json::<Value>().ok().and_then(|body| {
+        body.get("message")
+            .and_then(Value::as_str)
+            .map(str::to_owned)
+    });
+    match message {
+        Some(message) => format!("{url}: {status}: {message}"),
+        None => format!("{url}: {status}"),
+    }
+}
+
 /// The real transport, shared by every service client.
 pub struct HttpTransport {
     client: reqwest::blocking::Client,
@@ -108,8 +128,11 @@ impl ServiceHttp for HttpTransport {
             .client
             .get(url.clone())
             .send()
-            .and_then(reqwest::blocking::Response::error_for_status)
             .map_err(|error| Error::Config(format!("{url}: {error}")))?;
+        let status = response.status();
+        if !status.is_success() {
+            return Err(Error::Config(refused(&url, status, response)));
+        }
         response
             .json()
             .map_err(|error| Error::Config(format!("{url}: {error}")))
