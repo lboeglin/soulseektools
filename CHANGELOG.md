@@ -503,6 +503,14 @@ a set of ad-hoc scripts and a Nicotine+ plugin, and was then rewritten in Rust.
 
 ### Fixed
 
+- `stk organise` folded case only on Windows, but macOS volumes are
+  case-insensitive too. There a case-only rename was refused as a collision
+  with itself, and two moves whose destinations differed only in case were
+  both planned, so the second rename replaced the first file. The collision
+  check now folds case on macOS as well, and whether a destination is the
+  file being moved is asked of the filesystem on Unix rather than guessed from
+  the platform, so a case-sensitive APFS volume or an exFAT drive on Linux is
+  judged by what it actually does. Found while adding macOS to CI (#19).
 - `stk get` read an exhausted stdin as the empty answer, which takes the top
   candidate, so `stk get "..." < /dev/null` chose and downloaded a file with
   nobody at the keyboard -- against the invariant that nothing downloads without

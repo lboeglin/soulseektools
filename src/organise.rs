@@ -436,13 +436,33 @@ pub fn same_path(left: &Path, right: &Path) -> bool {
 
 /// Whether two paths reach the same file.
 ///
-/// Case-folded on Windows, where `Foo.flac` and `foo.flac` are one file. That
-/// makes it different from [`same_path`], and the difference is the point: a
-/// case-only rename is two spellings of one file, so it is a real change to
-/// make and not a collision to refuse.
+/// On Windows and macOS, `Foo.flac` and `foo.flac` are one file. That makes it
+/// different from [`same_path`], and the difference is the point: a case-only
+/// rename is two spellings of one file, so it is a real change to make and not
+/// a collision to refuse.
+///
+/// On Unix the filesystem is asked when both exist, because case sensitivity
+/// belongs to the volume rather than the platform: APFS can be formatted
+/// case-sensitive, and an exFAT drive mounted on Linux is not.
 #[must_use]
 pub fn same_file(left: &Path, right: &Path) -> bool {
-    comparable(left) == comparable(right)
+    match (identity(left), identity(right)) {
+        (Some(left), Some(right)) => left == right,
+        _ => comparable(left) == comparable(right),
+    }
+}
+
+#[cfg(unix)]
+fn identity(path: &Path) -> Option<(u64, u64)> {
+    use std::os::unix::fs::MetadataExt;
+    std::fs::metadata(path)
+        .ok()
+        .map(|metadata| (metadata.dev(), metadata.ino()))
+}
+
+#[cfg(not(unix))]
+fn identity(_path: &Path) -> Option<(u64, u64)> {
+    None
 }
 
 fn spelling(path: &Path) -> String {
@@ -452,9 +472,14 @@ fn spelling(path: &Path) -> String {
         .join("/")
 }
 
+/// A path spelled the way the platform's default filesystem tells names apart.
+///
+/// Folding where the volume turns out to be case-sensitive only costs a
+/// refused move; not folding where it is insensitive lets a second rename
+/// overwrite the first.
 fn comparable(path: &Path) -> String {
     let text = spelling(path);
-    if cfg!(windows) {
+    if cfg!(any(windows, target_os = "macos")) {
         text.to_lowercase()
     } else {
         text

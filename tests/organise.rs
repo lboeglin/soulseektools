@@ -310,6 +310,69 @@ fn a_case_only_rename_is_a_move_and_not_a_collision() {
     );
 }
 
+/// Whether the scratch volume treats names differing only in case as one file.
+fn folds_case(scratch: &Scratch) -> bool {
+    let probe = scratch.join("case-probe");
+    std::fs::write(&probe, b"").expect("a probe file");
+    scratch.join("CASE-PROBE").exists()
+}
+
+#[test]
+fn a_different_file_differing_only_in_case_is_occupied_where_case_matters() {
+    // Folding case wherever the platform usually does would take this for a
+    // case-only rename and overwrite a second file on a case-sensitive volume.
+    let scratch = Scratch::new("organise-case-sensitive");
+    if folds_case(&scratch) {
+        return;
+    }
+    let root = scratch.join("Music");
+    let source = encode(&root.join("ZUN").join("song.flac"), &Encoded::default());
+    encode(&root.join("ZUN").join("Song.flac"), &Encoded::default());
+
+    let planned = plan_moves(
+        &[entry(
+            &source.display().to_string(),
+            tagged("ZUN", "", "Song", None),
+        )],
+        &pattern("{artist}/{title}"),
+        &settings(),
+        std::slice::from_ref(&root),
+        None,
+    );
+
+    assert!(matches!(planned[0].blocked, Some(Obstacle::Occupied(_))));
+}
+
+#[test]
+fn two_moves_differing_only_in_case_collide_where_the_volume_folds_case() {
+    // On macOS the claim check compared exact spellings, so both moves were
+    // ready and the second rename replaced the first file.
+    let scratch = Scratch::new("organise-case-claimed");
+    if !folds_case(&scratch) {
+        return;
+    }
+    let root = scratch.join("Music");
+    let planned = plan_moves(
+        &[
+            entry(
+                &root.join("one.flac").display().to_string(),
+                tagged("ZUN", "", "Song", None),
+            ),
+            entry(
+                &root.join("two.flac").display().to_string(),
+                tagged("zun", "", "song", None),
+            ),
+        ],
+        &pattern("{artist}/{title}"),
+        &settings(),
+        std::slice::from_ref(&root),
+        None,
+    );
+
+    assert!(planned[0].ready(), "{:?}", planned[0].blocked);
+    assert!(matches!(planned[1].blocked, Some(Obstacle::Claimed(_))));
+}
+
 #[test]
 fn a_move_carries_the_row_and_its_fingerprint_to_the_new_path() {
     let scratch = Scratch::new("organise-relocate");
