@@ -74,6 +74,22 @@ anything required is unavailable.
 `cargo install --path .` builds from the clone, not from a registry.
 Re-run it after pulling changes; `cargo uninstall stk` removes it.
 
+### Shell completions
+
+`stk completions <shell>` prints a completion script for bash, zsh, fish,
+PowerShell or elvish. It is generated from the commands themselves, so
+regenerate it after an update to pick up new flags.
+
+```bash
+stk completions bash > ~/.local/share/bash-completion/completions/stk
+stk completions zsh > "${fpath[1]}/_stk"
+stk completions fish > ~/.config/fish/completions/stk.fish
+```
+
+```powershell
+stk completions powershell | Out-String | Invoke-Expression   # add to $PROFILE to keep it
+```
+
 ## Configuration
 
 Settings resolve in this order, first match winning:

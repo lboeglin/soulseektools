@@ -11,6 +11,11 @@ a set of ad-hoc scripts and a Nicotine+ plugin, and was then rewritten in Rust.
 
 ### Added
 
+- `stk completions bash|zsh|fish|powershell|elvish` prints a completion
+  script, generated from the command definitions so it covers every command
+  group and flag (#19). It needs no configuration, so a broken `stk.toml`
+  does not stop it.
+
 - A Last.fm profile is read as a wantlist, named `lastfm:<user>` wherever an
   export file goes (#20). Its loved tracks are wanted, and `--min-plays N`
   adds every track the user has played at least N times, read from their

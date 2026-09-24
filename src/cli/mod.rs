@@ -107,6 +107,9 @@ pub enum Command {
     /// Inspect and undo what the writing commands changed.
     #[command(subcommand)]
     Changes(commands::changes::ChangesCommand),
+
+    /// Print a completion script for a shell.
+    Completions(commands::completions::CompletionsArgs),
 }
 
 /// Parse the arguments, resolve the settings once, and run the command.
@@ -124,6 +127,10 @@ pub fn run(arguments: Vec<std::ffi::OsString>) -> i32 {
             return i32::from(error.exit_code() != 0) * 2;
         }
     };
+
+    if let Command::Completions(args) = &cli.command {
+        return commands::completions::run(args);
+    }
 
     let overrides = Overrides {
         library_root: cli.library.clone(),
@@ -157,6 +164,7 @@ pub fn run(arguments: Vec<std::ffi::OsString>) -> i32 {
         Command::Fetch(command) => commands::fetch::run(&context, command),
         Command::Sync(args) => commands::sync::run(&context, &args),
         Command::Changes(command) => commands::changes::run(&context, command),
+        Command::Completions(_) => unreachable!("answered before the settings are loaded"),
     };
 
     match outcome {

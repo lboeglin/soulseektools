@@ -179,6 +179,49 @@ fn version_is_reported() {
 }
 
 #[test]
+fn completions_are_printed_for_every_shell_without_a_config() {
+    let _guard = exclusive();
+    let _harness = Harness::new("cli-completions");
+    for shell in ["bash", "elvish", "fish", "powershell", "zsh"] {
+        assert_eq!(run(&["completions", shell]), 0, "{shell}");
+    }
+}
+
+#[test]
+fn completions_are_printed_whatever_the_config_holds() {
+    let _guard = exclusive();
+    let harness = Harness::new("cli-completions-broken-config");
+    std::fs::write(harness.join("stk.toml"), "not = [valid").expect("a written config");
+
+    assert_eq!(run(&["completions", "bash"]), 0);
+    assert_eq!(run(&["doctor"]), 1);
+    drop(harness);
+}
+
+#[test]
+fn a_completion_script_names_the_commands_it_completes() {
+    for shell in ["bash", "powershell"] {
+        let output = std::process::Command::new(env!("CARGO_BIN_EXE_stk"))
+            .args(["completions", shell])
+            .output()
+            .expect("stk runs");
+        let script = String::from_utf8(output.stdout).expect("a UTF-8 script");
+
+        assert!(output.status.success(), "{shell}");
+        for word in ["stk", "organise", "--json", "--apply"] {
+            assert!(script.contains(word), "{shell} script lacks {word}");
+        }
+    }
+}
+
+#[test]
+fn an_unknown_shell_is_a_usage_error() {
+    let _guard = exclusive();
+    let _harness = Harness::new("cli-completions-unknown");
+    assert_eq!(run(&["completions", "cmd"]), 2);
+}
+
+#[test]
 fn no_arguments_prints_help_without_failing_hard() {
     let _guard = exclusive();
     let _harness = Harness::new("cli-bare");
