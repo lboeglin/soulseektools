@@ -21,6 +21,19 @@ cargo test
 
 CI runs all three on Linux, macOS and Windows.
 
+CI also checks the dependency tree against the RustSec advisory database and
+the licence list in `deny.toml`, so a vulnerable, yanked or unexpectedly
+licensed crate fails the build rather than waiting to be noticed. Locally:
+
+```bash
+cargo install cargo-deny --locked
+cargo deny check
+```
+
+A new dependency whose licence is not on the list needs a decision, not just a
+line added to it. `kakasi` is the one exception: it is GPL-3.0, which makes a
+distributed `stk` binary GPL-3.0 as well, until #21 replaces it.
+
 The tests that diff against `oracle/` -- reference output from the original
 Python build, captured against a real library -- skip when it is absent, which is
 what CI sees: `oracle/` is not committed, because it names every file in a

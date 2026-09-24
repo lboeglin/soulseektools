@@ -901,3 +901,8 @@ See [CONTRIBUTING.md](CONTRIBUTING.md).
 ## Licence
 
 MIT. See [LICENSE](LICENSE).
+
+The source is MIT, but a built `stk` links
+[kakasi](https://github.com/Theta-Dev/kakasi), which is GPL-3.0, so a
+distributed binary is GPL-3.0 as a whole. Replacing it is
+[#21](https://github.com/lboeglin/soulseektools/issues/21).
