@@ -57,7 +57,9 @@ No change lands without tests for its behaviour.
 - **No network in tests.** The Soulseek backend and both HTTP clients are traits,
   and the flows run against recorded responses. That boundary is what makes the
   search and download tests runnable with no daemon and no account -- it is not
-  an implementation detail to be optimised away.
+  an implementation detail to be optimised away. The real transport itself is
+  tested against a one-shot server on the loopback interface, never a live
+  service.
 - **Audio fixtures are generated where they can be.** `tests/support/mod.rs`
   writes FLAC and WAV from a signal it synthesises, so no tool has to be
   installed to run the suite. What it cannot write is committed under
@@ -110,7 +112,8 @@ src/
   retag.rs          what a fetched file is tagged with, from its review row
   tagsheet.rs       reading an edited `tags dump` back
   wantlist/         reading an export into wanted tracks, one reader per
-                    format, and diffing them against the library
+                    format -- a Discogs collection and a Last.fm profile
+                    through their APIs -- and diffing them against the library
   identify/         the AcoustID lookup, and choosing a release from its answer
   text/             normalisation and romaji transliteration
   library/          scanning, tags, the SQLite index, the --apply write log,
