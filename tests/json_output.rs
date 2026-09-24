@@ -12,6 +12,8 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use serde_json::Value;
+use stk::models::{Candidate, ScoredCandidate, Track};
+use stk::review::store::ReviewStore;
 use support::{transcode_to_flac, Scratch};
 
 /// What a document is at its top level.
@@ -52,7 +54,51 @@ impl Home {
         )
         .expect("a written export");
         std::fs::write(scratch.join("sheet.csv"), "path,artist,title\n").expect("a written sheet");
+        std::fs::write(
+            scratch.join("legacy.csv"),
+            "artist,title,cand1_user,cand1_path,approve\n\
+             ZUN,Native Faith,peer,@@peer\\ZUN\\Native Faith.flac,1\n",
+        )
+        .expect("a written legacy review");
         Self { scratch }
+    }
+
+    /// Two tracks one peer holds in a single folder, waiting to be reviewed.
+    fn with_album_in_review(self) -> Self {
+        let mut store =
+            ReviewStore::open(&self.scratch.join("review.db")).expect("the review queue");
+        for title in ["Roki", "Ghost Rule"] {
+            store
+                .add(&[Track::new("DECO*27", title)])
+                .expect("an added track");
+            let track_id = store
+                .tracks(&[], None)
+                .expect("tracks")
+                .into_iter()
+                .find(|entry| entry.track.title == title)
+                .expect("the track just added")
+                .id;
+            store
+                .set_candidates(
+                    track_id,
+                    &[ScoredCandidate {
+                        candidate: Candidate {
+                            username: "bulk".to_owned(),
+                            remote_path: format!(r"@@bulk\Music\Best Of\{title}.flac"),
+                            size: 30_000_000,
+                            bit_depth: Some(16),
+                            sample_rate: Some(44100),
+                            free_upload_slots: true,
+                            ..Candidate::default()
+                        },
+                        score: 100,
+                        title_ratio: 0.99,
+                        flags: Vec::new(),
+                    }],
+                )
+                .expect("recorded candidates");
+        }
+        self
     }
 
     fn path(&self) -> &Path {
@@ -156,6 +202,12 @@ const SETTINGS: &[&str] = &[
 /// outright, since it asks a question per track.
 const DOCUMENTS: &[(&[&str], i32, Shape)] = &[
     (&["config", "show"], 0, Shape::Object(SETTINGS)),
+    (&["config", "path"], 0, Shape::Object(&["path"])),
+    (
+        &["config", "init", "--path", "written.toml"],
+        0,
+        Shape::Object(&["written"]),
+    ),
     (&["doctor"], 0, Shape::Rows(DOCTOR)),
     (
         &["library", "scan"],
@@ -252,6 +304,11 @@ const DOCUMENTS: &[(&[&str], i32, Shape)] = &[
     ),
     (&["review", "list"], 0, Shape::Object(&["counts", "tracks"])),
     (&["review", "albums"], 0, Shape::Rows(&[])),
+    (
+        &["review", "import", "legacy.csv"],
+        0,
+        Shape::Object(&["added", "approvals"]),
+    ),
     (&["fetch", "search"], 0, Shape::Rows(SEARCHED)),
     (
         &["sync", "export.csv", "--yes"],
@@ -284,4 +341,47 @@ fn verify_fails_a_fake_file_under_json_as_it_does_without() {
 
     assert_eq!(code, 1, "{stderr}");
     assert_eq!(rows[0]["verdict"], "FAKE", "{rows}");
+}
+
+const DECIDED: &[&str] = &["id", "artist", "title", "status", "detail", "approved_rank"];
+
+fn decided(home: &Home, arguments: &[&str]) -> Value {
+    let (code, stdout, stderr) = home.stk(arguments);
+    assert_eq!(code, 0, "stk --json {}\n{stderr}", arguments.join(" "));
+    let row: Value = serde_json::from_str(&stdout).expect("a document");
+    let keys = row.as_object().expect("an object").keys().cloned();
+    assert_eq!(sorted(keys), expected(DECIDED), "{row}");
+    row
+}
+
+#[test]
+fn a_decision_on_the_review_queue_prints_the_track_as_it_now_stands() {
+    let home = Home::new("json-review-decisions").with_album_in_review();
+
+    let approved = decided(&home, &["review", "approve", "1", "1"]);
+    assert_eq!(approved["status"], "approved", "{approved}");
+    assert_eq!(approved["approved_rank"], 1, "{approved}");
+
+    let rejected = decided(&home, &["review", "reject", "2", "--reason", "live cut"]);
+    assert_eq!(rejected["status"], "rejected", "{rejected}");
+
+    let reset = decided(&home, &["review", "reset", "2"]);
+    assert_eq!(reset["status"], "pending", "{reset}");
+}
+
+#[test]
+fn approving_an_album_prints_every_track_it_took() {
+    let home = Home::new("json-review-album").with_album_in_review();
+
+    let (code, stdout, stderr) = home.stk(&["review", "approve-album", "1"]);
+    let album: Value = serde_json::from_str(&stdout).expect("a document");
+
+    assert_eq!(code, 0, "{stderr}");
+    assert_eq!(album["username"], "bulk", "{album}");
+    assert_eq!(album["album"], "Best Of", "{album}");
+    assert_eq!(
+        album["approved"].as_array().map(Vec::len),
+        Some(2),
+        "{album}"
+    );
 }

@@ -3,8 +3,9 @@
 use std::path::PathBuf;
 
 use clap::Subcommand;
+use serde_json::json;
 
-use crate::cli::context::{fail, show, AppContext};
+use crate::cli::context::{show, AppContext};
 use crate::config::{default_config_path, render_toml, write_config, CONFIG_FILENAME};
 use crate::errors::Result;
 
@@ -46,7 +47,11 @@ fn init(context: &AppContext, path: Option<PathBuf>, user: bool) -> Result<i32> 
 
     match write_config(&target, context.settings()) {
         Ok(written) => {
-            context.say(&format!("Wrote {}", show(&written)));
+            if context.as_json {
+                context.emit(&json!({"written": show(&written)}));
+            } else {
+                context.say(&format!("Wrote {}", show(&written)));
+            }
             Ok(0)
         }
         Err(error) => {
@@ -67,11 +72,15 @@ fn show_settings(context: &AppContext) -> Result<i32> {
 }
 
 fn show_path(context: &AppContext) -> i32 {
+    let source = context.resolved.source_path.as_deref();
+    if context.as_json {
+        context.emit(&json!({"path": source.map(show)}));
+        return 0;
+    }
     // Printed unwrapped: this line is meant to be substituted into other commands.
-    match &context.resolved.source_path {
+    match source {
         Some(path) => println!("{}", show(path)),
         None => println!("no config file found; using defaults"),
     }
-    let _ = fail;
     0
 }

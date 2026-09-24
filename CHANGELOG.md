@@ -11,6 +11,13 @@ a set of ad-hoc scripts and a Nicotine+ plugin, and was then rewritten in Rust.
 
 ### Added
 
+- Every command now has a `--json` form (#19). `config path` and
+  `config init` print `{path}` and `{written}`; `review approve`, `reject`
+  and `reset` print the track as the queue now holds it, with the keys a
+  `review list` row has; `review approve-album` prints the tracks it took,
+  and `review import` what it added. The README lists the top level of
+  every command's document.
+
 - `stk completions bash|zsh|fish|powershell|elvish` prints a completion
   script, generated from the command definitions so it covers every command
   group and flag (#19). It needs no configuration, so a broken `stk.toml`

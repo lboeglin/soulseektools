@@ -16,7 +16,7 @@ use crate::models::TrackStatus;
 use crate::review::albums::{self, AlbumOffer};
 use crate::review::legacy_csv::import_csv;
 use crate::review::picker;
-use crate::review::store::ReviewStore;
+use crate::review::store::{ReviewStore, ReviewTrack};
 
 #[derive(Subcommand, Debug)]
 pub enum ReviewCommand {
@@ -350,6 +350,18 @@ fn approve_album(context: &AppContext, index: usize) -> Result<i32> {
     };
 
     store.approve_all(&offer.picks())?;
+    if context.as_json {
+        context.emit(&json!({
+            "username": offer.username,
+            "album": offer.name(),
+            "approved": offer
+                .picks()
+                .iter()
+                .map(|(track_id, rank)| json!({"id": track_id, "approved_rank": rank}))
+                .collect::<Vec<_>>(),
+        }));
+        return Ok(0);
+    }
     context.say(&format!(
         "Approved {} track(s) from {}'s \"{}\"",
         offer.covered(),
@@ -373,6 +385,10 @@ fn approve(context: &AppContext, track_id: i64, rank: i64) -> Result<i32> {
     }
 
     if let Some(entry) = store.track(track_id)? {
+        if context.as_json {
+            context.emit(&decided_row(&entry));
+            return Ok(0);
+        }
         if let Some(approved) = entry.approved() {
             context.say(&format!(
                 "Approved candidate {rank}: {}",
@@ -390,8 +406,12 @@ fn reject(context: &AppContext, track_id: i64, reason: &str) -> Result<i32> {
         return Ok(1);
     }
     store.reject(track_id, reason)?;
-    context.say(&format!("Rejected track {track_id}"));
-    Ok(0)
+    report_decided(
+        context,
+        &store,
+        track_id,
+        &format!("Rejected track {track_id}"),
+    )
 }
 
 fn reset(context: &AppContext, track_id: i64) -> Result<i32> {
@@ -401,8 +421,41 @@ fn reset(context: &AppContext, track_id: i64) -> Result<i32> {
         return Ok(1);
     }
     store.reset(track_id)?;
-    context.say(&format!("Track {track_id} will be searched again"));
+    report_decided(
+        context,
+        &store,
+        track_id,
+        &format!("Track {track_id} will be searched again"),
+    )
+}
+
+/// Show where a track stands after a decision on it.
+fn report_decided(
+    context: &AppContext,
+    store: &ReviewStore,
+    track_id: i64,
+    line: &str,
+) -> Result<i32> {
+    if context.as_json {
+        if let Some(entry) = store.track(track_id)? {
+            context.emit(&decided_row(&entry));
+        }
+    } else {
+        context.say(line);
+    }
     Ok(0)
+}
+
+/// A track as `review list` shows it, less the candidates the decision settled.
+fn decided_row(entry: &ReviewTrack) -> serde_json::Value {
+    json!({
+        "id": entry.id,
+        "artist": entry.track.artist,
+        "title": entry.track.title,
+        "status": entry.status.to_string(),
+        "detail": entry.detail,
+        "approved_rank": entry.approved_rank,
+    })
 }
 
 fn import(context: &AppContext, path: &std::path::Path) -> Result<i32> {
@@ -413,6 +466,10 @@ fn import(context: &AppContext, path: &std::path::Path) -> Result<i32> {
 
     let mut store = context.open_review()?;
     let result = import_csv(path, &mut store)?;
+    if context.as_json {
+        context.emit(&json!({"added": result.added, "approvals": result.approvals}));
+        return Ok(0);
+    }
     context.say(&format!(
         "Imported {} new track(s), carrying over {} approval(s)",
         result.added, result.approvals

@@ -894,6 +894,53 @@ rather than by a combined `"Artist/Album"` string, because an artist name may
 itself contain a slash. `stk genre check` still reports on artists alone: one
 album's worth of exception is not something to say about a roster.
 
+## Scripting with `--json`
+
+`--json` goes before the command (`stk --json library stats`) and replaces
+everything a command would print with one JSON document on stdout. Errors
+still go to stderr, and the exit code means what it means without `--json`:
+`verify` exits 1 on a `FAKE`, `doctor` on a missing requirement, `sync` when
+a step went wrong. A command with nothing to report prints its document
+empty, never nothing at all.
+
+The top level of each document, which `tests/json_output.rs` checks for
+every command that can run without slskd:
+
+| Command | Document |
+|---|---|
+| `config show` | the settings, one key per section: `library`, `index`, `review`, ... |
+| `config path` | `{path}`, `null` when no file was found |
+| `config init` | `{written}` |
+| `doctor` | rows of `{name, status, detail, ok}` |
+| `library scan` | `{roots, added, updated, unchanged, removed, failed, total}` |
+| `library stats` | `{total, tagged, with_artwork, with_genre, with_replay_gain, artists}` |
+| `library trend` | rows of `{taken_at, total, tagged, with_artwork, with_genre, lossless, verified_clean, flagged, with_replay_gain}` |
+| `verify` | rows, one per file |
+| `loudness` | `{planned, skipped, partial_albums, applied, written, failed}` |
+| `dupes titles`, `dupes content` | rows, one per pair |
+| `dupes resolve` | `{keep, min_score, quarantine, groups, skipped, applied, failed}` |
+| `art check`, `art fetch` | rows, one per file |
+| `genre check` | `{genres, untagged, unmapped_artists}` |
+| `tags dump` | rows, one per file, keyed by field |
+| `tags apply` | `{planned, skipped, applied, failed}` |
+| `tags identify` | `{identified, unmatched, planned, skipped, applied, failed}` |
+| `organise` | `{planned, blocked, applied, failed}` |
+| `playlist export`, `genre`, `artist` | rows, one per entry |
+| `wantlist diff` | `{total, missing, owned, queued, seen_before}` |
+| `review list` | `{counts, tracks}` |
+| `review albums` | rows, one per folder offer |
+| `review approve`, `reject`, `reset` | the track as it now stands: `{id, artist, title, status, detail, approved_rank}` |
+| `review approve-album` | `{username, album, approved}` |
+| `review import` | `{added, approvals}` |
+| `fetch search` | rows of `{track_id, query, found, error, preferred_uploader}` |
+| `fetch download` | `{stalled, stalled_peers, queued, collected}` |
+| `get` | the candidates found, or with `--yes` what was searched and approved |
+| `sync` | `{applied, scan, diff, search, pick, download, organise, rescan}` |
+| `changes list`, `changes undo` | rows, one per logged change |
+
+`review pick` refuses `--json`, since it asks a question per track;
+`completions` prints a shell script, not a document.
+
 ## History
 
 This replaced a set of ad-hoc scripts and a Nicotine+ plugin, and was then
