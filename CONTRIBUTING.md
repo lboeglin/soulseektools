@@ -105,6 +105,26 @@ No change lands without tests for its behaviour.
   file. The spectral classifier and the table rendering are both pure for this
   reason.
 
+## Benchmarks
+
+`benches/audio.rs` times the three paths the slow commands spend their time
+in, on the same synthesised audio the tests use:
+
+- `score_track`, behind every name comparison in `wantlist diff`, `dupes
+  titles` and the search ranking;
+- `fingerprint`, behind `dupes content` and `tags identify`;
+- `analyse`, behind `verify`, over the probe windows `verify` itself takes.
+
+```bash
+cargo bench                                # everything
+cargo bench -- fingerprint                 # one of them
+```
+
+CI builds them but does not run them: timings on a shared runner say more
+about the runner than the code. Run them before and after a change to any of
+the three, on an otherwise idle machine; criterion keeps the previous run
+under `target/criterion` and reports the difference.
+
 ## Commits
 
 [Conventional commits](https://www.conventionalcommits.org/), one logical change
