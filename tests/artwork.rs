@@ -223,15 +223,18 @@ fn a_following_request_waits_out_the_interval() {
 
 #[test]
 fn time_already_spent_counts_towards_the_interval() {
-    let limiter = RateLimiter::new(0.2);
+    // A second of interval so a loaded runner's oversleep cannot pass for a
+    // full wait: at a fifth of a second a macOS runner overslept the 50 ms
+    // remainder past the bound.
+    let limiter = RateLimiter::new(1.0);
     limiter.wait();
-    std::thread::sleep(std::time::Duration::from_millis(150));
+    std::thread::sleep(std::time::Duration::from_millis(600));
 
     let started = Instant::now();
     limiter.wait();
 
     // Only the remainder is waited out, not another full interval.
-    assert!(started.elapsed().as_secs_f64() < 0.15);
+    assert!(started.elapsed().as_secs_f64() < 0.8);
 }
 
 #[test]
