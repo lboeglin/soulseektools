@@ -14,10 +14,10 @@ use crate::wantlist::{self, Format, WantlistDiff};
 /// Where the wanted tracks come from, shared by every command that reads them.
 #[derive(Args, Debug)]
 pub struct ExportArgs {
-    /// A streaming-service or Last.fm CSV, or a YouTube Takeout.
+    /// A streaming-service or Last.fm CSV, a YouTube Takeout, or an Apple Music Library.xml.
     pub export: PathBuf,
 
-    /// Read the export as this format (csv) instead of guessing from its content.
+    /// Read the export as this format (csv, apple) instead of guessing from its content.
     #[arg(long, value_name = "FORMAT")]
     pub format: Option<Format>,
 

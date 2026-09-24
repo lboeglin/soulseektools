@@ -246,6 +246,9 @@ takes the same flags.
   once: `--min-plays 3` keeps the tracks played at least three times, once
   each, and `--min-plays 1` only collapses the repeats. It works on any
   export.
+- **An Apple Music or iTunes `Library.xml`** (File > Library > Export
+  Library). Podcasts, films, TV, music videos and audiobooks in it are
+  skipped.
 - **A YouTube Music Takeout** (`music library songs.csv`). A list of video
   titles with no artist column is also read, each title split on ` - ` as
   `stk get` splits a query; the split is a guess, so a download's own title

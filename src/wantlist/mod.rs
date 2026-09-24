@@ -1,7 +1,8 @@
 //! Reading a wantlist and working out what is missing.
 //!
 //! A wantlist is any list of songs someone wants: a streaming-service export,
-//! a Last.fm scrobble log, a YouTube Takeout. Each shape has its own reader,
+//! a Last.fm scrobble log, a YouTube Takeout, an Apple Music library. Each
+//! shape has its own reader,
 //! and every reader produces the same [`Track`]s, with the source's own fields
 //! kept in `source_row` for `--missing` and for tagging a download (#11).
 //!
@@ -12,13 +13,15 @@
 
 use std::collections::{HashMap, HashSet};
 use std::fmt;
+use std::io::Read as _;
 use std::path::Path;
 use std::str::FromStr;
 
-use crate::errors::Result;
+use crate::errors::{Error, Result};
 use crate::matching::{blocking_keys, score_track, MatchThresholds, NameForms};
 use crate::models::{LibraryEntry, Track};
 
+mod apple;
 mod delimited;
 
 pub const ARTIST_COLUMNS: &[&str] = &[
@@ -70,21 +73,37 @@ impl WantlistDiff {
 pub enum Format {
     /// A delimited export, recognised by its header, or a headerless Last.fm log.
     Csv,
+    /// An Apple Music or iTunes `Library.xml`.
+    Apple,
 }
 
 impl Format {
-    pub const ALL: [Self; 1] = [Self::Csv];
+    pub const ALL: [Self; 2] = [Self::Csv, Self::Apple];
 
     #[must_use]
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Csv => "csv",
+            Self::Apple => "apple",
         }
     }
 
     /// What `path` holds, judged by its content first and its extension second.
-    pub fn detect(_path: &Path) -> Result<Self> {
-        Ok(Self::Csv)
+    pub fn detect(path: &Path) -> Result<Self> {
+        let failed = |error: std::io::Error| Error::Config(format!("{}: {error}", path.display()));
+        let mut opening = Vec::with_capacity(512);
+        std::fs::File::open(path)
+            .and_then(|file| file.take(512).read_to_end(&mut opening))
+            .map_err(failed)?;
+        let opening = String::from_utf8_lossy(&opening);
+
+        Ok(
+            if opening.contains("<plist") || opening.contains("<!DOCTYPE plist") {
+                Self::Apple
+            } else {
+                Self::Csv
+            },
+        )
     }
 }
 
@@ -118,6 +137,7 @@ pub fn read_export(path: &Path, format: Option<Format>) -> Result<Vec<Track>> {
     };
     match format {
         Format::Csv => delimited::read(path),
+        Format::Apple => apple::read(path),
     }
 }
 

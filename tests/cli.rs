@@ -1631,6 +1631,36 @@ fn a_scrobble_log_queues_only_what_was_played_often_enough() {
 }
 
 #[test]
+fn wantlist_diff_reads_an_apple_music_library() {
+    let _guard = exclusive();
+    let harness = Harness::new("cli-wantlist-apple");
+    let root = library(&harness);
+    harness.with_config(&root);
+    run(&["library", "scan"]);
+
+    let export = harness.join("Library.xml");
+    std::fs::write(
+        &export,
+        r#"<?xml version="1.0" encoding="UTF-8"?>
+<plist version="1.0"><dict><key>Tracks</key><dict>
+<key>1</key><dict><key>Name</key><string>Roki</string><key>Artist</key><string>DECO*27</string></dict>
+<key>2</key><dict><key>Name</key><string>Senbonzakura</string><key>Artist</key><string>Hatsune Miku</string></dict>
+</dict></dict></plist>
+"#,
+    )
+    .expect("a written library");
+
+    assert_eq!(run(&["wantlist", "diff", &export.display().to_string()]), 0);
+
+    let store = stk::review::store::ReviewStore::open(&harness.join("review.db"))
+        .expect("the review queue");
+    let tracks = store.tracks(&[], None).expect("tracks");
+    assert_eq!(tracks.len(), 1);
+    assert_eq!(tracks[0].track.title, "Senbonzakura");
+    drop(harness);
+}
+
+#[test]
 fn an_unknown_format_is_refused_by_the_parser() {
     let _guard = exclusive();
     let harness = Harness::new("cli-wantlist-bad-format");

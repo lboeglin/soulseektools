@@ -361,5 +361,140 @@ fn keeping_played_tracks_collapses_repeats_and_drops_the_rare_ones() {
 fn a_format_is_named_as_the_flag_spells_it() {
     assert_eq!("csv".parse::<Format>(), Ok(Format::Csv));
     let error = "xls".parse::<Format>().expect_err("an unknown format");
-    assert!(error.contains("known: csv"), "{error}");
+    assert!(error.contains("known: csv, apple"), "{error}");
+    assert_eq!("apple".parse::<Format>(), Ok(Format::Apple));
+}
+
+/// An iTunes library in the shape Apple writes it, one `<dict>` per item.
+fn write_library(scratch: &Scratch, items: &str) -> PathBuf {
+    let path = scratch.join("Library.xml");
+    let body = format!(
+        r#"<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple Computer//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Major Version</key><integer>1</integer>
+	<key>Tracks</key>
+	<dict>{items}</dict>
+	<key>Playlists</key><array/>
+</dict>
+</plist>
+"#
+    );
+    std::fs::write(&path, body).expect("a written library");
+    path
+}
+
+const ROKI: &str = r"
+		<key>101</key>
+		<dict>
+			<key>Track ID</key><integer>101</integer>
+			<key>Name</key><string>Roki</string>
+			<key>Artist</key><string>DECO*27</string>
+			<key>Album</key><string>Ghost</string>
+			<key>Kind</key><string>Apple Lossless audio file</string>
+			<key>Total Time</key><integer>215000</integer>
+			<key>Track Number</key><integer>3</integer>
+			<key>Date Added</key><date>2021-01-31T12:34:00Z</date>
+		</dict>";
+
+#[test]
+fn reads_an_apple_music_library() {
+    let scratch = Scratch::new("wantlist-apple");
+    let path = write_library(&scratch, ROKI);
+
+    let tracks = read_export(&path, None).expect("a library");
+    assert_eq!(tracks.len(), 1);
+    assert_eq!(tracks[0].query(), "DECO*27 - Roki");
+    assert_eq!(tracks[0].album, "Ghost");
+    assert!((tracks[0].duration_seconds.expect("a duration") - 215.0).abs() < 1e-9);
+    assert_eq!(
+        tracks[0].source_value(stk::wantlist::TRACK_NUMBER_COLUMNS),
+        Some("3")
+    );
+    assert_eq!(
+        tracks[0].source_value(&["date added"]),
+        Some("2021-01-31T12:34:00Z")
+    );
+}
+
+#[test]
+fn an_apple_item_without_an_artist_falls_back_to_the_album_artist() {
+    let scratch = Scratch::new("wantlist-apple-album-artist");
+    let path = write_library(
+        &scratch,
+        r"<key>1</key><dict>
+			<key>Name</key><string>Roki</string>
+			<key>Album Artist</key><string>DECO*27</string>
+		</dict>",
+    );
+
+    assert_eq!(
+        read_export(&path, None).expect("a library")[0].artist,
+        "DECO*27"
+    );
+}
+
+#[test]
+fn podcasts_films_and_audiobooks_in_an_apple_library_are_skipped() {
+    let scratch = Scratch::new("wantlist-apple-not-music");
+    let items = format!(
+        r"{ROKI}
+		<key>2</key><dict>
+			<key>Name</key><string>Episode 12</string><key>Artist</key><string>A Show</string>
+			<key>Podcast</key><true/>
+		</dict>
+		<key>3</key><dict>
+			<key>Name</key><string>A Film</string><key>Artist</key><string>A Studio</string>
+			<key>Movie</key><true/>
+		</dict>
+		<key>4</key><dict>
+			<key>Name</key><string>Chapter 1</string><key>Artist</key><string>A Reader</string>
+			<key>Kind</key><string>Audiobook</string>
+		</dict>"
+    );
+    let path = write_library(&scratch, &items);
+
+    let titles: Vec<String> = read_export(&path, None)
+        .expect("a library")
+        .into_iter()
+        .map(|track| track.title)
+        .collect();
+    assert_eq!(titles, ["Roki"]);
+}
+
+#[test]
+fn a_plist_without_tracks_is_rejected() {
+    let scratch = Scratch::new("wantlist-apple-no-tracks");
+    let path = scratch.join("Library.xml");
+    std::fs::write(
+        &path,
+        r#"<?xml version="1.0" encoding="UTF-8"?><plist version="1.0"><dict><key>Major Version</key><integer>1</integer></dict></plist>"#,
+    )
+    .expect("a written plist");
+
+    let error = read_export(&path, None).expect_err("a rejected library");
+    assert!(error.to_string().contains("no Tracks"), "{error}");
+}
+
+#[test]
+fn an_apple_library_is_recognised_by_its_content_not_its_name() {
+    let scratch = Scratch::new("wantlist-apple-renamed");
+    let library = write_library(&scratch, ROKI);
+    let renamed = scratch.join("export.csv");
+    std::fs::rename(&library, &renamed).expect("a renamed library");
+
+    assert_eq!(
+        read_export(&renamed, None).expect("a library")[0].title,
+        "Roki"
+    );
+}
+
+#[test]
+fn a_format_given_outright_is_not_second_guessed() {
+    let scratch = Scratch::new("wantlist-format-override");
+    let path = write_library(&scratch, ROKI);
+
+    let error = read_export(&path, Some(Format::Csv)).expect_err("a plist read as a CSV");
+    assert!(error.to_string().contains("need a title column"), "{error}");
 }

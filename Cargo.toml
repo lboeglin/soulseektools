@@ -27,6 +27,8 @@ globset = "0.4.16"
 image = { version = "0.25.9", default-features = false, features = ["png"] }
 kakasi = "0.1.0"
 lofty = "0.22.2"
+# Only `plist::Value`, for an Apple Music `Library.xml`; no serde mapping.
+plist = { version = "1.10.1", default-features = false }
 rapidfuzz = "0.5.0"
 rayon = "1.12.0"
 realfft = "3.5.0"
