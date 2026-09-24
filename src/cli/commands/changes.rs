@@ -120,8 +120,7 @@ fn undo(
     let Some(changes) = wanted(&index, id, last)? else {
         return Ok(1);
     };
-    if changes.is_empty() {
-        context.say("Nothing has been written yet.");
+    if changes.is_empty() && context.nothing_to_do("Nothing has been written yet.") {
         return Ok(0);
     }
 

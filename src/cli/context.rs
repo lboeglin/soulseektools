@@ -69,6 +69,20 @@ impl AppContext {
         }
     }
 
+    /// Tell a person there is nothing to do, and say whether to stop here.
+    ///
+    /// Under `--json` the run carries on instead, so the command's document
+    /// comes out empty rather than not at all: a pipeline reading it can then
+    /// tell "no results" from "no output".
+    #[must_use]
+    pub fn nothing_to_do(&self, line: &str) -> bool {
+        if self.as_json {
+            return false;
+        }
+        self.say(line);
+        true
+    }
+
     /// Emit the machine-readable document, two-space indented, UTF-8 as-is.
     pub fn emit(&self, value: &Value) {
         let mut stdout = std::io::stdout().lock();

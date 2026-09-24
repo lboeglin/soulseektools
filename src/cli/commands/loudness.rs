@@ -40,8 +40,7 @@ pub struct LoudnessArgs {
 /// measurement is a silent regression for whoever owns it.
 pub fn run(context: &AppContext, args: &LoudnessArgs) -> Result<i32> {
     let paths = targets(context, args.target.as_deref())?;
-    if paths.is_empty() {
-        context.say("No taggable files to scan.");
+    if paths.is_empty() && context.nothing_to_do("No taggable files to scan.") {
         return Ok(0);
     }
 

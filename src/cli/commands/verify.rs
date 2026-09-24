@@ -70,8 +70,7 @@ pub struct VerifyArgs {
 /// fix in a hurry.
 pub fn run(context: &AppContext, args: &VerifyArgs) -> Result<i32> {
     let all = targets(context, args.target.as_deref(), args.lossy)?;
-    if all.is_empty() {
-        context.say("No files to check.");
+    if all.is_empty() && context.nothing_to_do("No files to check.") {
         return Ok(0);
     }
 
@@ -90,10 +89,11 @@ pub fn run(context: &AppContext, args: &VerifyArgs) -> Result<i32> {
     };
 
     let skipped = total - paths.len();
-    if paths.is_empty() {
-        context.say(&format!(
+    if paths.is_empty()
+        && context.nothing_to_do(&format!(
             "Nothing to check: all {skipped} file(s) still carry their last verdict."
-        ));
+        ))
+    {
         return Ok(0);
     }
 
@@ -110,9 +110,10 @@ pub fn run(context: &AppContext, args: &VerifyArgs) -> Result<i32> {
         write_report(destination, &results)?;
     }
 
+    let any_fake = results.iter().any(|result| result.verdict == Verdict::Fake);
     if context.as_json {
         context.emit(&json!(results.iter().map(as_row).collect::<Vec<_>>()));
-        return Ok(0);
+        return Ok(i32::from(any_fake));
     }
 
     print_table(context, &results, args.only_flagged);
@@ -125,7 +126,6 @@ pub fn run(context: &AppContext, args: &VerifyArgs) -> Result<i32> {
         context.say(&format!("Report written to {}", show(destination)));
     }
 
-    let any_fake = results.iter().any(|result| result.verdict == Verdict::Fake);
     Ok(i32::from(any_fake))
 }
 

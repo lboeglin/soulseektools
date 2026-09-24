@@ -55,8 +55,9 @@ fn search(context: &AppContext, limit: Option<usize>) -> Result<i32> {
     let client = client(&context.settings().slskd)?;
     let mut store = context.open_review()?;
 
-    if store.tracks(&[TrackStatus::Pending], limit)?.is_empty() {
-        context.say("Nothing waiting to be searched.");
+    if store.tracks(&[TrackStatus::Pending], limit)?.is_empty()
+        && context.nothing_to_do("Nothing waiting to be searched.")
+    {
         return Ok(0);
     }
 

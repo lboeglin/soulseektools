@@ -521,6 +521,13 @@ a set of ad-hoc scripts and a Nicotine+ plugin, and was then rewritten in Rust.
   punctuation. `İstanbul` normalised to one form, and that form to another.
   It now lowercases before stripping. Found by the property tests (#19); no
   row of the romaji oracle moves.
+- Under `--json`, a command with nothing to do printed nothing at all:
+  `verify`, `loudness`, the three `dupes` commands, `art check`, `art fetch`,
+  `tags identify`, `fetch search` and `changes undo` each told a person why
+  and returned before their document, so a script piping them into `jq` got
+  no input rather than an empty list. They now print the document, empty.
+  `verify --json` also exited 0 with a `FAKE` among its results, where the
+  plain run exits 1. Found by the `--json` shape check (#19).
 - `stk get` read an exhausted stdin as the empty answer, which takes the top
   candidate, so `stk get "..." < /dev/null` chose and downloaded a file with
   nobody at the keyboard -- against the invariant that nothing downloads without

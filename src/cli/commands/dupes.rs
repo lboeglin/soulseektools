@@ -107,11 +107,7 @@ fn content(context: &AppContext, threshold: f64, tolerance: f64, limit: usize) -
 }
 
 fn require_index(context: &AppContext, count: usize) -> bool {
-    if count > 0 {
-        return true;
-    }
-    context.say("Index is empty. Run stk library scan first.");
-    false
+    count > 0 || !context.nothing_to_do("Index is empty. Run stk library scan first.")
 }
 
 fn report(context: &AppContext, pairs: &[DuplicatePair], limit: usize, scanned: usize) {

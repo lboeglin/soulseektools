@@ -394,8 +394,7 @@ fn identify_files(
     let roots = context.library_roots();
     let mut index = context.open_index()?;
     let entries = index.entries()?;
-    if entries.is_empty() {
-        context.say("Index is empty. Run stk library scan first.");
+    if entries.is_empty() && context.nothing_to_do("Index is empty. Run stk library scan first.") {
         return Ok(0);
     }
 
@@ -416,8 +415,8 @@ fn identify_files(
     if let Some(limit) = limit {
         targets.truncate(limit);
     }
-    if targets.is_empty() {
-        context.say(&match &path {
+    if targets.is_empty()
+        && context.nothing_to_do(&match &path {
             Some(path) if !entries.iter().any(under) => {
                 format!(
                     "Nothing indexed under {}. Run stk library scan first.",
@@ -428,7 +427,8 @@ fn identify_files(
             _ => "Nothing to identify: every indexed file names an artist and a title. \
                   Pass --all to look them up anyway."
                 .to_owned(),
-        });
+        })
+    {
         return Ok(0);
     }
 

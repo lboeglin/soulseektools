@@ -42,8 +42,7 @@ pub fn run(context: &AppContext, command: ArtCommand) -> Result<i32> {
 
 fn check(context: &AppContext) -> Result<i32> {
     let entries = context.open_index()?.entries()?;
-    if entries.is_empty() {
-        context.say("Index is empty. Run stk library scan first.");
+    if entries.is_empty() && context.nothing_to_do("Index is empty. Run stk library scan first.") {
         return Ok(0);
     }
 
@@ -113,8 +112,8 @@ fn fetch(
     if let Some(limit) = limit {
         needing.truncate(limit);
     }
-    if needing.is_empty() {
-        context.say("Every indexed file already has usable artwork.");
+    if needing.is_empty() && context.nothing_to_do("Every indexed file already has usable artwork.")
+    {
         return Ok(0);
     }
 
