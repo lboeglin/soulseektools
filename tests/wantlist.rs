@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use stk::matching::{MatchThresholds, NameForms};
 use stk::models::{LibraryEntry, ReplayGainTags, Track, TrackTags};
 use stk::wantlist::{diff, keep_played, read_export, split_query, Format, WantlistDiff};
-use support::Scratch;
+use support::{encode, Encoded, Scratch};
 
 fn entry(artist: &str, title: &str) -> LibraryEntry {
     LibraryEntry {
@@ -361,7 +361,7 @@ fn keeping_played_tracks_collapses_repeats_and_drops_the_rare_ones() {
 fn a_format_is_named_as_the_flag_spells_it() {
     assert_eq!("csv".parse::<Format>(), Ok(Format::Csv));
     let error = "xls".parse::<Format>().expect_err("an unknown format");
-    assert!(error.contains("known: csv, apple"), "{error}");
+    assert!(error.contains("known: csv, apple, m3u"), "{error}");
     assert_eq!("apple".parse::<Format>(), Ok(Format::Apple));
 }
 
@@ -497,4 +497,124 @@ fn a_format_given_outright_is_not_second_guessed() {
 
     let error = read_export(&path, Some(Format::Csv)).expect_err("a plist read as a CSV");
     assert!(error.to_string().contains("need a title column"), "{error}");
+}
+
+fn write_playlist(scratch: &Scratch, name: &str, body: &str) -> PathBuf {
+    let path = scratch.join(name);
+    let mut bytes = b"\xef\xbb\xbf".to_vec();
+    bytes.extend_from_slice(body.as_bytes());
+    std::fs::write(&path, bytes).expect("a written playlist");
+    path
+}
+
+#[test]
+fn a_playlist_entry_on_this_machine_is_described_by_its_tags() {
+    let scratch = Scratch::new("wantlist-m3u-tags");
+    encode(
+        &scratch.join("music").join("01 - track.flac"),
+        &Encoded {
+            metadata: &[
+                ("artist", "DECO*27"),
+                ("title", "Roki"),
+                ("album", "Ghost"),
+                ("track", "3"),
+            ],
+            ..Encoded::default()
+        },
+    );
+    let path = write_playlist(
+        &scratch,
+        "list.m3u8",
+        "#EXTM3U\n#EXTINF:1,Someone Else - Wrong Title\nmusic/01 - track.flac\n",
+    );
+
+    let track = &read_export(&path, None).expect("a playlist")[0];
+    assert_eq!(track.query(), "DECO*27 - Roki");
+    assert_eq!(track.album, "Ghost");
+    assert!((track.duration_seconds.expect("a duration") - 2.0).abs() < 0.1);
+    assert!(!track.title_guessed);
+    assert_eq!(
+        track.source_value(stk::wantlist::TRACK_NUMBER_COLUMNS),
+        Some("3")
+    );
+    assert_eq!(track.source_value(&["path"]), Some("music/01 - track.flac"));
+}
+
+#[test]
+fn a_missing_playlist_entry_is_described_by_its_extinf_line() {
+    let scratch = Scratch::new("wantlist-m3u-extinf");
+    let path = write_playlist(
+        &scratch,
+        "list.m3u8",
+        "#EXTM3U\n#EXTINF:215,DECO*27 - Roki\nE:/elsewhere/whatever.flac\n\
+         #EXTINF:-1 tvg-id=\"x\",Ado - Usseewa\nhttp://example.invalid/stream\n",
+    );
+
+    let tracks = read_export(&path, None).expect("a playlist");
+    assert_eq!(tracks[0].query(), "DECO*27 - Roki");
+    assert!((tracks[0].duration_seconds.expect("a duration") - 215.0).abs() < 1e-9);
+    assert!(!tracks[0].title_guessed);
+    assert_eq!(tracks[1].query(), "Ado - Usseewa");
+    assert_eq!(tracks[1].duration_seconds, None);
+}
+
+#[test]
+fn a_bare_playlist_entry_is_guessed_from_its_filename() {
+    let scratch = Scratch::new("wantlist-m3u-filename");
+    let path = write_playlist(
+        &scratch,
+        "list.m3u",
+        "D:\\Music\\DECO_27\\01 - DECO*27 - Roki.flac\n# a comment\n\n02. Ghost Rule.mp3\n",
+    );
+
+    let tracks = read_export(&path, None).expect("a playlist");
+    assert_eq!(tracks.len(), 2);
+    assert_eq!(tracks[0].query(), "DECO*27 - Roki");
+    assert!(tracks[0].title_guessed);
+    assert_eq!(
+        (tracks[1].artist.as_str(), tracks[1].title.as_str()),
+        ("", "Ghost Rule")
+    );
+}
+
+#[test]
+fn every_playlist_entry_carries_the_same_columns() {
+    let scratch = Scratch::new("wantlist-m3u-columns");
+    let path = write_playlist(
+        &scratch,
+        "list.m3u8",
+        "#EXTINF:215,DECO*27 - Roki\nmissing.flac\nAdo - Usseewa.flac\n",
+    );
+
+    let keys: Vec<Vec<String>> = read_export(&path, None)
+        .expect("a playlist")
+        .iter()
+        .map(|track| {
+            track
+                .source_row
+                .iter()
+                .map(|(key, _)| key.clone())
+                .collect()
+        })
+        .collect();
+    assert_eq!(
+        keys[0],
+        ["path", "artist", "title", "album", "track number"]
+    );
+    assert_eq!(keys[0], keys[1]);
+}
+
+#[test]
+fn a_playlist_is_recognised_by_its_header_whatever_its_name() {
+    let scratch = Scratch::new("wantlist-m3u-renamed");
+    let path = write_playlist(
+        &scratch,
+        "list.txt",
+        "#EXTM3U\n#EXTINF:1,DECO*27 - Roki\nx.flac\n",
+    );
+
+    assert_eq!(
+        read_export(&path, None).expect("a playlist")[0].query(),
+        "DECO*27 - Roki"
+    );
 }

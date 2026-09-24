@@ -1,10 +1,10 @@
 //! Reading a wantlist and working out what is missing.
 //!
 //! A wantlist is any list of songs someone wants: a streaming-service export,
-//! a Last.fm scrobble log, a YouTube Takeout, an Apple Music library. Each
-//! shape has its own reader,
-//! and every reader produces the same [`Track`]s, with the source's own fields
-//! kept in `source_row` for `--missing` and for tagging a download (#11).
+//! a Last.fm scrobble log, a YouTube Takeout, an Apple Music library, a
+//! playlist. Each shape has its own reader, and every reader produces the same
+//! [`Track`]s, with the source's own fields kept in `source_row` for
+//! `--missing` and for tagging a download (#11).
 //!
 //! The ownership test is deliberately asymmetric. A track is dropped from the
 //! wantlist only when a library file is convincingly the same song; anything
@@ -23,6 +23,7 @@ use crate::models::{LibraryEntry, Track};
 
 mod apple;
 mod delimited;
+mod m3u;
 
 pub const ARTIST_COLUMNS: &[&str] = &[
     "artist name",
@@ -75,16 +76,19 @@ pub enum Format {
     Csv,
     /// An Apple Music or iTunes `Library.xml`.
     Apple,
+    /// An M3U or M3U8 playlist.
+    M3u,
 }
 
 impl Format {
-    pub const ALL: [Self; 2] = [Self::Csv, Self::Apple];
+    pub const ALL: [Self; 3] = [Self::Csv, Self::Apple, Self::M3u];
 
     #[must_use]
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Csv => "csv",
             Self::Apple => "apple",
+            Self::M3u => "m3u",
         }
     }
 
@@ -96,14 +100,24 @@ impl Format {
             .and_then(|file| file.take(512).read_to_end(&mut opening))
             .map_err(failed)?;
         let opening = String::from_utf8_lossy(&opening);
+        let playlist_extension = path
+            .extension()
+            .and_then(|extension| extension.to_str())
+            .is_some_and(|extension| {
+                extension.eq_ignore_ascii_case("m3u") || extension.eq_ignore_ascii_case("m3u8")
+            });
 
-        Ok(
-            if opening.contains("<plist") || opening.contains("<!DOCTYPE plist") {
-                Self::Apple
-            } else {
-                Self::Csv
-            },
-        )
+        Ok(if opening.contains("<plist") {
+            Self::Apple
+        } else if opening
+            .trim_start_matches('\u{feff}')
+            .starts_with("#EXTM3U")
+            || playlist_extension
+        {
+            Self::M3u
+        } else {
+            Self::Csv
+        })
     }
 }
 
@@ -138,6 +152,7 @@ pub fn read_export(path: &Path, format: Option<Format>) -> Result<Vec<Track>> {
     match format {
         Format::Csv => delimited::read(path),
         Format::Apple => apple::read(path),
+        Format::M3u => m3u::read(path),
     }
 }
 

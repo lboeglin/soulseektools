@@ -249,6 +249,10 @@ takes the same flags.
 - **An Apple Music or iTunes `Library.xml`** (File > Library > Export
   Library). Podcasts, films, TV, music videos and audiobooks in it are
   skipped.
+- **An M3U or M3U8 playlist**, from another machine or another player. An
+  entry whose file is here is described by its tags; otherwise by the
+  `#EXTINF` line a player would show, and failing that by its filename,
+  which is a guess.
 - **A YouTube Music Takeout** (`music library songs.csv`). A list of video
   titles with no artist column is also read, each title split on ` - ` as
   `stk get` splits a query; the split is a guess, so a download's own title
@@ -614,7 +618,8 @@ stk playlist artist "DECO*27" -o deco.m3u8
 ```
 
 `export` writes the tracks the library actually holds, in the export's own row
-order. `genre` and `artist` match on the normalised name, so `DECO*27` also
+order. The export can be any wantlist, a playlist written elsewhere included,
+so a list from another machine comes back pointing at this one's files. `genre` and `artist` match on the normalised name, so `DECO*27` also
 finds the `DECO_27` folder. With no `-o` the playlist goes to stdout.
 
 Paths are absolute by default and written with forward slashes, which every

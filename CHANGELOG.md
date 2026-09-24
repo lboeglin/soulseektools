@@ -11,24 +11,30 @@ a set of ad-hoc scripts and a Nicotine+ plugin, and was then rewritten in Rust.
 
 ### Added
 
-- A wantlist can be more than a streaming-service CSV (#18). Last.fm exports
-  are read -- with a header, where the title column is `track`, and in the
-  headerless `artist,album,title,date` shape `lastfm-to-csv` writes -- and so
-  is a YouTube Music Takeout. A list of video titles with no artist column is
-  split on ` - ` the way `stk get` splits a query, and marked as a guess so a
-  download's title tag wins over it. `--min-plays N` keeps the tracks listed
-  at least N times, once each, which is what makes a scrobble log a wantlist
-  rather than everything ever heard. An Apple Music or iTunes `Library.xml`
-  is read too, songs only: its podcasts, films, TV, music videos and
-  audiobooks are skipped, and Apple's own fields -- `Track Number` among them
-  -- are kept for tagging the download. The format is recognised from the
-  file's content, and `--format` overrides it.
-  `wantlist diff`, `playlist export` and `sync` all take both flags.
+- A wantlist can be more than a streaming-service CSV (#18). Whatever reads
+  an export -- `wantlist diff`, `playlist export`, `sync` -- now also reads:
+
+  - a Last.fm export, with a header (where the title column is `track`) or in
+    the headerless `artist,album,title,date` shape `lastfm-to-csv` writes;
+  - a YouTube Music Takeout, and a list of video titles with no artist
+    column, split on ` - ` the way `stk get` splits a query and marked as a
+    guess so a download's title tag wins over it;
+  - an Apple Music or iTunes `Library.xml`, songs only: podcasts, films, TV,
+    music videos and audiobooks are skipped, and Apple's own fields --
+    `Track Number` among them -- are kept for tagging the download;
+  - an M3U or M3U8 playlist, the inverse of what `playlist` writes: an entry
+    whose file is on this machine is described by its tags, otherwise by its
+    `#EXTINF` line, and failing that by its filename, marked as a guess.
+
+  The format is recognised from the file's content, and `--format` overrides
+  it. `--min-plays N` keeps the tracks listed at least N times, once each,
+  which is what makes a scrobble log a wantlist rather than every song ever
+  heard once.
 
   A `track` column that holds the title is no longer read back as a track
-  number when a download is tagged: Last.fm's `22` by Taylor Swift is not
-  track 22. Discogs collection exports, which list releases rather than
-  tracks, are not read.
+  number when a download is tagged: a song called "22" is not track 22.
+  Discogs collection exports, which list releases rather than tracks, are not
+  read.
 
 - A stalled preferred uploader takes its whole group with it (#17). The batch
   pass steers a batch to one peer, but the stall retry worked one track at a

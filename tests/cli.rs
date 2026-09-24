@@ -1531,6 +1531,41 @@ Roki,DECO*27
 }
 
 #[test]
+fn a_playlist_read_back_as_an_export_keeps_its_order() {
+    let _guard = exclusive();
+    let harness = Harness::new("cli-playlist-from-m3u");
+    let root = library(&harness);
+    harness.with_config(&root);
+    run(&["library", "scan"]);
+
+    let source = root.join("lists").join("mine.m3u8");
+    std::fs::create_dir_all(source.parent().expect("a parent")).expect("a lists folder");
+    std::fs::write(
+        &source,
+        "#EXTM3U\n../ZUN/Heian Alien.flac\n../DECO_27/01 - Roki.flac\n",
+    )
+    .expect("a written playlist");
+
+    let list = harness.join("again.m3u8");
+    assert_eq!(
+        run(&[
+            "playlist",
+            "export",
+            &source.display().to_string(),
+            "-o",
+            &list.display().to_string(),
+        ]),
+        0
+    );
+
+    let text = std::fs::read_to_string(&list).expect("a written playlist");
+    let heian = text.find("Heian Alien").expect("the first entry");
+    let roki = text.find("Roki").expect("the second entry");
+    assert!(heian < roki, "{text}");
+    drop(harness);
+}
+
+#[test]
 fn a_relative_playlist_can_be_moved_with_the_music() {
     let _guard = exclusive();
     let harness = Harness::new("cli-playlist-relative");
