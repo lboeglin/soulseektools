@@ -87,6 +87,7 @@ image = { version = "0.25.9", default-features = false, features = ["png"] }
 # Reading a raw tag item a test wrote but this crate does not manage, the way
 # `rusqlite` here reads a row the index wrote.
 lofty = "0.22.2"
+proptest = "1.11.0"
 rand = "0.9.5"
 rand_distr = "0.5.1"
 realfft = "3.5.0"

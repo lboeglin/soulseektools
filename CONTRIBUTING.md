@@ -91,6 +91,16 @@ No change lands without tests for its behaviour.
   surface as shifted matching scores rather than a failing test. The dump is
   committed under `tests/data`, so no build or test run needs Python. Only
   regenerating it does, which happens approximately never.
+- **Properties, not only examples, where the input is open-ended.**
+  `tests/properties.rs` holds what must be true of *any* input: an export is
+  read or refused as a configuration error and never panics, a rendered layout
+  path stays inside its root, `normalize` is a normal form and survives
+  respelling, the spectral verdict never improves as an edge gets steeper,
+  and an undone write puts back the tags it started from. The oracle suites
+  skip in CI, so these are what exercise the parsers there. When one fails,
+  proptest prints the smallest input it could shrink the failure to; that
+  input becomes a named regression test next to the fix.
+  `PROPTEST_CASES=20000` runs a deeper sweep than the default 256.
 - **Prefer a pure function you can test directly** over one that has to open a
   file. The spectral classifier and the table rendering are both pure for this
   reason.
