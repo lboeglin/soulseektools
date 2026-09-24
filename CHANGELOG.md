@@ -516,6 +516,11 @@ a set of ad-hoc scripts and a Nicotine+ plugin, and was then rewritten in Rust.
   file being moved is asked of the filesystem on Unix rather than guessed from
   the platform, so a case-sensitive APFS volume or an exFAT drive on Linux is
   judged by what it actually does. Found while adding macOS to CI (#19).
+- `normalize()` was not a normal form: it lowercased last, and `İ` lowercases
+  to `i` and a combining dot, which a second pass then stripped as
+  punctuation. `İstanbul` normalised to one form, and that form to another.
+  It now lowercases before stripping. Found by the property tests (#19); no
+  row of the romaji oracle moves.
 - `stk get` read an exhausted stdin as the empty answer, which takes the top
   candidate, so `stk get "..." < /dev/null` chose and downloaded a file with
   nobody at the keyboard -- against the invariant that nothing downloads without

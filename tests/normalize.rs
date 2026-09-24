@@ -20,6 +20,17 @@ fn normalize_folds_case_punctuation_and_whitespace() {
 }
 
 #[test]
+fn a_capital_dotted_i_normalises_to_a_form_that_stays_put() {
+    // Lowercasing last left the combining dot `İ` lowercases to, so the form
+    // normalised to a second form: `i\u{307}stanbul`, then `i stanbul`.
+    for raw in ["\u{130}stanbul", "A\u{130}B"] {
+        let once = normalize(raw);
+        assert_eq!(normalize(&once), once, "normalize({raw:?})");
+    }
+    assert_eq!(normalize("\u{130}stanbul"), "i stanbul");
+}
+
+#[test]
 fn normalize_drops_featured_credits_and_bracketed_suffixes() {
     for (raw, expected) in [
         (

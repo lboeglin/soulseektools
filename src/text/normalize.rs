@@ -72,16 +72,21 @@ fn nfkc(text: &str) -> String {
 }
 
 /// Reduce a name to the lowercase, punctuation-free form used for comparison.
+///
+/// Lowercased before punctuation is stripped, not after as the Python did:
+/// `İ` lowercases to `i` and a combining dot, which is punctuation here, so
+/// lowercasing last left a mark that a second pass would strip -- and a form
+/// that normalises to something else is not a normal form.
 #[must_use]
 pub fn normalize(text: &str) -> String {
-    let folded = nfkc(text);
+    let folded = nfkc(text).to_lowercase();
     let folded = FEATURED_CREDIT.replace_all(&folded, " ");
     let folded = BRACKETED_SUFFIX.replace_all(&folded, " ");
     let folded = PUNCTUATION.replace_all(&folded, " ");
     WHITESPACE
         .replace_all(&folded, " ")
         .trim_matches(is_space)
-        .to_lowercase()
+        .to_owned()
 }
 
 /// Lowercase `text` with punctuation turned to spaces, keeping every word.
