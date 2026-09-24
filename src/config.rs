@@ -419,6 +419,35 @@ impl Default for IdentifySettings {
     }
 }
 
+/// Reading a wantlist from a web service rather than a file (#20).
+///
+/// The Discogs token is absent from the serialised form, as the slskd key is:
+/// it comes from `DISCOGS_TOKEN` only, so a config file stays safe to commit.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, default)]
+pub struct WantlistSettings {
+    pub request_timeout_seconds: f64,
+    /// Every Discogs release tracklist fetched so far, by release ID.
+    ///
+    /// A collection is one request per release, paced to the API's limit, and
+    /// `stk sync` reads it on every run; a release's tracklist does not change,
+    /// so it is fetched once.
+    pub discogs_cache: PathBuf,
+    /// Optional: Discogs answers without it, at 25 requests a minute rather than 60.
+    #[serde(skip)]
+    pub discogs_token: Option<String>,
+}
+
+impl Default for WantlistSettings {
+    fn default() -> Self {
+        Self {
+            request_timeout_seconds: 15.0,
+            discogs_cache: default_data_path("discogs.json"),
+            discogs_token: None,
+        }
+    }
+}
+
 /// How files are laid out on disk (#3).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, default)]
@@ -522,6 +551,7 @@ pub struct Settings {
     pub genres: GenreSettings,
     pub organise: OrganiseSettings,
     pub dupes: DupesSettings,
+    pub wantlist: WantlistSettings,
 }
 
 /// Where `platformdirs` puts application data, reproduced exactly.
@@ -571,6 +601,7 @@ fn app_directory() -> PathBuf {
 pub const APP_NAME: &str = "soulseektools";
 pub const CONFIG_FILENAME: &str = "stk.toml";
 pub const API_KEY_ENV_VAR: &str = "SLSKD_API_KEY";
+pub const DISCOGS_TOKEN_ENV_VAR: &str = "DISCOGS_TOKEN";
 const ENV_PREFIX: &str = "STK_";
 const ENV_NESTED_DELIMITER: &str = "__";
 
@@ -730,14 +761,17 @@ pub fn load_settings(config_path: Option<&Path>, overrides: &Overrides) -> Resul
 
     settings.library.normalise_extensions();
     settings.validate(&location)?;
-    settings.slskd.api_key = std::env::var(API_KEY_ENV_VAR)
-        .ok()
-        .filter(|key| !key.is_empty());
+    settings.slskd.api_key = secret(API_KEY_ENV_VAR);
+    settings.wantlist.discogs_token = secret(DISCOGS_TOKEN_ENV_VAR);
 
     Ok(Resolved {
         settings,
         source_path: path,
     })
+}
+
+fn secret(name: &str) -> Option<String> {
+    std::env::var(name).ok().filter(|value| !value.is_empty())
 }
 
 /// Parse a TOML file, reporting a malformed one as a configuration error.
@@ -826,7 +860,8 @@ pub fn write_config(path: &Path, settings: &Settings) -> Result<PathBuf> {
     }
 
     let header = "# SoulseekTools configuration.\n\
-                  # Secrets are never read from this file: export SLSKD_API_KEY instead.\n\n";
+                  # Secrets are never read from this file: export SLSKD_API_KEY\n\
+                  # and DISCOGS_TOKEN instead.\n\n";
     std::fs::write(path, format!("{header}{}", render_toml(settings)?))
         .map_err(|error| Error::Config(format!("{}: {error}", path.display())))?;
     Ok(path.to_path_buf())
@@ -911,6 +946,9 @@ impl Settings {
         }
         if self.identify.request_timeout_seconds <= 0.0 {
             return bad("identify.request_timeout_seconds", "must be greater than 0");
+        }
+        if self.wantlist.request_timeout_seconds <= 0.0 {
+            return bad("wantlist.request_timeout_seconds", "must be greater than 0");
         }
         if self.uploader.minimum_coverage < 2 {
             return bad("uploader.minimum_coverage", "must be at least 2");

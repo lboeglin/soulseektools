@@ -11,6 +11,15 @@ a set of ad-hoc scripts and a Nicotine+ plugin, and was then rewritten in Rust.
 
 ### Added
 
+- A Discogs collection export is read as a wantlist (#20). It lists releases,
+  so each one's tracklist is looked up through the Discogs API, paced to 25
+  requests a minute or to 60 with a `DISCOGS_TOKEN`, and kept in
+  `wantlist.discogs_cache` so a release is only ever looked up once. A
+  compilation's tracks keep their own artists, Discogs' `(2)` disambiguation
+  is dropped from a name, and the movements of an indexed work are named
+  after it. The export is recognised by its `release_id` column, and
+  `--format discogs` names it. `stk doctor` reports whether the token is set.
+
 - A wantlist can be more than a streaming-service CSV (#18). Whatever reads
   an export -- `wantlist diff`, `playlist export`, `sync` -- now also reads:
 
@@ -33,8 +42,6 @@ a set of ad-hoc scripts and a Nicotine+ plugin, and was then rewritten in Rust.
 
   A `track` column that holds the title is no longer read back as a track
   number when a download is tagged: a song called "22" is not track 22.
-  Discogs collection exports, which list releases rather than tracks, are not
-  read.
 
 - A stalled preferred uploader takes its whole group with it (#17). The batch
   pass steers a batch to one peer, but the stall retry worked one track at a

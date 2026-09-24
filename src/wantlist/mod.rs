@@ -2,7 +2,7 @@
 //!
 //! A wantlist is any list of songs someone wants: a streaming-service export,
 //! a Last.fm scrobble log, a YouTube Takeout, an Apple Music library, a
-//! playlist. Each shape has its own reader, and every reader produces the same
+//! playlist, a Discogs collection. Each shape has its own reader, and every reader produces the same
 //! [`Track`]s, with the source's own fields kept in `source_row` for
 //! `--missing` and for tagging a download (#11).
 //!
@@ -20,9 +20,13 @@ use std::str::FromStr;
 use crate::errors::{Error, Result};
 use crate::matching::{blocking_keys, score_track, MatchThresholds, NameForms};
 use crate::models::{LibraryEntry, Track};
+use crate::services::ServiceHttp;
+
+pub use discogs::Discogs;
 
 mod apple;
 mod delimited;
+pub mod discogs;
 mod m3u;
 
 pub const ARTIST_COLUMNS: &[&str] = &[
@@ -78,10 +82,12 @@ pub enum Format {
     Apple,
     /// An M3U or M3U8 playlist.
     M3u,
+    /// A Discogs collection export, one row per release.
+    Discogs,
 }
 
 impl Format {
-    pub const ALL: [Self; 3] = [Self::Csv, Self::Apple, Self::M3u];
+    pub const ALL: [Self; 4] = [Self::Csv, Self::Apple, Self::M3u, Self::Discogs];
 
     #[must_use]
     pub fn as_str(self) -> &'static str {
@@ -89,6 +95,7 @@ impl Format {
             Self::Csv => "csv",
             Self::Apple => "apple",
             Self::M3u => "m3u",
+            Self::Discogs => "discogs",
         }
     }
 
@@ -115,6 +122,8 @@ impl Format {
             || playlist_extension
         {
             Self::M3u
+        } else if discogs::is_collection(opening.lines().next().unwrap_or("")) {
+            Self::Discogs
         } else {
             Self::Csv
         })
@@ -143,8 +152,20 @@ impl FromStr for Format {
     }
 }
 
+/// The web services a wantlist may be read through, beyond the file itself.
+pub struct Remote<'a> {
+    pub http: &'a dyn ServiceHttp,
+    pub discogs: &'a Discogs,
+}
+
 /// Read a wantlist into tracks, as `format`, or as whatever it looks like.
-pub fn read_export(path: &Path, format: Option<Format>) -> Result<Vec<Track>> {
+///
+/// Only a Discogs collection needs `remote`; read without one, it is refused.
+pub fn read_export(
+    path: &Path,
+    format: Option<Format>,
+    remote: Option<&Remote<'_>>,
+) -> Result<Vec<Track>> {
     let format = match format {
         Some(format) => format,
         None => Format::detect(path)?,
@@ -153,6 +174,13 @@ pub fn read_export(path: &Path, format: Option<Format>) -> Result<Vec<Track>> {
         Format::Csv => delimited::read(path),
         Format::Apple => apple::read(path),
         Format::M3u => m3u::read(path),
+        Format::Discogs => match remote {
+            Some(remote) => discogs::read(path, remote.http, remote.discogs),
+            None => Err(Error::Config(format!(
+                "{}: a Discogs collection is read through the Discogs API",
+                path.display()
+            ))),
+        },
     }
 }
 

@@ -16,6 +16,9 @@ use std::sync::{Mutex, MutexGuard, PoisonError};
 use serde_json::Value;
 use support::{committed, encode, noise_source, Encoded, Scratch};
 
+/// The variables secrets are read from, which a test must neither inherit nor leak.
+const SECRETS: &[&str] = &["SLSKD_API_KEY", "DISCOGS_TOKEN"];
+
 fn exclusive() -> MutexGuard<'static, ()> {
     static LOCK: Mutex<()> = Mutex::new(());
     LOCK.lock().unwrap_or_else(PoisonError::into_inner)
@@ -32,7 +35,7 @@ impl Harness {
     fn new(name: &str) -> Self {
         let scratch = Scratch::new(name);
         let saved: Vec<(String, String)> = std::env::vars()
-            .filter(|(name, _)| name.starts_with("STK_") || name == "SLSKD_API_KEY")
+            .filter(|(name, _)| name.starts_with("STK_") || SECRETS.contains(&name.as_str()))
             .collect();
         for (name, _) in &saved {
             unsafe { std::env::remove_var(name) };

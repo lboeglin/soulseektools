@@ -16,6 +16,9 @@ use stk::config::{
 };
 use support::Scratch;
 
+/// The variables secrets are read from, which a test must neither inherit nor leak.
+const SECRETS: &[&str] = &["SLSKD_API_KEY", "DISCOGS_TOKEN"];
+
 /// Environment and working directory are process-wide; only one test may hold
 /// them at a time.
 fn exclusive() -> MutexGuard<'static, ()> {
@@ -32,7 +35,7 @@ struct CleanEnvironment {
 impl CleanEnvironment {
     fn enter(at: &Path) -> Self {
         let saved: Vec<(String, String)> = std::env::vars()
-            .filter(|(name, _)| name.starts_with("STK_") || name == "SLSKD_API_KEY")
+            .filter(|(name, _)| name.starts_with("STK_") || SECRETS.contains(&name.as_str()))
             .collect();
         for (name, _) in &saved {
             unsafe { std::env::remove_var(name) };
@@ -53,7 +56,7 @@ impl CleanEnvironment {
 impl Drop for CleanEnvironment {
     fn drop(&mut self) {
         for (name, _) in std::env::vars()
-            .filter(|(name, _)| name.starts_with("STK_") || name == "SLSKD_API_KEY")
+            .filter(|(name, _)| name.starts_with("STK_") || SECRETS.contains(&name.as_str()))
             .collect::<Vec<_>>()
         {
             unsafe { std::env::remove_var(&name) };
@@ -338,6 +341,69 @@ fn the_api_key_never_appears_in_rendered_config() {
 
     assert!(!rendered.contains("s3cret"), "{rendered}");
     assert!(!rendered.contains("api_key"), "{rendered}");
+}
+
+#[test]
+fn the_discogs_token_is_read_from_the_environment_and_never_rendered() {
+    let _guard = exclusive();
+    let scratch = Scratch::new("config-discogs-token");
+    let environment = CleanEnvironment::enter(scratch.path());
+    assert_eq!(load(None).settings.wantlist.discogs_token, None);
+    environment.set("DISCOGS_TOKEN", "s3cret");
+
+    let settings = load(None).settings;
+    assert_eq!(settings.wantlist.discogs_token.as_deref(), Some("s3cret"));
+    let rendered = render_toml(&settings).expect("rendered config");
+    assert!(!rendered.contains("s3cret"), "{rendered}");
+    assert!(!rendered.contains("token"), "{rendered}");
+}
+
+#[test]
+fn the_wantlist_section_reads_its_timeout_and_cache_from_the_file() {
+    let _guard = exclusive();
+    let scratch = Scratch::new("config-wantlist");
+    let _environment = CleanEnvironment::enter(scratch.path());
+    let defaults = Settings::default().wantlist;
+    assert!((defaults.request_timeout_seconds - 15.0).abs() < f64::EPSILON);
+    assert_eq!(
+        defaults
+            .discogs_cache
+            .file_name()
+            .and_then(|name| name.to_str()),
+        Some("discogs.json")
+    );
+
+    let path = write_toml(
+        &scratch.join("stk.toml"),
+        "[wantlist]
+request_timeout_seconds = 5
+discogs_cache = \"releases.json\"
+",
+    );
+    let wantlist = load(Some(&path)).settings.wantlist;
+    assert!((wantlist.request_timeout_seconds - 5.0).abs() < f64::EPSILON);
+    assert!(wantlist.discogs_cache.ends_with("releases.json"));
+}
+
+#[test]
+fn a_wantlist_timeout_of_zero_is_rejected() {
+    let _guard = exclusive();
+    let scratch = Scratch::new("config-wantlist-timeout");
+    let _environment = CleanEnvironment::enter(scratch.path());
+    let path = write_toml(
+        &scratch.join("stk.toml"),
+        "[wantlist]
+request_timeout_seconds = 0
+",
+    );
+
+    let error = load_settings(Some(&path), &Overrides::default()).expect_err("a bad timeout");
+    assert!(
+        error
+            .to_string()
+            .contains("wantlist.request_timeout_seconds"),
+        "{error}"
+    );
 }
 
 #[test]

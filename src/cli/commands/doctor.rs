@@ -76,6 +76,17 @@ fn checks(context: &AppContext) -> Vec<Check> {
             },
             required: false,
         },
+        Check {
+            name: "discogs token",
+            ok: settings.wantlist.discogs_token.is_some(),
+            detail: if settings.wantlist.discogs_token.is_some() {
+                "set".to_owned()
+            } else {
+                "export DISCOGS_TOKEN to read a collection at 60 releases a minute rather than 25"
+                    .to_owned()
+            },
+            required: false,
+        },
     ]
 }
 

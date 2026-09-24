@@ -85,7 +85,8 @@ Settings resolve in this order, first match winning:
 5. the built-in defaults
 
 Secrets are the exception and are never read from the file: export
-`SLSKD_API_KEY` instead. `stk config show` prints the effective settings with
+`SLSKD_API_KEY`, and `DISCOGS_TOKEN` if you read a Discogs collection,
+instead. `stk config show` prints the effective settings with
 secrets omitted, so the output is safe to paste.
 
 Music on two drives, with the folders you would rather not index left out:
@@ -122,13 +123,14 @@ The settings worth knowing about:
 | `loudness.reference_lufs` | What a scanned file is levelled to. -18 LUFS is ReplayGain 2.0. |
 | `loudness.true_peak` | Catch inter-sample peaks as well as the loudest sample. On by default. |
 | `artwork.require_artist_match` | Refuse cover art belonging to a different artist. |
-| `artwork.contact` | A URL or email identifying you to MusicBrainz and AcoustID. Optional. |
+| `artwork.contact` | A URL or email identifying you to MusicBrainz, AcoustID and Discogs. Optional. |
 | `identify.min_score` | How sure AcoustID must be before a match is proposed. Default 0.85. |
 | `genres.map_path` | Your artist-to-genre map. Start from `data/genres.example.toml`. |
 | `organise.pattern` | Where a file belongs, from its tags. Default `{artist}/{album}/{track} - {title}`. |
 | `organise.track_number_width` | How many digits a track number is padded to. Default 2. |
 | `organise.destination` | Consolidate everything here. Unset means each file stays under its own root. |
 | `dupes.resolve_min_score` | How sure a duplicate pair must be for `dupes resolve` to act on it. Default 0.95. |
+| `wantlist.discogs_cache` | Where the Discogs tracklists already fetched are kept. |
 
 ## Getting tracks by name
 
@@ -258,8 +260,18 @@ takes the same flags.
   `stk get` splits a query; the split is a guess, so a download's own title
   tag is trusted over it.
 
-A Discogs collection export lists releases rather than tracks and is not
-read; `stk get --album` fetches one release at a time.
+- **A Discogs collection export** (Collection > Export). It lists releases,
+  not songs, so each release's tracklist is looked up through the Discogs
+  API and every song on it is wanted -- credited to its own artist on a
+  compilation, and named after its work when it is one movement of a
+  concerto. Discogs allows 25 lookups a minute, or 60 with a personal access
+  token exported as `DISCOGS_TOKEN`, so a large collection takes a while the
+  first time; every tracklist fetched is kept in `wantlist.discogs_cache`,
+  and later runs only look up the releases added since.
+
+  ```bash
+  stk wantlist diff "me-collection-20260924.csv"
+  ```
 
 Re-run the same diff against a grown export and it reports everything missing
 all over again, including the tracks a previous run searched for and gave up on

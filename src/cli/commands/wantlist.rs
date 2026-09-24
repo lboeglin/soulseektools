@@ -7,17 +7,19 @@ use clap::{Args, Subcommand};
 use serde_json::json;
 
 use crate::cli::context::{show, table, AppContext};
+use crate::config::Settings;
 use crate::errors::{Error, Result};
 use crate::models::Track;
-use crate::wantlist::{self, Format, WantlistDiff};
+use crate::services::HttpTransport;
+use crate::wantlist::{self, Discogs, Format, Remote, WantlistDiff};
 
 /// Where the wanted tracks come from, shared by every command that reads them.
 #[derive(Args, Debug)]
 pub struct ExportArgs {
-    /// A streaming-service or Last.fm CSV, a YouTube Takeout, an Apple Music Library.xml, or an M3U playlist.
+    /// A streaming-service or Last.fm CSV, a YouTube Takeout, an Apple Music Library.xml, an M3U playlist, or a Discogs collection CSV.
     pub export: PathBuf,
 
-    /// Read the export as this format (csv, apple, m3u) instead of guessing from its content.
+    /// Read the export as this format (csv, apple, m3u, discogs) instead of guessing from its content.
     #[arg(long, value_name = "FORMAT")]
     pub format: Option<Format>,
 
@@ -27,8 +29,20 @@ pub struct ExportArgs {
 }
 
 impl ExportArgs {
-    pub fn read(&self) -> Result<Vec<Track>> {
-        let tracks = wantlist::read_export(&self.export, self.format)?;
+    pub fn read(&self, settings: &Settings) -> Result<Vec<Track>> {
+        let wantlist = &settings.wantlist;
+        let http = HttpTransport::new(wantlist.request_timeout_seconds, &settings.artwork.contact)?;
+        let discogs = Discogs::new(
+            wantlist.discogs_token.clone(),
+            Discogs::min_interval_seconds(wantlist.discogs_token.as_deref()),
+            wantlist.discogs_cache.clone(),
+        );
+        let remote = Remote {
+            http: &http,
+            discogs: &discogs,
+        };
+
+        let tracks = wantlist::read_export(&self.export, self.format, Some(&remote))?;
         Ok(match self.min_plays {
             Some(min_plays) => wantlist::keep_played(tracks, min_plays),
             None => tracks,
@@ -87,7 +101,7 @@ fn diff(
     owned_csv: Option<&Path>,
     only_new: bool,
 ) -> Result<i32> {
-    let tracks = match export.read() {
+    let tracks = match export.read(context.settings()) {
         Ok(tracks) => tracks,
         Err(error) => {
             eprintln!("error: {error}");

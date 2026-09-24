@@ -1,7 +1,7 @@
 //! What every public web service this tool talks to has in common.
 //!
-//! iTunes, MusicBrainz, the Cover Art Archive and AcoustID are free, publish a
-//! request limit, and ask callers to say who they are. The pacing, the
+//! iTunes, MusicBrainz, the Cover Art Archive, AcoustID and Discogs are free,
+//! publish a request limit, and ask callers to say who they are. The pacing, the
 //! identification and the transport are one thing rather than one per service,
 //! and the transport is a trait so each service's wire format is testable
 //! against recorded responses with no network. The slskd daemon is not one of

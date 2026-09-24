@@ -57,7 +57,7 @@ fn reads_the_spotify_column_names() {
         "Track name,Artist name,Album name,Duration (ms)\nRoki,DECO*27,Ghost,215000\n",
     );
 
-    let tracks = read_export(&path, None).expect("an export");
+    let tracks = read_export(&path, None, None).expect("an export");
 
     assert_eq!(tracks.len(), 1);
     assert_eq!(tracks[0].artist, "DECO*27");
@@ -72,7 +72,7 @@ fn reads_alternative_column_names() {
     let path = write_csv(&scratch, "Title,Artist\nRoki,DECO*27\n");
 
     assert_eq!(
-        read_export(&path, None).expect("an export")[0].title,
+        read_export(&path, None, None).expect("an export")[0].title,
         "Roki"
     );
 }
@@ -82,7 +82,7 @@ fn reads_a_duration_written_as_minutes_and_seconds() {
     let scratch = Scratch::new("wantlist-mmss");
     let path = write_csv(&scratch, "Title,Artist,Length\nRoki,DECO*27,3:35\n");
 
-    let duration = read_export(&path, None).expect("an export")[0]
+    let duration = read_export(&path, None, None).expect("an export")[0]
         .duration_seconds
         .expect("a duration");
     assert!((duration - 215.0).abs() < 1e-9);
@@ -94,7 +94,7 @@ fn an_unreadable_duration_is_left_unset() {
     let path = write_csv(&scratch, "Title,Artist,Length\nRoki,DECO*27,soon\n");
 
     assert_eq!(
-        read_export(&path, None).expect("an export")[0].duration_seconds,
+        read_export(&path, None, None).expect("an export")[0].duration_seconds,
         None
     );
 }
@@ -107,7 +107,7 @@ fn the_original_row_is_kept() {
         "Track name,Artist name,Added at\nRoki,DECO*27,2026-01-01\n",
     );
 
-    let source_row = &read_export(&path, None).expect("an export")[0].source_row;
+    let source_row = &read_export(&path, None, None).expect("an export")[0].source_row;
     assert!(
         source_row.contains(&("Added at".to_owned(), "2026-01-01".to_owned())),
         "{source_row:?}"
@@ -119,7 +119,7 @@ fn blank_rows_are_skipped() {
     let scratch = Scratch::new("wantlist-blank");
     let path = write_csv(&scratch, "Track name,Artist name\nRoki,DECO*27\n,\n");
 
-    assert_eq!(read_export(&path, None).expect("an export").len(), 1);
+    assert_eq!(read_export(&path, None, None).expect("an export").len(), 1);
 }
 
 #[test]
@@ -127,7 +127,7 @@ fn a_file_without_the_needed_columns_is_rejected() {
     let scratch = Scratch::new("wantlist-no-columns");
     let path = write_csv(&scratch, "Foo,Bar\n1,2\n");
 
-    let error = read_export(&path, None).expect_err("a rejected export");
+    let error = read_export(&path, None, None).expect_err("a rejected export");
     assert!(error.to_string().contains("need a title column"), "{error}");
 }
 
@@ -136,7 +136,7 @@ fn an_empty_file_is_rejected() {
     let scratch = Scratch::new("wantlist-empty");
     let path = write_csv(&scratch, "");
 
-    let error = read_export(&path, None).expect_err("a rejected export");
+    let error = read_export(&path, None, None).expect_err("a rejected export");
     assert!(error.to_string().contains("empty"), "{error}");
 }
 
@@ -146,7 +146,7 @@ fn the_query_used_for_searching_joins_artist_and_title() {
     let path = write_csv(&scratch, "Track name,Artist name\nRoki,DECO*27\n");
 
     assert_eq!(
-        read_export(&path, None).expect("an export")[0].query(),
+        read_export(&path, None, None).expect("an export")[0].query(),
         "DECO*27 - Roki"
     );
 }
@@ -238,7 +238,7 @@ fn a_track_number_is_found_whatever_its_header_spelling() {
         "Track Name,Artist Name(s),TRACK NUMBER \nRoki,DECO*27,3\n",
     );
 
-    let track = &read_export(&path, None).expect("an export")[0];
+    let track = &read_export(&path, None, None).expect("an export")[0];
     assert_eq!(
         track.source_value(stk::wantlist::TRACK_NUMBER_COLUMNS),
         Some("3")
@@ -253,7 +253,7 @@ fn an_empty_cell_reads_as_no_value() {
         "Track Name,Artist Name(s),Track Number\nRoki,DECO*27,\n",
     );
 
-    let track = &read_export(&path, None).expect("an export")[0];
+    let track = &read_export(&path, None, None).expect("an export")[0];
     assert_eq!(
         track.source_value(stk::wantlist::TRACK_NUMBER_COLUMNS),
         None
@@ -284,7 +284,7 @@ fn reads_a_youtube_takeout() {
          abc123,Roki,Ghost,DECO*27,\n",
     );
 
-    let track = &read_export(&path, None).expect("an export")[0];
+    let track = &read_export(&path, None, None).expect("an export")[0];
     assert_eq!(track.query(), "DECO*27 - Roki");
     assert_eq!(track.album, "Ghost");
     assert!(!track.title_guessed);
@@ -295,7 +295,7 @@ fn a_title_list_without_an_artist_column_is_split_as_a_guess() {
     let scratch = Scratch::new("wantlist-titles-only");
     let path = write_csv(&scratch, "Title\nDECO*27 - Roki\nGhost Rule\n");
 
-    let tracks = read_export(&path, None).expect("an export");
+    let tracks = read_export(&path, None, None).expect("an export");
     assert_eq!(tracks[0].query(), "DECO*27 - Roki");
     assert!(tracks[0].title_guessed);
     assert_eq!(
@@ -313,7 +313,7 @@ fn reads_a_lastfm_export_whose_title_column_is_track() {
          1700000000,14 Nov 2023 22:13,DECO*27,,Ghost,,Roki,\n",
     );
 
-    let track = &read_export(&path, None).expect("an export")[0];
+    let track = &read_export(&path, None, None).expect("an export")[0];
     assert_eq!(track.query(), "DECO*27 - Roki");
     assert_eq!(track.album, "Ghost");
 }
@@ -326,7 +326,7 @@ fn reads_a_headerless_lastfm_to_csv_log() {
         "DECO*27,Ghost,Roki,31 Jan 2021 12:34\nDECO*27,Ghost,Ghost Rule,31 Jan 2021 12:30\n",
     );
 
-    let tracks = read_export(&path, None).expect("an export");
+    let tracks = read_export(&path, None, None).expect("an export");
     assert_eq!(tracks.len(), 2, "the first row is a play, not a header");
     assert_eq!(tracks[0].query(), "DECO*27 - Roki");
     assert_eq!(tracks[0].album, "Ghost");
@@ -403,7 +403,7 @@ fn reads_an_apple_music_library() {
     let scratch = Scratch::new("wantlist-apple");
     let path = write_library(&scratch, ROKI);
 
-    let tracks = read_export(&path, None).expect("a library");
+    let tracks = read_export(&path, None, None).expect("a library");
     assert_eq!(tracks.len(), 1);
     assert_eq!(tracks[0].query(), "DECO*27 - Roki");
     assert_eq!(tracks[0].album, "Ghost");
@@ -430,7 +430,7 @@ fn an_apple_item_without_an_artist_falls_back_to_the_album_artist() {
     );
 
     assert_eq!(
-        read_export(&path, None).expect("a library")[0].artist,
+        read_export(&path, None, None).expect("a library")[0].artist,
         "DECO*27"
     );
 }
@@ -455,7 +455,7 @@ fn podcasts_films_and_audiobooks_in_an_apple_library_are_skipped() {
     );
     let path = write_library(&scratch, &items);
 
-    let titles: Vec<String> = read_export(&path, None)
+    let titles: Vec<String> = read_export(&path, None, None)
         .expect("a library")
         .into_iter()
         .map(|track| track.title)
@@ -473,7 +473,7 @@ fn a_plist_without_tracks_is_rejected() {
     )
     .expect("a written plist");
 
-    let error = read_export(&path, None).expect_err("a rejected library");
+    let error = read_export(&path, None, None).expect_err("a rejected library");
     assert!(error.to_string().contains("no Tracks"), "{error}");
 }
 
@@ -485,7 +485,7 @@ fn an_apple_library_is_recognised_by_its_content_not_its_name() {
     std::fs::rename(&library, &renamed).expect("a renamed library");
 
     assert_eq!(
-        read_export(&renamed, None).expect("a library")[0].title,
+        read_export(&renamed, None, None).expect("a library")[0].title,
         "Roki"
     );
 }
@@ -495,7 +495,7 @@ fn a_format_given_outright_is_not_second_guessed() {
     let scratch = Scratch::new("wantlist-format-override");
     let path = write_library(&scratch, ROKI);
 
-    let error = read_export(&path, Some(Format::Csv)).expect_err("a plist read as a CSV");
+    let error = read_export(&path, Some(Format::Csv), None).expect_err("a plist read as a CSV");
     assert!(error.to_string().contains("need a title column"), "{error}");
 }
 
@@ -528,7 +528,7 @@ fn a_playlist_entry_on_this_machine_is_described_by_its_tags() {
         "#EXTM3U\n#EXTINF:1,Someone Else - Wrong Title\nmusic/01 - track.flac\n",
     );
 
-    let track = &read_export(&path, None).expect("a playlist")[0];
+    let track = &read_export(&path, None, None).expect("a playlist")[0];
     assert_eq!(track.query(), "DECO*27 - Roki");
     assert_eq!(track.album, "Ghost");
     assert!((track.duration_seconds.expect("a duration") - 2.0).abs() < 0.1);
@@ -550,7 +550,7 @@ fn a_missing_playlist_entry_is_described_by_its_extinf_line() {
          #EXTINF:-1 tvg-id=\"x\",Ado - Usseewa\nhttp://example.invalid/stream\n",
     );
 
-    let tracks = read_export(&path, None).expect("a playlist");
+    let tracks = read_export(&path, None, None).expect("a playlist");
     assert_eq!(tracks[0].query(), "DECO*27 - Roki");
     assert!((tracks[0].duration_seconds.expect("a duration") - 215.0).abs() < 1e-9);
     assert!(!tracks[0].title_guessed);
@@ -567,7 +567,7 @@ fn a_bare_playlist_entry_is_guessed_from_its_filename() {
         "D:\\Music\\DECO_27\\01 - DECO*27 - Roki.flac\n# a comment\n\n02. Ghost Rule.mp3\n",
     );
 
-    let tracks = read_export(&path, None).expect("a playlist");
+    let tracks = read_export(&path, None, None).expect("a playlist");
     assert_eq!(tracks.len(), 2);
     assert_eq!(tracks[0].query(), "DECO*27 - Roki");
     assert!(tracks[0].title_guessed);
@@ -586,7 +586,7 @@ fn every_playlist_entry_carries_the_same_columns() {
         "#EXTINF:215,DECO*27 - Roki\nmissing.flac\nAdo - Usseewa.flac\n",
     );
 
-    let keys: Vec<Vec<String>> = read_export(&path, None)
+    let keys: Vec<Vec<String>> = read_export(&path, None, None)
         .expect("a playlist")
         .iter()
         .map(|track| {
@@ -614,7 +614,7 @@ fn a_playlist_is_recognised_by_its_header_whatever_its_name() {
     );
 
     assert_eq!(
-        read_export(&path, None).expect("a playlist")[0].query(),
+        read_export(&path, None, None).expect("a playlist")[0].query(),
         "DECO*27 - Roki"
     );
 }

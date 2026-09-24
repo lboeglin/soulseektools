@@ -111,7 +111,7 @@ pub fn run(context: &AppContext, args: &SyncArgs) -> Result<i32> {
 
     let target = target(context, args.apply)?;
     let pattern = Pattern::parse(&context.settings().organise.pattern)?;
-    let export = match args.export.read() {
+    let export = match args.export.read(context.settings()) {
         Ok(tracks) => tracks,
         Err(error) => {
             eprintln!("error: {error}");

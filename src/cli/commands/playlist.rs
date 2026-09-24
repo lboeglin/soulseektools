@@ -101,7 +101,7 @@ fn line(entry: &LibraryEntry) -> PlaylistEntry {
 /// `wantlist::diff` preserves the export order in `owned`, which is the whole
 /// point: the order was in the export and nowhere else.
 fn exported(context: &AppContext, export: &ExportArgs) -> Result<Option<Vec<PlaylistEntry>>> {
-    let tracks = match export.read() {
+    let tracks = match export.read(context.settings()) {
         Ok(tracks) => tracks,
         Err(error) => {
             eprintln!("error: {error}");
