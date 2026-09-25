@@ -19,8 +19,8 @@ services:
       - SLSKD_REMOTE_CONFIGURATION=true
     volumes:
       - ./slskd:/app
-      - E:/Music:/music:ro          # what you share back
-      - E:/Downloads:/downloads     # where finished files land
+      - /path/to/music:/music:ro         # what you share back
+      - /path/to/downloads:/downloads   # where finished files land
     restart: unless-stopped
 ```
 
@@ -57,7 +57,7 @@ never appears in `stk config show`, so your config file stays safe to commit.
 ```toml
 [slskd]
 url = "http://localhost:5030"
-download_directory = "E:/Downloads"    # the host side of the /downloads mount
+download_directory = "/path/to/downloads"    # the host side of the /downloads mount
 search_timeout_seconds = 15
 ```
 
