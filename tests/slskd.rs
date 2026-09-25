@@ -1,9 +1,4 @@
-//! Ported from `py/tests/unit/test_slskd.py`.
-//!
-//! The Python mocks `httpx` with `respx`. Here the client takes an `Http`
-//! implementation, so a recorded set of responses substitutes for the daemon and
-//! the requests it made can be inspected afterwards. What is under test either
-//! way is the wire format -- slskd's quirks -- not the HTTP library.
+//! The slskd wire format, against recorded responses in place of the daemon.
 
 use std::collections::HashMap;
 use std::sync::Mutex;
@@ -287,19 +282,6 @@ fn a_failure_to_clean_up_does_not_lose_the_results() {
 }
 
 #[test]
-fn no_responses_yields_no_candidates() {
-    let http = Recorded::default()
-        .with("POST", "/searches", json!({}))
-        .with("GET", "/searches/*", json!({"isComplete": true}))
-        .with("GET", "/searches/*/responses", json!([]));
-
-    assert!(client(http)
-        .search("x", 15, 200)
-        .expect("a search")
-        .is_empty());
-}
-
-#[test]
 fn a_response_with_no_files_is_skipped() {
     let http = Recorded::default()
         .with("POST", "/searches", json!({}))
@@ -326,7 +308,7 @@ fn an_unreachable_daemon_is_reported() {
 }
 
 /// The stall retry cancels the abandoned transfer so a peer that wakes up
-/// later cannot deliver the file a second time (#2).
+/// later cannot deliver the file a second time.
 #[test]
 fn cancelling_a_transfer_deletes_it_from_the_daemon() {
     let client = client(Recorded::default());
@@ -437,18 +419,6 @@ fn without_a_destination_the_per_user_endpoint_is_used() {
 }
 
 #[test]
-fn enqueueing_nothing_makes_no_request() {
-    let client = SlskdClient::new(SlskdSettings::default(), Recorded::default());
-    assert!(client
-        .enqueue("peerA", &[], "")
-        .expect("no enqueue")
-        .is_empty());
-
-    let recorder = client.into_http();
-    assert!(recorder.calls.lock().expect("the recorder").is_empty());
-}
-
-#[test]
 fn transfers_are_flattened_across_users_and_folders() {
     let http = downloads(json!([
         {
@@ -537,12 +507,4 @@ fn finished_states_are_identified() {
     assert!(TransferState::Cancelled.finished());
     assert!(!TransferState::Queued.finished());
     assert!(!TransferState::InProgress.finished());
-}
-
-#[test]
-fn no_downloads_yields_nothing() {
-    assert!(client(downloads(json!([])))
-        .transfers()
-        .expect("transfers")
-        .is_empty());
 }

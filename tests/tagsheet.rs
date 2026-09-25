@@ -1,4 +1,4 @@
-//! Reading an edited `tags dump` back, behind `stk tags apply` (#3).
+//! Reading an edited `tags dump` back, behind `stk tags apply`.
 
 mod support;
 

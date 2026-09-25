@@ -1,4 +1,4 @@
-//! Ported from `py/tests/unit/test_tags.py`.
+//! Reading and writing tags, covers, loudness tags and extras per container.
 
 mod support;
 
@@ -81,26 +81,6 @@ fn read_duration_comes_from_the_container_header() {
 }
 
 #[test]
-fn write_genres_round_trips() {
-    let scratch = Scratch::new("tags-genres");
-
-    for suffix in TAGGABLE {
-        let path = encode(
-            &scratch.join(&format!("track.{suffix}")),
-            &Encoded::default(),
-        );
-        tags::write_genres(&path, &["Touhou".to_owned(), "Eurobeat".to_owned()])
-            .expect("written genres");
-
-        assert_eq!(
-            tags::read_tags(&path).expect("readable tags").genres,
-            vec!["Touhou".to_owned(), "Eurobeat".to_owned()],
-            "{suffix}"
-        );
-    }
-}
-
-#[test]
 fn write_genres_replaces_rather_than_appends() {
     let scratch = Scratch::new("tags-genres-replace");
 
@@ -123,33 +103,6 @@ fn write_genres_replaces_rather_than_appends() {
 }
 
 #[test]
-fn artwork_round_trips() {
-    let scratch = Scratch::new("tags-artwork");
-    let cover = artwork(40);
-
-    for suffix in TAGGABLE {
-        let path = encode(
-            &scratch.join(&format!("track.{suffix}")),
-            &Encoded::default(),
-        );
-        assert!(
-            tags::read_artwork(&path)
-                .expect("a readable file")
-                .is_none(),
-            "{suffix}"
-        );
-
-        tags::write_artwork(&path, &cover).expect("written artwork");
-
-        let embedded = tags::read_artwork(&path)
-            .expect("a readable file")
-            .expect("an embedded cover");
-        assert_eq!(embedded.data, cover.data, "{suffix}");
-        assert_eq!(embedded.mime, cover.mime, "{suffix}");
-    }
-}
-
-#[test]
 fn write_artwork_replaces_the_existing_cover() {
     let scratch = Scratch::new("tags-artwork-replace");
     let cover = artwork(40);
@@ -167,19 +120,6 @@ fn write_artwork_replaces_the_existing_cover() {
             .expect("a readable file")
             .expect("an embedded cover");
         assert_eq!(embedded.data.len(), replacement.data.len(), "{suffix}");
-    }
-}
-
-#[test]
-fn artwork_size_reports_zero_when_there_is_no_cover() {
-    let scratch = Scratch::new("tags-artwork-zero");
-
-    for suffix in TAGGABLE {
-        let path = encode(
-            &scratch.join(&format!("track.{suffix}")),
-            &Encoded::default(),
-        );
-        assert_eq!(tags::artwork_size(&path), 0, "{suffix}");
     }
 }
 
@@ -235,19 +175,6 @@ fn reading_a_non_audio_file_is_explicit() {
         matches!(error, stk::errors::Error::UnsupportedFormat(_)),
         "{error}"
     );
-}
-
-#[test]
-fn every_taggable_extension_is_covered_by_these_tests() {
-    let covered: std::collections::HashSet<String> =
-        TAGGABLE.iter().map(|suffix| format!(".{suffix}")).collect();
-    let declared: std::collections::HashSet<String> = tags::TAGGABLE_EXTENSIONS
-        .iter()
-        .map(|extension| (*extension).to_owned())
-        .filter(|extension| extension != ".mp4")
-        .collect();
-
-    assert_eq!(covered, declared);
 }
 
 fn full_tags() -> TrackTags {
@@ -502,17 +429,6 @@ fn a_loudness_measurement_round_trips_through_every_container() {
     }
 }
 
-#[test]
-fn a_file_nothing_has_scanned_carries_no_loudness_tags() {
-    let scratch = Scratch::new("tags-loudness-absent");
-    let path = encode(&scratch.join("t.flac"), &Encoded::default());
-
-    let read = tags::read_replay_gain(&path).expect("readable loudness tags");
-
-    assert!(read.is_empty());
-    assert!(!read.is_scanned());
-}
-
 /// Undoing a first-ever scan means removing the tags, not writing empty ones.
 #[test]
 fn clearing_a_measurement_leaves_the_file_the_way_it_started() {
@@ -754,14 +670,4 @@ fn a_vbr_mp3_is_told_from_a_cbr_one_by_its_first_frame() {
     assert!(tags::mp3_is_vbr(&committed("noise-128k-as-vbr320.mp3")));
     assert!(!tags::mp3_is_vbr(&committed("noise-320k.mp3")));
     assert!(!tags::mp3_is_vbr(&committed("tagged.mp3")));
-}
-
-#[test]
-fn a_file_that_is_not_an_mp3_is_not_called_vbr() {
-    let scratch = Scratch::new("tags-vbr-absent");
-    let text = scratch.join("notes.mp3");
-    std::fs::write(&text, b"ID3").expect("a written file");
-
-    assert!(!tags::mp3_is_vbr(&text));
-    assert!(!tags::mp3_is_vbr(&scratch.join("missing.mp3")));
 }

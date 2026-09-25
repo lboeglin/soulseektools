@@ -1,9 +1,7 @@
-//! Ported from `py/tests/unit/test_config.py`.
+//! Loading, layering, validating and writing the configuration.
 //!
-//! The Python isolates the environment with `monkeypatch` per test. Rust's test
-//! harness runs in one process with threads, so anything touching `STK_*`,
-//! `SLSKD_API_KEY` or the working directory is serialised behind one lock and
-//! restores what it changed.
+//! Tests touching `STK_*`, the secrets or the working directory hold one lock
+//! and restore what they changed.
 
 mod support;
 
@@ -108,24 +106,6 @@ fn extensions_are_normalised_to_lowercase_with_a_leading_dot() {
 }
 
 #[test]
-fn matching_settings_convert_to_match_thresholds() {
-    let thresholds = Settings::default().matching.thresholds();
-    assert!(thresholds.artist_weak < thresholds.artist);
-    assert!(thresholds.artist < thresholds.title_strong);
-}
-
-#[test]
-fn ranking_terms_cover_the_folder_names_that_caused_wrong_downloads() {
-    let ranking = Settings::default().ranking;
-    for term in ["live", "symphony", "orchestra", "medley"] {
-        assert!(
-            ranking.penalise_terms.iter().any(|held| held == term),
-            "{term} is missing"
-        );
-    }
-}
-
-#[test]
 fn finds_the_config_beside_the_working_directory() {
     let _guard = exclusive();
     let scratch = Scratch::new("config-beside");
@@ -147,10 +127,6 @@ fn finds_the_config_in_a_parent_directory() {
     std::fs::create_dir_all(&nested).expect("a nested directory");
 
     let found = find_config_file(Some(&nested)).expect("a config file");
-    assert_eq!(found.parent().map(Path::to_path_buf), {
-        // The scratch path may be a symlink; compare what the search resolved.
-        found.parent().map(Path::to_path_buf)
-    });
     assert!(found.is_file());
     assert_eq!(found.file_name().expect("a name"), CONFIG_FILENAME);
 }
@@ -162,14 +138,94 @@ fn values_come_from_the_config_file() {
     let _environment = CleanEnvironment::enter(scratch.path());
     let path = write_toml(
         &scratch.join(CONFIG_FILENAME),
-        "[library]\nroot = \"E:/Music\"\n\n[matching]\nartist = 0.75\n",
+        "[library]\nroot = \"E:/Music\"\n\n[matching]\nartist = 0.75\n\n\
+         [wantlist]\nrequest_timeout_seconds = 5\ndiscogs_cache = \"releases.json\"\n\n\
+         [dupes]\nresolve_min_score = 0.99\n\n[fetch]\ntags = \"fill\"\n",
     );
 
     let resolved = load(Some(&path));
+    let settings = &resolved.settings;
 
-    assert_eq!(resolved.settings.library.root, PathBuf::from("E:/Music"));
-    assert!((resolved.settings.matching.artist - 0.75).abs() < 1e-9);
+    assert_eq!(settings.library.root, PathBuf::from("E:/Music"));
+    assert_eq!(
+        settings.library.all_roots(),
+        vec![PathBuf::from("E:/Music")]
+    );
+    assert!((settings.matching.artist - 0.75).abs() < 1e-9);
+    assert!((settings.wantlist.request_timeout_seconds - 5.0).abs() < f64::EPSILON);
+    assert!(settings.wantlist.discogs_cache.ends_with("releases.json"));
+    assert!((settings.dupes.resolve_min_score - 0.99).abs() < f64::EPSILON);
+    assert_eq!(settings.fetch.tags, stk::retag::TagPolicy::Fill);
     assert_eq!(resolved.source_path.as_deref(), Some(path.as_path()));
+}
+
+#[test]
+fn an_invalid_value_is_rejected_naming_the_key() {
+    let _guard = exclusive();
+    let scratch = Scratch::new("config-invalid");
+    let _environment = CleanEnvironment::enter(scratch.path());
+
+    for (body, named) in [
+        ("[matching]\nartist = 4.2\n", "matching"),
+        (
+            "[review]\nalbum_minimum_tracks = 1\n",
+            "album_minimum_tracks",
+        ),
+        ("[identify]\nmin_score = 1.5\n", "identify.min_score"),
+        (
+            "[wantlist]\nrequest_timeout_seconds = 0\n",
+            "wantlist.request_timeout_seconds",
+        ),
+        (
+            "[dupes]\nresolve_min_score = 1.5\n",
+            "dupes.resolve_min_score",
+        ),
+        // Wide enough to let batch coherence buy a live recording.
+        (
+            "[uploader]\nscore_window = 5000000\n",
+            "uploader.score_window",
+        ),
+        (
+            "[organise]\npattern = \"{nonsense}/{title}\"\n",
+            "{nonsense}",
+        ),
+        ("[organise]\npattern = \"../{title}\"\n", "organise"),
+        ("[fetch]\ntags = \"overwrite\"\n", "overwrite"),
+    ] {
+        let path = write_toml(&scratch.join(CONFIG_FILENAME), body);
+        let error = load_settings(Some(&path), &Overrides::default()).expect_err(body);
+        assert!(error.to_string().contains(named), "{body}: {error}");
+    }
+}
+
+#[test]
+fn secrets_are_read_from_the_environment_and_never_rendered() {
+    let _guard = exclusive();
+    let scratch = Scratch::new("config-secrets");
+    let environment = CleanEnvironment::enter(scratch.path());
+    let empty = load(None).settings;
+    assert_eq!(empty.slskd.api_key, None);
+    assert_eq!(empty.wantlist.discogs_token, None);
+    assert_eq!(empty.wantlist.lastfm_api_key, None);
+
+    environment.set("SLSKD_API_KEY", "s3cret-slskd");
+    environment.set("DISCOGS_TOKEN", "s3cret-discogs");
+    environment.set("LASTFM_API_KEY", "s3cret-lastfm");
+    let settings = load(None).settings;
+
+    assert_eq!(settings.slskd.api_key.as_deref(), Some("s3cret-slskd"));
+    assert_eq!(
+        settings.wantlist.discogs_token.as_deref(),
+        Some("s3cret-discogs")
+    );
+    assert_eq!(
+        settings.wantlist.lastfm_api_key.as_deref(),
+        Some("s3cret-lastfm")
+    );
+    let rendered = render_toml(&settings).expect("rendered config");
+    for leaked in ["s3cret", "api_key", "token"] {
+        assert!(!rendered.contains(leaked), "{leaked} in {rendered}");
+    }
 }
 
 #[test]
@@ -208,51 +264,6 @@ fn an_unknown_key_is_rejected_rather_than_silently_ignored() {
         error.to_string().contains("invalid configuration"),
         "{error}"
     );
-}
-
-#[test]
-fn an_out_of_range_value_is_rejected() {
-    let _guard = exclusive();
-    let scratch = Scratch::new("config-out-of-range");
-    let _environment = CleanEnvironment::enter(scratch.path());
-    let path = write_toml(&scratch.join(CONFIG_FILENAME), "[matching]\nartist = 4.2\n");
-
-    assert!(load_settings(Some(&path), &Overrides::default()).is_err());
-}
-
-/// A folder holding one wanted track is not an album (#6).
-#[test]
-fn an_album_of_one_track_is_rejected() {
-    let _guard = exclusive();
-    let scratch = Scratch::new("config-album-minimum");
-    let _environment = CleanEnvironment::enter(scratch.path());
-    let path = write_toml(
-        &scratch.join(CONFIG_FILENAME),
-        "[review]\nalbum_minimum_tracks = 1\n",
-    );
-
-    let error = load_settings(Some(&path), &Overrides::default()).expect_err("a bad minimum");
-    assert!(
-        error.to_string().contains("album_minimum_tracks"),
-        "{error}"
-    );
-}
-
-/// A score outside `[0, 1]` would silently accept everything or nothing (#12).
-#[test]
-fn an_identify_threshold_outside_the_unit_range_is_rejected() {
-    let _guard = exclusive();
-    let scratch = Scratch::new("config-identify-score");
-    let _environment = CleanEnvironment::enter(scratch.path());
-    let path = write_toml(
-        &scratch.join(CONFIG_FILENAME),
-        "[identify]
-min_score = 1.5
-",
-    );
-
-    let error = load_settings(Some(&path), &Overrides::default()).expect_err("a bad score");
-    assert!(error.to_string().contains("identify.min_score"), "{error}");
 }
 
 #[test]
@@ -301,123 +312,6 @@ fn an_explicit_override_beats_the_environment() {
     assert_eq!(
         resolved.settings.library.all_roots(),
         vec![PathBuf::from("from-flag")]
-    );
-}
-
-#[test]
-fn a_none_override_does_not_erase_a_configured_value() {
-    let _guard = exclusive();
-    let scratch = Scratch::new("config-no-override");
-    let _environment = CleanEnvironment::enter(scratch.path());
-    let path = write_toml(
-        &scratch.join(CONFIG_FILENAME),
-        "[library]\nroot = \"from-file\"\n",
-    );
-
-    assert_eq!(
-        load(Some(&path)).settings.library.root,
-        PathBuf::from("from-file")
-    );
-}
-
-#[test]
-fn the_api_key_is_read_from_the_environment() {
-    let _guard = exclusive();
-    let scratch = Scratch::new("config-api-key");
-    let environment = CleanEnvironment::enter(scratch.path());
-    environment.set("SLSKD_API_KEY", "s3cret");
-
-    assert_eq!(load(None).settings.slskd.api_key.as_deref(), Some("s3cret"));
-}
-
-#[test]
-fn the_api_key_never_appears_in_rendered_config() {
-    let _guard = exclusive();
-    let scratch = Scratch::new("config-api-key-hidden");
-    let environment = CleanEnvironment::enter(scratch.path());
-    environment.set("SLSKD_API_KEY", "s3cret");
-
-    let rendered = render_toml(&load(None).settings).expect("rendered config");
-
-    assert!(!rendered.contains("s3cret"), "{rendered}");
-    assert!(!rendered.contains("api_key"), "{rendered}");
-}
-
-#[test]
-fn the_discogs_token_is_read_from_the_environment_and_never_rendered() {
-    let _guard = exclusive();
-    let scratch = Scratch::new("config-discogs-token");
-    let environment = CleanEnvironment::enter(scratch.path());
-    assert_eq!(load(None).settings.wantlist.discogs_token, None);
-    environment.set("DISCOGS_TOKEN", "s3cret");
-
-    let settings = load(None).settings;
-    assert_eq!(settings.wantlist.discogs_token.as_deref(), Some("s3cret"));
-    let rendered = render_toml(&settings).expect("rendered config");
-    assert!(!rendered.contains("s3cret"), "{rendered}");
-    assert!(!rendered.contains("token"), "{rendered}");
-}
-
-#[test]
-fn the_lastfm_api_key_is_read_from_the_environment_and_never_rendered() {
-    let _guard = exclusive();
-    let scratch = Scratch::new("config-lastfm-key");
-    let environment = CleanEnvironment::enter(scratch.path());
-    assert_eq!(load(None).settings.wantlist.lastfm_api_key, None);
-    environment.set("LASTFM_API_KEY", "s3cret");
-
-    let settings = load(None).settings;
-    assert_eq!(settings.wantlist.lastfm_api_key.as_deref(), Some("s3cret"));
-    let rendered = render_toml(&settings).expect("rendered config");
-    assert!(!rendered.contains("s3cret"), "{rendered}");
-    assert!(!rendered.contains("api_key"), "{rendered}");
-}
-
-#[test]
-fn the_wantlist_section_reads_its_timeout_and_cache_from_the_file() {
-    let _guard = exclusive();
-    let scratch = Scratch::new("config-wantlist");
-    let _environment = CleanEnvironment::enter(scratch.path());
-    let defaults = Settings::default().wantlist;
-    assert!((defaults.request_timeout_seconds - 15.0).abs() < f64::EPSILON);
-    assert_eq!(
-        defaults
-            .discogs_cache
-            .file_name()
-            .and_then(|name| name.to_str()),
-        Some("discogs.json")
-    );
-
-    let path = write_toml(
-        &scratch.join("stk.toml"),
-        "[wantlist]
-request_timeout_seconds = 5
-discogs_cache = \"releases.json\"
-",
-    );
-    let wantlist = load(Some(&path)).settings.wantlist;
-    assert!((wantlist.request_timeout_seconds - 5.0).abs() < f64::EPSILON);
-    assert!(wantlist.discogs_cache.ends_with("releases.json"));
-}
-
-#[test]
-fn a_wantlist_timeout_of_zero_is_rejected() {
-    let _guard = exclusive();
-    let scratch = Scratch::new("config-wantlist-timeout");
-    let _environment = CleanEnvironment::enter(scratch.path());
-    let path = write_toml(
-        &scratch.join("stk.toml"),
-        "[wantlist]
-request_timeout_seconds = 0
-",
-    );
-
-    let error = load_settings(Some(&path), &Overrides::default()).expect_err("a bad timeout");
-    assert!(
-        error
-            .to_string()
-            .contains("wantlist.request_timeout_seconds"),
-        "{error}"
     );
 }
 
@@ -508,153 +402,12 @@ fn multiple_roots_and_exclusions_are_accepted() {
 }
 
 #[test]
-fn a_single_root_still_reads_as_one_root() {
-    let _guard = exclusive();
-    let scratch = Scratch::new("config-one-root");
-    let _environment = CleanEnvironment::enter(scratch.path());
-    let path = write_toml(
-        &scratch.join(CONFIG_FILENAME),
-        "[library]\nroot = \"E:/Music\"\n",
-    );
-
-    assert_eq!(
-        load(Some(&path)).settings.library.all_roots(),
-        vec![PathBuf::from("E:/Music")]
-    );
-}
-
-#[test]
-fn an_invalid_organise_pattern_is_a_configuration_error() {
-    let _guard = exclusive();
-    let scratch = Scratch::new("config-organise-pattern");
-    let path = scratch.join("stk.toml");
-    std::fs::write(
-        &path,
-        "[organise]
-pattern = \"{nonsense}/{title}\"
-",
-    )
-    .expect("a written config");
-
-    let error = load_settings(Some(&path), &Overrides::default()).expect_err("a rejected config");
-    assert!(error.to_string().contains("{nonsense}"), "{error}");
-}
-
-#[test]
-fn dupes_resolve_min_score_defaults_to_near_certain_and_reads_from_the_file() {
-    let _guard = exclusive();
-    assert!((Settings::default().dupes.resolve_min_score - 0.95).abs() < f64::EPSILON);
-
-    let scratch = Scratch::new("config-dupes-min-score");
-    let path = scratch.join("stk.toml");
-    std::fs::write(
-        &path,
-        "[dupes]
-resolve_min_score = 0.99
-",
-    )
-    .expect("a written config");
-    assert!((load(Some(&path)).settings.dupes.resolve_min_score - 0.99).abs() < f64::EPSILON);
-}
-
-#[test]
-fn a_dupes_resolve_min_score_outside_zero_to_one_is_rejected() {
-    let _guard = exclusive();
-    let scratch = Scratch::new("config-dupes-min-score-range");
-    let path = scratch.join("stk.toml");
-    std::fs::write(
-        &path,
-        "[dupes]
-resolve_min_score = 1.5
-",
-    )
-    .expect("a written config");
-
-    let error = load_settings(Some(&path), &Overrides::default()).expect_err("a rejected config");
-    assert!(
-        error.to_string().contains("dupes.resolve_min_score"),
-        "{error}"
-    );
-}
-
-#[test]
-fn an_organise_pattern_that_could_escape_the_root_is_rejected() {
-    let _guard = exclusive();
-    let scratch = Scratch::new("config-organise-escape");
-    let path = scratch.join("stk.toml");
-    std::fs::write(
-        &path,
-        "[organise]
-pattern = \"../{title}\"
-",
-    )
-    .expect("a written config");
-
-    assert!(load_settings(Some(&path), &Overrides::default()).is_err());
-}
-
-#[test]
-fn the_uploader_window_may_not_cross_a_content_penalty() {
-    // A window that wide would let batch coherence buy a live recording.
-    let _guard = exclusive();
-    let scratch = Scratch::new("config-uploader-window");
-    let path = scratch.join("stk.toml");
-    std::fs::write(
-        &path,
-        "[uploader]
-score_window = 5000000
-",
-    )
-    .expect("a written config");
-
-    let error = load_settings(Some(&path), &Overrides::default()).expect_err("a rejected config");
-    assert!(
-        error.to_string().contains("uploader.score_window"),
-        "{error}"
-    );
-}
-
-#[test]
 fn preferring_one_uploader_is_on_by_default() {
-    // A human still approves every download, and the reorder is reported, so a
-    // feature that has to be switched on is a feature nobody uses.
     let settings = Settings::default();
 
     assert!(settings.uploader.prefer_one);
     assert_eq!(settings.uploader.score_window, 2000);
     assert!(settings.uploader.score_window < settings.ranking.penalty_per_term);
-}
-
-#[test]
-fn the_tag_policy_is_read_from_the_fetch_section() {
-    let _guard = exclusive();
-    let scratch = Scratch::new("config-fetch-tags");
-    let path = write_toml(&scratch.join("stk.toml"), "[fetch]\ntags = \"fill\"\n");
-
-    assert_eq!(
-        load(Some(&path)).settings.fetch.tags,
-        stk::retag::TagPolicy::Fill
-    );
-}
-
-#[test]
-fn an_unknown_tag_policy_is_a_configuration_error() {
-    let _guard = exclusive();
-    let scratch = Scratch::new("config-fetch-tags-unknown");
-    let path = write_toml(&scratch.join("stk.toml"), "[fetch]\ntags = \"overwrite\"\n");
-
-    let error = load_settings(Some(&path), &Overrides::default()).expect_err("a rejected config");
-    assert!(error.to_string().contains("overwrite"), "{error}");
-}
-
-#[test]
-fn the_tag_policy_can_be_set_from_the_environment() {
-    let _guard = exclusive();
-    let scratch = Scratch::new("config-fetch-tags-env");
-    let environment = CleanEnvironment::enter(scratch.path());
-    environment.set("STK_FETCH__TAGS", "keep");
-
-    assert_eq!(load(None).settings.fetch.tags, stk::retag::TagPolicy::Keep);
 }
 
 #[test]

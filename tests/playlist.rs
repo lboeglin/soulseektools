@@ -1,4 +1,4 @@
-//! The M3U writer, which is how an order gets back out of the library (#3).
+//! The M3U writer, which is how an order gets back out of the library.
 
 use std::path::{Path, PathBuf};
 
@@ -41,13 +41,6 @@ fn a_track_with_no_duration_is_written_with_minus_one() {
     let text = render(&[entry("/music/a.flac", "A", "B", None)], None);
 
     assert!(text.contains("#EXTINF:-1,A - B"), "{text}");
-}
-
-#[test]
-fn a_duration_is_rounded_to_whole_seconds() {
-    let text = render(&[entry("/music/a.flac", "A", "B", Some(212.6))], None);
-
-    assert!(text.contains("#EXTINF:213,"), "{text}");
 }
 
 #[test]

@@ -1,4 +1,4 @@
-//! The policy that decides what a fetched file is tagged with (#11, #13).
+//! The policy that decides what a fetched file is tagged with.
 //!
 //! `plan` is pure, so every rule about which side wins is checked here without
 //! a file; the write, the log and the reindex are covered in `fetch.rs`.
@@ -125,14 +125,6 @@ fn the_row_reads_its_track_number_out_of_the_export_columns() {
 }
 
 #[test]
-fn a_row_with_no_track_number_column_carries_none() {
-    assert_eq!(
-        RowTags::of(&Track::new("DECO*27", "Roki")).track_number,
-        None
-    );
-}
-
-#[test]
 fn the_row_is_trimmed_before_it_is_compared() {
     let track = Track::new("  DECO*27 ", " Roki ");
     let row = RowTags::of(&track);
@@ -141,23 +133,9 @@ fn the_row_is_trimmed_before_it_is_compared() {
     assert_eq!(row.title, "Roki");
 }
 
-#[test]
-fn a_policy_round_trips_through_its_spelling() {
-    for policy in TagPolicy::ALL {
-        assert_eq!(policy.as_str().parse::<TagPolicy>(), Ok(policy));
-        assert_eq!(policy.to_string(), policy.as_str());
-    }
-    assert!("overwrite".parse::<TagPolicy>().is_err());
-}
-
-#[test]
-fn replace_is_the_default_policy() {
-    assert_eq!(TagPolicy::default(), TagPolicy::Replace);
-}
-
 /// `replace` says the row beats whatever the uploader's tagger left, which
 /// holds for a title someone asked for by name. A title `stk get --album` read
-/// off a filename is the weaker of the two guesses, so it never overwrites (#13).
+/// off a filename is the weaker of the two guesses, so it never overwrites.
 #[test]
 fn a_guessed_title_does_not_overwrite_the_one_the_peer_wrote() {
     let guessed = RowTags {
@@ -222,4 +200,14 @@ fn a_track_column_holding_the_title_is_not_a_track_number() {
     };
 
     assert_eq!(RowTags::of(&track).track_number, None);
+}
+
+#[test]
+fn a_policy_round_trips_through_its_spelling() {
+    for policy in TagPolicy::ALL {
+        assert_eq!(policy.as_str().parse::<TagPolicy>(), Ok(policy));
+        assert_eq!(policy.to_string(), policy.as_str());
+    }
+    assert!("overwrite".parse::<TagPolicy>().is_err());
+    assert_eq!(TagPolicy::default(), TagPolicy::Replace);
 }

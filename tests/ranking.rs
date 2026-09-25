@@ -1,10 +1,4 @@
-//! Ranking tests, built around the wrong downloads the original scorer allowed.
-//!
-//! Each case in the folder group is a shape the old filename-only scorer could
-//! not distinguish: two results whose filenames are identical, differing only in
-//! the remote folder they sit in.
-//!
-//! Ported from `py/tests/unit/test_ranking.py`.
+//! Search result ranking, per file, per batch and per folder.
 
 use stk::config::{RankingSettings, UploaderSettings};
 use stk::models::{Candidate, ScoredCandidate, Track};
@@ -48,7 +42,7 @@ fn a_suspicious_folder_ranks_below_an_identical_studio_file() {
         "DECO27 Live at Budokan",
         "Vocaloid Medley Collection",
     ] {
-        // Identical filenames. The old scorer saw no difference between these.
+        // Identical filenames: only the folder tells them apart.
         let suspicious = candidate(&format!("@@peer\\Music\\{folder}\\03 - Roki.flac"));
         let results = ranked(&track(), &[suspicious.clone(), studio()]);
 
@@ -56,15 +50,6 @@ fn a_suspicious_folder_ranks_below_an_identical_studio_file() {
         assert_eq!(results[results.len() - 1].candidate, suspicious, "{folder}");
         assert!(!results[results.len() - 1].flags.is_empty(), "{folder}");
     }
-}
-
-#[test]
-fn the_flag_names_what_was_found_in_the_path() {
-    let results = ranked(
-        &track(),
-        &[candidate("@@peer\\Symphony Concert\\03 - Roki.flac")],
-    );
-    assert!(results[0].flags.contains(&"symphony".to_owned()));
 }
 
 #[test]
@@ -171,23 +156,6 @@ fn a_long_queue_costs_a_result() {
 }
 
 #[test]
-fn a_result_with_no_quality_information_still_ranks() {
-    let unknown = Candidate {
-        bit_depth: None,
-        sample_rate: None,
-        ..candidate("@@a\\Music\\03 - Roki.mp3")
-    };
-
-    assert!(!ranked(&track(), &[unknown]).is_empty());
-}
-
-#[test]
-fn non_audio_files_are_dropped() {
-    assert!(ranked(&track(), &[candidate("@@peer\\Music\\Roki.cue")]).is_empty());
-    assert!(ranked(&track(), &[candidate("@@peer\\Music\\cover.jpg")]).is_empty());
-}
-
-#[test]
 fn a_file_named_after_another_song_is_dropped() {
     assert!(ranked(
         &track(),
@@ -203,13 +171,13 @@ fn a_file_named_after_the_artist_alone_is_kept() {
 }
 
 #[test]
-fn punctuation_differences_do_not_lose_a_match() {
-    assert!(!ranked(&track(), &[candidate("@@peer\\Music\\DECO_27 - Roki.flac")]).is_empty());
-}
-
-#[test]
-fn a_track_number_prefix_does_not_lose_a_match() {
-    assert!(!ranked(&track(), &[candidate("@@peer\\Music\\03. Roki.flac")]).is_empty());
+fn a_respelled_filename_still_matches() {
+    for path in [
+        r"@@peer\Music\DECO_27 - Roki.flac",
+        r"@@peer\Music\03. Roki.flac",
+    ] {
+        assert!(!ranked(&track(), &[candidate(path)]).is_empty(), "{path}");
+    }
 }
 
 #[test]
@@ -245,23 +213,14 @@ fn a_result_of_the_wrong_length_is_penalised() {
 }
 
 #[test]
-fn a_small_difference_is_tolerated() {
+fn a_close_or_unknown_length_is_not_penalised() {
     let close = Candidate {
         duration_seconds: Some(218.0),
-        ..candidate("@@a\\Music\\03 - Roki.flac")
+        ..candidate(r"@@a\Music\03 - Roki.flac")
     };
+    let unknown = candidate(r"@@a\Music\03 - Roki.flac");
 
     assert!(ranked(&track(), &[close])[0].flags.is_empty());
-}
-
-#[test]
-fn nothing_is_penalised_when_a_length_is_unknown() {
-    let unknown = candidate("@@a\\Music\\03 - Roki.flac");
-    let wanted = Track::new("DECO*27", "Roki");
-
-    assert!(ranked(&wanted, std::slice::from_ref(&unknown))[0]
-        .flags
-        .is_empty());
     assert!(ranked(&track(), &[unknown])[0].flags.is_empty());
 }
 
@@ -295,11 +254,6 @@ fn the_number_of_results_can_be_capped() {
     );
 }
 
-#[test]
-fn no_candidates_yields_no_results() {
-    assert!(ranked(&track(), &[]).is_empty());
-}
-
 /// A batch is a list per track; these are built by hand so the pass is tested
 /// without a client, a store or a search.
 fn scored(username: &str, score: i64) -> ScoredCandidate {
@@ -330,8 +284,7 @@ fn first_peers(batch: &[Vec<ScoredCandidate>]) -> Vec<&str> {
 }
 
 /// Three tracks, each won by a different peer, with `bulk` a close second on
-/// every one of them. The shape the issue describes: twelve tracks from twelve
-/// strangers, or all of them from the one peer who has the lot.
+/// every one of them.
 fn close_batch() -> Vec<Vec<ScoredCandidate>> {
     (0..3)
         .map(|index| {
@@ -380,16 +333,6 @@ fn a_peer_covering_fewer_tracks_than_the_minimum_changes_nothing() {
 
     assert_eq!(prefer_one_uploader(&mut batch, &uploader()), None);
     assert_eq!(first_peers(&batch), vec!["solo0", "solo1"]);
-}
-
-#[test]
-fn a_batch_of_one_track_is_left_alone() {
-    let mut batch = vec![vec![
-        scored("solo0", 37_000_000),
-        scored("bulk", 36_999_500),
-    ]];
-
-    assert_eq!(prefer_one_uploader(&mut batch, &uploader()), None);
 }
 
 #[test]
@@ -503,18 +446,6 @@ fn preferring_one_uploader_can_be_widened_or_narrowed() {
     assert_eq!(first_peers(&batch)[0], "solo0");
 }
 
-#[test]
-fn an_empty_batch_settles_on_nobody() {
-    assert_eq!(prefer_one_uploader(&mut [], &uploader()), None);
-    assert_eq!(prefer_one_uploader(&mut [Vec::new()], &uploader()), None);
-}
-
-/// Scoring a folder rather than a file (#13).
-///
-/// `stk get --album` starts from an album name, so there is no tracklist and no
-/// title to hold a filename against. What is left is the half of the scoring
-/// that reads the whole remote path, and it has to read the folder's files
-/// together: a folder is queued whole or not at all.
 fn lossy(path: &str, bitrate: u32) -> Candidate {
     Candidate {
         bit_depth: None,

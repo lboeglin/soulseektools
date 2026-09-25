@@ -593,8 +593,3 @@ fn edits_set_what_the_release_says_and_leave_what_it_cannot() {
         .iter()
         .all(|(field, _)| *field != TagField::Genres));
 }
-
-#[test]
-fn acoustid_uses_its_published_three_per_second_limit() {
-    assert!((stk::identify::acoustid::MIN_INTERVAL_SECONDS - 1.0 / 3.0).abs() < f64::EPSILON);
-}

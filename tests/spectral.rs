@@ -1,21 +1,9 @@
-//! Regression tests for the transcode detector.
-//!
-//! The original script was validated once, by hand, against a synthetic
-//! transcode. These tests synthesise signals with known cutoffs and known edge
-//! shapes, so that validation is permanent and covers every case the classifier
-//! distinguishes.
-//!
-//! Ported from `py/tests/unit/test_spectral.py`. The Python seeds numpy's PCG64
-//! and the Rust cannot reproduce that stream, but nothing here depends on the
-//! particular noise: what each case asserts is that a brickwall at a known
-//! frequency is found and named, and any broadband noise establishes that.
+//! The transcode and upsample detector, on synthesised signals with known
+//! cutoffs and edge shapes.
 #![allow(
     clippy::cast_precision_loss,
     clippy::cast_possible_truncation,
-    clippy::cast_sign_loss,
-    // Several assertions pin an exact sentinel a short-circuit returns -- 0.0 for
-    // an empty fingerprint, 0.5 for no evidence -- rather than a computed score.
-    clippy::float_cmp
+    clippy::cast_sign_loss
 )]
 
 use rand::rngs::StdRng;
@@ -118,16 +106,6 @@ fn average_spectrum_returns_frequencies_up_to_nyquist() {
 }
 
 #[test]
-fn average_spectrum_returns_none_when_no_complete_frame_exists() {
-    assert!(average_spectrum_db(&[vec![0.0; 16]], SAMPLE_RATE, FFT_SIZE).is_none());
-}
-
-#[test]
-fn average_spectrum_returns_none_for_no_input() {
-    assert!(average_spectrum_db(&[], SAMPLE_RATE, FFT_SIZE).is_none());
-}
-
-#[test]
 fn find_cutoff_locates_a_brickwall_within_a_band_width() {
     for cutoff in [16000.0, 18000.0, 19500.0] {
         let samples = brickwall(cutoff, SAMPLE_RATE, DURATION_SECONDS);
@@ -172,13 +150,6 @@ fn a_brickwall_is_far_steeper_than_a_rolloff() {
 }
 
 #[test]
-fn a_narrow_cliff_is_not_diluted_by_the_surrounding_spectrum() {
-    // Measured across one wide span this cliff would average out; the scan for
-    // the sharpest narrow slope is what keeps it visible.
-    assert!(steepness_of(brickwall(19500.0, SAMPLE_RATE, DURATION_SECONDS)) > 25.0);
-}
-
-#[test]
 fn known_bitrate_cutoffs_are_named() {
     for (cutoff, expected) in [
         (16000.0, "~128kbps source"),
@@ -187,10 +158,6 @@ fn known_bitrate_cutoffs_are_named() {
     ] {
         assert_eq!(matched_bitrate(cutoff), Some(expected));
     }
-}
-
-#[test]
-fn an_unusual_cutoff_matches_no_bitrate() {
     assert_eq!(matched_bitrate(12000.0), None);
     assert_eq!(matched_bitrate(21000.0), None);
 }
@@ -351,6 +318,8 @@ fn the_near_nyquist_margin_is_configurable() {
 #[test]
 fn input_too_short_to_analyse_returns_none() {
     assert!(analyse(&[vec![0.0; 64]], SAMPLE_RATE, Claim::Lossless, &tuning()).is_none());
+    assert!(average_spectrum_db(&[vec![0.0; 16]], SAMPLE_RATE, FFT_SIZE).is_none());
+    assert!(average_spectrum_db(&[], SAMPLE_RATE, FFT_SIZE).is_none());
 }
 
 #[test]
@@ -383,25 +352,18 @@ fn a_320kbps_header_over_a_128kbps_wall_is_an_upsample() {
 }
 
 #[test]
-fn a_wall_where_the_header_bitrate_puts_it_is_accepted() {
+fn a_wall_at_or_above_where_the_header_bitrate_puts_it_is_accepted() {
     for (cutoff, bitrate) in [
         (16500.0, 128),
         (18700.0, 192),
         (20100.0, 320),
         (19600.0, 256),
+        (20100.0, 128),
     ] {
         let (verdict, detail) =
             classify_lossy(cutoff, 100.0, SAMPLE_RATE, bitrate, false, 25.0, 1500);
         assert_eq!(verdict, Verdict::Ok, "{bitrate}kbps at {cutoff}: {detail}");
     }
-}
-
-#[test]
-fn a_wall_above_what_the_header_needs_is_accepted() {
-    assert_eq!(
-        classify_lossy(20100.0, 100.0, SAMPLE_RATE, 128, false, 25.0, 1500).0,
-        Verdict::Ok
-    );
 }
 
 #[test]

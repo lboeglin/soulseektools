@@ -1,4 +1,4 @@
-//! Grouping by the folder a peer offers files from (#6, #13).
+//! Grouping by the folder a peer offers files from.
 //!
 //! The offers are built from a real `ReviewStore` rather than from hand-made
 //! `ReviewTrack` values, because the rank numbering the grouping depends on is
@@ -353,7 +353,7 @@ fn approving_an_album_approves_every_track_it_covers() {
     }
 }
 
-/// The constraint #6 lists: `ReviewTrack::approved` resolves the choice
+/// `ReviewTrack::approved` resolves the choice
 /// positionally by `rank - 1` and `next_candidate` assumes dense `1..n` ranks,
 /// so an album approval must not disturb either or the stall retry breaks too.
 #[test]
@@ -493,7 +493,7 @@ fn a_folder_is_ranked_by_how_often_it_is_already_the_first_choice() {
     assert_eq!(offer.top_picks(), 1);
 }
 
-/// Folders grouped straight out of a search, for `stk get --album` (#13).
+/// Folders grouped straight out of a search, for `stk get --album`.
 ///
 /// Nothing here goes through the review queue first: the point of the command
 /// is that an album can be asked for by name, with no tracklist and no rows

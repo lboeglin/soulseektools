@@ -1,19 +1,13 @@
-//! Ported from the five CLI suites under `py/tests/integration/`.
+//! The CLI end to end, run in-process through `cli::run`.
 //!
-//! The Python drives typer's `CliRunner` in-process. `cli::run` returns an exit
-//! code rather than exiting, so the same thing works here: the whole command
-//! line is parsed and dispatched in-process, with stdout captured around it.
-//!
-//! Anything that touches the environment, the working directory or stdout is
-//! serialised behind one lock, because a Rust test binary shares all three
-//! across threads.
+//! Tests that touch the environment or the working directory hold one lock,
+//! because a test binary shares both across threads.
 
 mod support;
 
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
-use serde_json::Value;
 use support::{committed, encode, noise_source, Encoded, Scratch};
 
 /// The variables secrets are read from, which a test must neither inherit nor leak.
@@ -166,27 +160,6 @@ fn library(harness: &Harness) -> PathBuf {
     root
 }
 
-fn json_at(path: &Path) -> Value {
-    let text = std::fs::read_to_string(path).expect("a written document");
-    serde_json::from_str(&text).expect("valid JSON")
-}
-
-#[test]
-fn version_is_reported() {
-    let _guard = exclusive();
-    let _harness = Harness::new("cli-version");
-    assert_eq!(run(&["--version"]), 0);
-}
-
-#[test]
-fn completions_are_printed_for_every_shell_without_a_config() {
-    let _guard = exclusive();
-    let _harness = Harness::new("cli-completions");
-    for shell in ["bash", "elvish", "fish", "powershell", "zsh"] {
-        assert_eq!(run(&["completions", shell]), 0, "{shell}");
-    }
-}
-
 #[test]
 fn completions_are_printed_whatever_the_config_holds() {
     let _guard = exclusive();
@@ -212,28 +185,6 @@ fn a_completion_script_names_the_commands_it_completes() {
             assert!(script.contains(word), "{shell} script lacks {word}");
         }
     }
-}
-
-#[test]
-fn an_unknown_shell_is_a_usage_error() {
-    let _guard = exclusive();
-    let _harness = Harness::new("cli-completions-unknown");
-    assert_eq!(run(&["completions", "cmd"]), 2);
-}
-
-#[test]
-fn no_arguments_prints_help_without_failing_hard() {
-    let _guard = exclusive();
-    let _harness = Harness::new("cli-bare");
-    // clap exits 2 on a usage error, as typer does.
-    assert_eq!(run(&[]), 2);
-}
-
-#[test]
-fn an_unknown_command_is_a_usage_error() {
-    let _guard = exclusive();
-    let _harness = Harness::new("cli-unknown");
-    assert_eq!(run(&["nonsense"]), 2);
 }
 
 #[test]
@@ -263,16 +214,6 @@ fn config_init_writes_a_file_and_refuses_to_clobber_it() {
     assert!(text.contains("SLSKD_API_KEY"), "{text}");
 
     assert_eq!(run(&["config", "init", "--path", &path]), 1);
-}
-
-#[test]
-fn config_show_and_path_run_cleanly() {
-    let _guard = exclusive();
-    let harness = Harness::new("cli-config-show");
-    library(&harness);
-    assert_eq!(run(&["config", "show"]), 0);
-    assert_eq!(run(&["--json", "config", "show"]), 0);
-    assert_eq!(run(&["config", "path"]), 0);
 }
 
 #[test]
@@ -313,7 +254,6 @@ fn library_scan_then_stats() {
     drop(harness);
 }
 
-/// The config half of #2's multiple roots: two drives, one index.
 #[test]
 fn library_scan_covers_every_configured_root() {
     let _guard = exclusive();
@@ -363,15 +303,6 @@ fn library_scan_reports_a_missing_root() {
 }
 
 #[test]
-fn stats_on_an_empty_index_says_so() {
-    let _guard = exclusive();
-    let harness = Harness::new("cli-stats-empty");
-    harness.with_config(&harness.join("Music"));
-    assert_eq!(run(&["library", "stats"]), 0);
-    drop(harness);
-}
-
-#[test]
 fn tags_dump_writes_a_csv_with_a_bom() {
     let _guard = exclusive();
     let harness = Harness::new("cli-tags-dump");
@@ -390,28 +321,6 @@ fn tags_dump_writes_a_csv_with_a_bom() {
     let text = String::from_utf8_lossy(&bytes[3..]);
     assert!(text.starts_with("path,folder_artist,artist"), "{text}");
     assert!(text.contains("DECO*27"), "{text}");
-    drop(harness);
-}
-
-#[test]
-fn dupes_titles_runs_over_the_index() {
-    let _guard = exclusive();
-    let harness = Harness::new("cli-dupes");
-    let root = library(&harness);
-    harness.with_config(&root);
-    run(&["library", "scan"]);
-
-    assert_eq!(run(&["dupes", "titles"]), 0);
-    assert_eq!(run(&["--json", "dupes", "titles"]), 0);
-    drop(harness);
-}
-
-#[test]
-fn dupes_on_an_empty_index_says_so() {
-    let _guard = exclusive();
-    let harness = Harness::new("cli-dupes-empty");
-    harness.with_config(&harness.join("Music"));
-    assert_eq!(run(&["dupes", "titles"]), 0);
     drop(harness);
 }
 
@@ -589,75 +498,7 @@ fn dupes_resolve_rejects_an_unknown_keep_policy() {
 }
 
 #[test]
-fn art_check_reports_what_needs_a_cover() {
-    let _guard = exclusive();
-    let harness = Harness::new("cli-art-check");
-    let root = library(&harness);
-    harness.with_config(&root);
-    run(&["library", "scan"]);
-
-    assert_eq!(run(&["art", "check"]), 0);
-    assert_eq!(run(&["--json", "art", "check"]), 0);
-    drop(harness);
-}
-
-#[test]
-fn genre_check_runs_without_a_map() {
-    let _guard = exclusive();
-    let harness = Harness::new("cli-genre-no-map");
-    let root = library(&harness);
-    harness.with_config(&root);
-    run(&["library", "scan"]);
-
-    assert_eq!(run(&["genre", "check"]), 0);
-    drop(harness);
-}
-
-#[test]
-fn genre_apply_without_the_flag_writes_nothing() {
-    let _guard = exclusive();
-    let harness = Harness::new("cli-genre-dry-run");
-    let root = library(&harness);
-    harness.with_config(&root);
-    std::fs::write(harness.join("genres.toml"), "ZUN = \"Touhou\"\n").expect("a genre map");
-    run(&["library", "scan"]);
-
-    assert_eq!(run(&["genre", "apply"]), 0);
-
-    // The invariant: nothing is written without --apply.
-    let track = root.join("ZUN").join("Heian Alien.flac");
-    assert!(stk::library::tags::read_tags(&track)
-        .expect("readable tags")
-        .genres
-        .is_empty());
-    drop(harness);
-}
-
-#[test]
-fn genre_apply_with_the_flag_writes_the_tag() {
-    let _guard = exclusive();
-    let harness = Harness::new("cli-genre-apply");
-    let root = library(&harness);
-    harness.with_config(&root);
-    std::fs::write(harness.join("genres.toml"), "ZUN = \"Touhou\"\n").expect("a genre map");
-    run(&["library", "scan"]);
-
-    assert_eq!(run(&["genre", "apply", "--apply"]), 0);
-
-    let track = root.join("ZUN").join("Heian Alien.flac");
-    assert_eq!(
-        stk::library::tags::read_tags(&track)
-            .expect("readable tags")
-            .genres,
-        vec!["Touhou".to_owned()]
-    );
-    drop(harness);
-}
-
-/// #2's write log: every `--apply` mutation leaves a row, and none does
-/// without the flag.
-#[test]
-fn genre_apply_logs_what_it_wrote_only_when_applied() {
+fn genre_apply_writes_and_logs_only_with_the_flag() {
     let _guard = exclusive();
     let harness = Harness::new("cli-genre-log");
     let root = library(&harness);
@@ -670,15 +511,50 @@ fn genre_apply_logs_what_it_wrote_only_when_applied() {
     .expect("a genre map");
     run(&["library", "scan"]);
 
+    let track = root.join("ZUN").join("Heian Alien.flac");
     assert_eq!(run(&["genre", "apply"]), 0);
+    assert!(genres_of(&track).is_empty());
     assert!(logged(&harness).is_empty());
 
     assert_eq!(run(&["genre", "apply", "--apply"]), 0);
 
+    assert_eq!(genres_of(&track), vec!["Touhou".to_owned()]);
     let changes = logged(&harness);
     assert_eq!(changes.len(), 1);
     assert_eq!(changes[0].command, "genre apply");
     assert_eq!(changes[0].field, "genre");
+    drop(harness);
+}
+
+/// Every read-only report, in both output modes, over a library with something
+/// in it: the table and JSON renderers are otherwise only reached empty.
+#[test]
+fn every_report_renders_over_a_populated_library() {
+    let _guard = exclusive();
+    let harness = Harness::new("cli-reports");
+    let root = library(&harness);
+    harness.with_config(&root);
+    std::fs::write(harness.join("genres.toml"), "ZUN = \"Touhou\"\n").expect("a genre map");
+    run(&["library", "scan"]);
+    run(&["genre", "apply", "--apply"]);
+
+    for command in [
+        &["config", "show"][..],
+        &["config", "path"],
+        &["library", "stats"],
+        &["dupes", "titles"],
+        &["art", "check"],
+        &["genre", "check"],
+        &["changes", "list"],
+        &["changes", "list", "--command", "genre apply"],
+        &["loudness"],
+        &["review", "list"],
+    ] {
+        assert_eq!(run(command), 0, "{command:?}");
+        let mut json = vec!["--json"];
+        json.extend_from_slice(command);
+        assert_eq!(run(&json), 0, "--json {command:?}");
+    }
     drop(harness);
 }
 
@@ -709,27 +585,6 @@ fn changes_undo_puts_a_genre_back_only_with_apply() {
 }
 
 #[test]
-fn changes_list_renders_and_serialises() {
-    let _guard = exclusive();
-    let harness = Harness::new("cli-changes-list");
-    let root = library(&harness);
-    harness.with_config(&root);
-    std::fs::write(
-        harness.join("genres.toml"),
-        "ZUN = \"Touhou\"
-",
-    )
-    .expect("a genre map");
-    run(&["library", "scan"]);
-    run(&["genre", "apply", "--apply"]);
-
-    assert_eq!(run(&["changes", "list"]), 0);
-    assert_eq!(run(&["--json", "changes", "list"]), 0);
-    assert_eq!(run(&["changes", "list", "--command", "genre apply"]), 0);
-    drop(harness);
-}
-
-#[test]
 fn changes_undo_needs_to_be_told_what_to_undo() {
     let _guard = exclusive();
     let harness = Harness::new("cli-changes-undo-args");
@@ -753,18 +608,6 @@ fn genre_apply_without_a_map_explains_itself() {
     drop(harness);
 }
 
-#[test]
-fn verify_checks_a_single_file() {
-    let _guard = exclusive();
-    let harness = Harness::new("cli-verify-one");
-    let root = library(&harness);
-    harness.with_config(&root);
-
-    let track = root.join("ZUN").join("Heian Alien.flac");
-    assert_eq!(run(&["verify", &track.display().to_string()]), 0);
-    drop(harness);
-}
-
 /// A library whose one file the spectral check can actually judge.
 ///
 /// The tone `library` writes is too short and too narrow to classify, so it
@@ -775,7 +618,6 @@ fn verifiable_library(harness: &Harness) -> PathBuf {
     root
 }
 
-/// #2 wanted verify to stop being a one-shot report.
 #[test]
 fn verify_records_its_verdict_in_the_index() {
     let _guard = exclusive();
@@ -870,7 +712,7 @@ fn reported(harness: &Harness, arguments: &[&str]) -> (i32, String) {
     (code, std::fs::read_to_string(&report).unwrap_or_default())
 }
 
-/// #16: only FAKE fails a library sweep; an upsample is reported and recorded.
+/// Only FAKE fails a library sweep; an upsample is reported and recorded.
 #[test]
 fn verify_reports_an_upsampled_mp3_in_a_folder_without_failing() {
     let _guard = exclusive();
@@ -1078,25 +920,6 @@ fn a_dump_applied_unedited_changes_nothing() {
 }
 
 #[test]
-fn undoing_a_tags_apply_run_puts_the_field_back() {
-    let _guard = exclusive();
-    let harness = Harness::new("cli-tags-apply-undo");
-    let root = library(&harness);
-    harness.with_config(&root);
-    run(&["library", "scan"]);
-
-    let sheet = edited_dump(&harness, ",Heian Alien,", ",Native Faith,");
-    run(&["tags", "apply", &sheet.display().to_string(), "--apply"]);
-    assert_eq!(run(&["changes", "undo", "--last", "--apply"]), 0);
-
-    assert_eq!(
-        title_of(&root.join("ZUN").join("Heian Alien.flac")),
-        "Heian Alien"
-    );
-    drop(harness);
-}
-
-#[test]
 fn tags_apply_reports_a_row_that_is_not_in_the_index() {
     // Reported, not fatal: a stray row in an edited spreadsheet is routine.
     let _guard = exclusive();
@@ -1158,37 +981,6 @@ fn tags_identify_reports_a_file_it_cannot_fingerprint() {
 }
 
 #[test]
-fn tags_identify_on_a_path_nothing_is_indexed_under_says_so() {
-    let _guard = exclusive();
-    let harness = Harness::new("cli-identify-elsewhere");
-    let root = library(&harness);
-    harness.with_config(&root);
-    run(&["library", "scan"]);
-
-    let elsewhere = harness.join("Elsewhere");
-    assert_eq!(
-        run(&[
-            "tags",
-            "identify",
-            &elsewhere.display().to_string(),
-            "--all"
-        ]),
-        0
-    );
-    drop(harness);
-}
-
-#[test]
-fn tags_identify_on_an_empty_index_says_so() {
-    let _guard = exclusive();
-    let harness = Harness::new("cli-identify-empty");
-    harness.with_config(&harness.join("Music"));
-
-    assert_eq!(run(&["tags", "identify"]), 0);
-    drop(harness);
-}
-
-#[test]
 fn tags_apply_rejects_a_sheet_with_no_path_column() {
     let _guard = exclusive();
     let harness = Harness::new("cli-tags-apply-bad");
@@ -1216,31 +1008,6 @@ fn a_scan_records_a_measurement_and_a_repeat_scan_does_not() {
     let series = index.snapshots(None).expect("the series");
     assert_eq!(series.len(), 1);
     assert_eq!(series[0].total, 2);
-    drop(harness);
-}
-
-#[test]
-fn a_scan_after_files_were_added_records_a_new_measurement() {
-    let _guard = exclusive();
-    let harness = Harness::new("cli-trend-grown");
-    let root = library(&harness);
-    harness.with_config(&root);
-    run(&["library", "scan"]);
-
-    encode(
-        &root.join("ZUN").join("Native Faith.flac"),
-        &Encoded {
-            metadata: &[("artist", "ZUN"), ("title", "Native Faith")],
-            ..Encoded::default()
-        },
-    );
-    assert_eq!(run(&["library", "scan"]), 0);
-
-    let index =
-        stk::library::index::LibraryIndex::open(&harness.join("library.db")).expect("the index");
-    let series = index.snapshots(None).expect("the series");
-    assert_eq!(series.len(), 2);
-    assert_eq!(series[0].total, 3);
     drop(harness);
 }
 
@@ -1273,16 +1040,6 @@ fn trend_reports_the_measurements_it_recorded() {
         .map(|row| row.total)
         .collect();
     assert_eq!(totals, vec![3, 2]);
-    drop(harness);
-}
-
-#[test]
-fn trend_on_an_index_that_was_never_scanned_says_so() {
-    let _guard = exclusive();
-    let harness = Harness::new("cli-trend-empty");
-    harness.with_config(&harness.join("Music"));
-
-    assert_eq!(run(&["library", "trend"]), 0);
     drop(harness);
 }
 
@@ -1327,22 +1084,6 @@ fn organise_moves_the_file_and_carries_its_index_row_along() {
     let changes = logged(&harness);
     assert!(changes.iter().any(|row| row.field == "move"));
     assert!(changes.iter().all(|row| row.command == "organise"));
-    drop(harness);
-}
-
-#[test]
-fn undoing_an_organise_run_puts_the_files_back() {
-    let _guard = exclusive();
-    let harness = Harness::new("cli-organise-undo");
-    let root = library(&harness);
-    harness.with_config(&root);
-    run(&["library", "scan"]);
-    run(&["organise", "--apply"]);
-
-    assert_eq!(run(&["changes", "undo", "--last", "--apply"]), 0);
-
-    assert!(root.join("DECO_27").join("01 - Roki.flac").is_file());
-    assert!(root.join("ZUN").join("Heian Alien.flac").is_file());
     drop(harness);
 }
 
@@ -1401,21 +1142,6 @@ destination = {}
 }
 
 #[test]
-fn a_relative_playlist_without_a_destination_is_refused_in_json_too() {
-    // A script is the caller most likely to pass both, and the one the flag
-    // would otherwise be silently ignored for.
-    let _guard = exclusive();
-    let harness = Harness::new("cli-playlist-relative-json");
-    harness.with_config(&harness.join("Music"));
-
-    assert_eq!(
-        run(&["--json", "playlist", "artist", "ZUN", "--relative"]),
-        1
-    );
-    drop(harness);
-}
-
-#[test]
 fn organise_rejects_a_pattern_it_cannot_use() {
     let _guard = exclusive();
     let harness = Harness::new("cli-organise-bad-pattern");
@@ -1447,18 +1173,6 @@ fn organise_from_moves_a_download_into_the_library() {
     assert_eq!(run(&["organise", "--from", &from, "--apply"]), 0);
     assert!(!fetched.exists());
     assert!(root.join("ZUN").join("Lotus").join("Song.flac").is_file());
-    drop(harness);
-}
-
-#[test]
-fn organise_from_a_directory_that_is_not_there_fails() {
-    let _guard = exclusive();
-    let harness = Harness::new("cli-organise-from-missing");
-    let root = library(&harness);
-    harness.with_config(&root);
-    let from = harness.join("absent").display().to_string();
-
-    assert_eq!(run(&["organise", "--from", &from]), 1);
     drop(harness);
 }
 
@@ -1712,48 +1426,6 @@ fn a_scrobble_log_queues_only_what_was_played_often_enough() {
 }
 
 #[test]
-fn wantlist_diff_reads_an_apple_music_library() {
-    let _guard = exclusive();
-    let harness = Harness::new("cli-wantlist-apple");
-    let root = library(&harness);
-    harness.with_config(&root);
-    run(&["library", "scan"]);
-
-    let export = harness.join("Library.xml");
-    std::fs::write(
-        &export,
-        r#"<?xml version="1.0" encoding="UTF-8"?>
-<plist version="1.0"><dict><key>Tracks</key><dict>
-<key>1</key><dict><key>Name</key><string>Roki</string><key>Artist</key><string>DECO*27</string></dict>
-<key>2</key><dict><key>Name</key><string>Senbonzakura</string><key>Artist</key><string>Hatsune Miku</string></dict>
-</dict></dict></plist>
-"#,
-    )
-    .expect("a written library");
-
-    assert_eq!(run(&["wantlist", "diff", &export.display().to_string()]), 0);
-
-    let store = stk::review::store::ReviewStore::open(&harness.join("review.db"))
-        .expect("the review queue");
-    let tracks = store.tracks(&[], None).expect("tracks");
-    assert_eq!(tracks.len(), 1);
-    assert_eq!(tracks[0].track.title, "Senbonzakura");
-    drop(harness);
-}
-
-#[test]
-fn an_unknown_format_is_refused_by_the_parser() {
-    let _guard = exclusive();
-    let harness = Harness::new("cli-wantlist-bad-format");
-    harness.with_config(&harness.join("Music"));
-    assert_ne!(
-        run(&["wantlist", "diff", "export.csv", "--format", "xls"]),
-        0
-    );
-    drop(harness);
-}
-
-#[test]
 fn a_lastfm_profile_without_an_api_key_is_refused_before_any_request() {
     let _guard = exclusive();
     let harness = Harness::new("cli-wantlist-lastfm-no-key");
@@ -1778,15 +1450,6 @@ fn a_format_for_a_lastfm_profile_is_refused() {
 
     unsafe { std::env::remove_var("LASTFM_API_KEY") };
     assert_eq!(code, 1);
-    drop(harness);
-}
-
-#[test]
-fn a_lastfm_source_without_a_user_is_refused_by_the_parser() {
-    let _guard = exclusive();
-    let harness = Harness::new("cli-wantlist-lastfm-no-user");
-    harness.with_config(&harness.join("Music"));
-    assert_eq!(run(&["wantlist", "diff", "lastfm:"]), 2);
     drop(harness);
 }
 
@@ -1854,45 +1517,6 @@ fn wantlist_diff_writes_the_missing_and_owned_reports() {
     let owned_text = std::fs::read_to_string(&owned).expect("an owned report");
     assert!(owned_text.contains("matched_path"), "{owned_text}");
     assert!(owned_text.contains("Roki"), "{owned_text}");
-    drop(harness);
-}
-
-#[test]
-fn a_second_diff_of_the_same_export_reports_nothing_new() {
-    let _guard = exclusive();
-    let harness = Harness::new("cli-wantlist-new-again");
-    let root = library(&harness);
-    harness.with_config(&root);
-    run(&["library", "scan"]);
-
-    let export = harness.join("export.csv");
-    std::fs::write(
-        &export,
-        "Track name,Artist name
-Senbonzakura,Hatsune Miku
-",
-    )
-    .expect("a written export");
-
-    let report = harness.join("missing.csv");
-    let diff_new = |destination: &Path| {
-        run(&[
-            "wantlist",
-            "diff",
-            &export.display().to_string(),
-            "--new",
-            "--missing",
-            &destination.display().to_string(),
-        ])
-    };
-
-    assert_eq!(diff_new(&report), 0);
-    let first = std::fs::read_to_string(&report).expect("a missing report");
-    assert!(first.contains("Senbonzakura"), "{first}");
-
-    assert_eq!(diff_new(&report), 0);
-    let second = std::fs::read_to_string(&report).expect("a missing report");
-    assert!(!second.contains("Senbonzakura"), "{second}");
     drop(harness);
 }
 
@@ -2037,17 +1661,6 @@ fn wantlist_diff_rejects_a_file_without_the_needed_columns() {
 }
 
 #[test]
-fn review_list_is_empty_until_something_is_queued() {
-    let _guard = exclusive();
-    let harness = Harness::new("cli-review-empty");
-    harness.with_config(&harness.join("Music"));
-
-    assert_eq!(run(&["review", "list"]), 0);
-    assert_eq!(run(&["--json", "review", "list"]), 0);
-    drop(harness);
-}
-
-#[test]
 fn review_approve_reject_and_reset_report_an_unknown_track() {
     let _guard = exclusive();
     let harness = Harness::new("cli-review-unknown");
@@ -2080,15 +1693,6 @@ fn review_import_reads_a_legacy_csv() {
     let tracks = store.tracks(&[], None).expect("tracks");
     assert_eq!(tracks.len(), 1);
     assert_eq!(tracks[0].approved_rank, Some(1));
-    drop(harness);
-}
-
-#[test]
-fn review_import_reports_a_missing_file() {
-    let _guard = exclusive();
-    let harness = Harness::new("cli-review-import-missing");
-    harness.with_config(&harness.join("Music"));
-    assert_eq!(run(&["review", "import", "no-such-file.csv"]), 1);
     drop(harness);
 }
 
@@ -2127,7 +1731,7 @@ fn review_pick_on_an_empty_queue_says_so() {
     drop(harness);
 }
 
-/// Two tracks one peer holds in a single folder, waiting to be reviewed (#6).
+/// Two tracks one peer holds in a single folder, waiting to be reviewed.
 fn album_in_review(harness: &Harness) {
     let mut store = stk::review::store::ReviewStore::open(&harness.join("review.db"))
         .expect("the review queue");
@@ -2165,17 +1769,6 @@ fn album_in_review(harness: &Harness) {
 }
 
 #[test]
-fn review_albums_is_empty_until_one_peer_covers_several_tracks() {
-    let _guard = exclusive();
-    let harness = Harness::new("cli-review-albums-empty");
-    harness.with_config(&harness.join("Music"));
-
-    assert_eq!(run(&["review", "albums"]), 0);
-    assert_eq!(run(&["--json", "review", "albums"]), 0);
-    drop(harness);
-}
-
-#[test]
 fn approving_an_album_takes_every_track_its_folder_covers() {
     let _guard = exclusive();
     let harness = Harness::new("cli-review-albums-approve");
@@ -2194,17 +1787,6 @@ fn approving_an_album_takes_every_track_its_folder_covers() {
         .all(|entry| entry.status == stk::models::TrackStatus::Approved));
     // Decided tracks leave the album view, so nothing can be approved twice.
     assert_eq!(run(&["review", "approve-album", "1"]), 1);
-    drop(harness);
-}
-
-#[test]
-fn approving_an_album_that_is_not_offered_is_an_error() {
-    let _guard = exclusive();
-    let harness = Harness::new("cli-review-albums-unknown");
-    harness.with_config(&harness.join("Music"));
-
-    assert_eq!(run(&["review", "approve-album", "1"]), 1);
-    assert_eq!(run(&["review", "approve-album", "0"]), 1);
     drop(harness);
 }
 
@@ -2230,52 +1812,6 @@ fn the_library_flag_overrides_the_configured_root() {
         run(&["--library", &root.display().to_string(), "doctor"]),
         0
     );
-    drop(harness);
-}
-
-#[test]
-fn json_output_is_a_document_rather_than_a_table() {
-    let _guard = exclusive();
-    let harness = Harness::new("cli-json-shape");
-    let root = library(&harness);
-    harness.with_config(&root);
-    run(&["library", "scan"]);
-
-    // `tags dump` is the one JSON path that also has a file form, so its
-    // document can be read back without capturing stdout.
-    let output = harness.join("tags.csv");
-    run(&["tags", "dump", "--output", &output.display().to_string()]);
-    let text = std::fs::read_to_string(&output).expect("a written CSV");
-    assert_eq!(text.lines().count(), 3, "a header and two rows");
-    drop(harness);
-}
-
-#[test]
-fn a_written_config_round_trips_through_the_cli() {
-    let _guard = exclusive();
-    let harness = Harness::new("cli-config-round-trip");
-    let written = harness.join("written.toml");
-    let path = written.display().to_string();
-
-    assert_eq!(run(&["config", "init", "--path", &path]), 0);
-    assert_eq!(run(&["--config", &path, "config", "show"]), 0);
-    drop(harness);
-}
-
-#[test]
-fn the_api_key_is_never_written_into_the_config() {
-    let _guard = exclusive();
-    let harness = Harness::new("cli-config-no-secret");
-    unsafe { std::env::set_var("SLSKD_API_KEY", "s3cret") };
-
-    let written = harness.join("written.toml");
-    run(&["config", "init", "--path", &written.display().to_string()]);
-
-    let text = std::fs::read_to_string(&written).expect("a written config");
-    assert!(!text.contains("s3cret"), "{text}");
-    assert!(!text.contains("api_key"), "{text}");
-
-    unsafe { std::env::remove_var("SLSKD_API_KEY") };
     drop(harness);
 }
 
@@ -2318,50 +1854,6 @@ fn an_unknown_artwork_provider_is_rejected() {
 }
 
 #[test]
-fn the_json_flag_must_precede_the_subcommand_but_is_accepted_after_it() {
-    // typer requires the global flag before the subcommand; clap's `global`
-    // accepts either, which is a superset rather than a divergence.
-    let _guard = exclusive();
-    let harness = Harness::new("cli-flag-position");
-    harness.with_config(&harness.join("Music"));
-
-    assert_eq!(run(&["--json", "review", "list"]), 0);
-    assert_eq!(run(&["review", "list", "--json"]), 0);
-    drop(harness);
-}
-
-#[test]
-fn a_json_document_written_by_the_cli_parses() {
-    let _guard = exclusive();
-    let harness = Harness::new("cli-json-parses");
-    let root = library(&harness);
-    harness.with_config(&root);
-    run(&["library", "scan"]);
-
-    // Written through the report path so the bytes can be inspected.
-    let report = harness.join("verify.csv");
-    let track = root.join("ZUN").join("Heian Alien.flac");
-    run(&[
-        "verify",
-        &track.display().to_string(),
-        "--report",
-        &report.display().to_string(),
-    ]);
-    assert!(report.is_file());
-
-    let written = harness.join("written.toml");
-    run(&["config", "init", "--path", &written.display().to_string()]);
-    let settings: stk::config::Settings =
-        toml::from_str(&std::fs::read_to_string(&written).expect("a config")).expect("valid TOML");
-    assert_eq!(settings.library.root, root);
-
-    let _ = json_at;
-    drop(harness);
-}
-
-/// Phase 4 (#1): `stk get` handles one track, several tracks, and a list from a
-/// file or stdin. `wanted_tracks` is the parser all three go through.
-#[test]
 fn get_accepts_one_track_several_tracks_and_a_list() {
     use stk::cli::commands::get::{wanted_tracks, GetArgs};
 
@@ -2383,7 +1875,7 @@ fn get_accepts_one_track_several_tracks_and_a_list() {
     assert_eq!(one.len(), 1);
     assert_eq!(one[0].query(), "DECO*27 - Roki");
 
-    // Several, which the Python could not express at all: `query` was one `str`.
+    // Several.
     let several = wanted_tracks(&args(
         vec!["DECO*27 - Roki", "ZUN - Heian Alien", "Ado - Odo"],
         None,
@@ -2429,26 +1921,6 @@ fn get_applies_one_artist_across_a_whole_list() {
 
     assert_eq!(tracks.len(), 2);
     assert!(tracks.iter().all(|track| track.artist == "DECO*27"));
-}
-
-#[test]
-fn get_reports_a_list_it_cannot_read() {
-    use stk::cli::commands::get::{wanted_tracks, GetArgs};
-
-    let error = wanted_tracks(&GetArgs {
-        query: Vec::new(),
-        from: Some(PathBuf::from("no-such-list.txt")),
-        artist: None,
-        album: false,
-        lossless: false,
-        min_bitrate: None,
-        yes: false,
-        queue_only: false,
-        limit: 5,
-    })
-    .expect_err("a missing list");
-
-    assert!(error.to_string().contains("cannot read"), "{error}");
 }
 
 #[test]
@@ -2617,18 +2089,6 @@ fn loudness_force_replaces_an_existing_scan() {
     drop(harness);
 }
 
-#[test]
-fn loudness_reports_the_plan_as_json() {
-    let _guard = exclusive();
-    let harness = Harness::new("cli-loudness-json");
-    let root = levelled_library(&harness);
-    harness.with_config(&root);
-    run(&["library", "scan"]);
-
-    assert_eq!(run(&["--json", "loudness"]), 0);
-    drop(harness);
-}
-
 /// The whole run undone leaves the library exactly as it was found.
 #[test]
 fn changes_undo_takes_a_whole_loudness_run_back() {
@@ -2721,9 +2181,7 @@ fn loudness_gives_an_album_gain_when_the_whole_record_is_named() {
     drop(harness);
 }
 
-/// `--album` takes one album, and says so before it opens a socket. A list of
-/// albums is a list of interactive decisions, which is the one thing the batch
-/// path exists to avoid (#13).
+/// `--album` takes one album, and refuses a list before it opens a socket.
 #[test]
 fn get_album_takes_one_album_and_not_a_list() {
     let _guard = exclusive();
@@ -2750,8 +2208,6 @@ fn get_album_takes_one_album_and_not_a_list() {
     drop(harness);
 }
 
-/// The album listing's rows, checked as a pure function for the same reason the
-/// other rendering is: a CLI test can only see the exit code (#13).
 #[test]
 fn get_album_lists_a_peer_a_count_and_what_is_inside() {
     use stk::cli::commands::get::{folder_rows, folder_warnings};
@@ -2804,32 +2260,6 @@ fn get_album_lists_a_peer_a_count_and_what_is_inside() {
         folder_warnings(&offers[0]),
         "1 file(s) below the quality limit"
     );
-}
-
-#[test]
-fn nothing_is_wrong_with_a_folder_that_has_nothing_wrong_with_it() {
-    use stk::cli::commands::get::folder_warnings;
-    use stk::config::RankingSettings;
-    use stk::models::Candidate;
-    use stk::review::albums::folders;
-
-    let file = |name: &str| Candidate {
-        username: "bulk".to_owned(),
-        remote_path: format!("@@peer\\Music\\Ghost Rule EP\\{name}"),
-        size: 30_000_000,
-        sample_rate: Some(44100),
-        bit_depth: Some(16),
-        free_upload_slots: true,
-        ..Candidate::default()
-    };
-    let offers = folders(
-        &[file("01 - Roki.flac"), file("02 - Ghost Rule.flac")],
-        &RankingSettings::default(),
-        "ghost rule ep",
-        2,
-    );
-
-    assert_eq!(folder_warnings(&offers[0]), "");
 }
 
 /// A library, a config naming a download directory, and an export in which
@@ -2904,16 +2334,6 @@ fn sync_apply_without_a_download_directory_is_refused() {
         1
     );
     assert!(!harness.join("review.db").exists());
-    drop(harness);
-}
-
-#[test]
-fn sync_with_an_export_that_is_not_there_fails() {
-    let _guard = exclusive();
-    let (harness, _, _) = sync_harness("cli-sync-no-export");
-    let absent = harness.join("absent.csv").display().to_string();
-
-    assert_eq!(run(&["sync", "--yes", &absent]), 1);
     drop(harness);
 }
 

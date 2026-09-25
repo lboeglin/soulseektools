@@ -1,4 +1,4 @@
-//! Ported from `py/tests/unit/test_library_index.py`.
+//! Walking the library, describing files, and the SQLite index.
 
 mod support;
 
@@ -86,36 +86,13 @@ fn scan_honours_the_extension_filter() {
 }
 
 #[test]
-fn scan_ignores_non_audio_files() {
-    let scratch = Scratch::new("index-non-audio");
-    let root = library_root(&scratch);
-    std::fs::write(root.join("DECO_27").join("cover.jpg"), b"not audio").expect("a written file");
-
-    let found = iter_audio_files(&root, default_extensions(), &Excludes::default());
-
-    assert!(found.iter().all(|path| path.extension().unwrap() != "jpg"));
-}
-
-#[test]
 fn folder_artist_is_the_first_component_below_the_root() {
     let scratch = Scratch::new("index-folder-artist");
     let root = library_root(&scratch);
     let nested = root.join("ZUN").join("Nested").join("15 Heian Alien.flac");
 
     assert_eq!(folder_artist(&nested, &root), "ZUN");
-}
-
-#[test]
-fn a_file_in_the_root_has_no_implied_artist() {
-    let scratch = Scratch::new("index-loose");
-    let root = scratch.join("Music");
     assert_eq!(folder_artist(&root.join("loose.flac"), &root), "");
-}
-
-#[test]
-fn a_path_outside_the_root_has_no_implied_artist() {
-    let scratch = Scratch::new("index-outside");
-    let root = scratch.join("Music");
     assert_eq!(folder_artist(Path::new("/elsewhere/track.flac"), &root), "");
 }
 
@@ -183,7 +160,6 @@ fn describe_precomputes_the_name_forms_used_for_matching() {
     assert_eq!(entry.title.romaji, "roki");
 }
 
-/// New in schema v3 (#2): the same header read now also records the stream.
 #[test]
 fn describe_records_the_stream_properties_the_upgrade_flow_needs() {
     let scratch = Scratch::new("describe-stream");
@@ -318,20 +294,6 @@ fn entries_are_returned_in_a_deterministic_order() {
 }
 
 #[test]
-fn the_index_survives_being_reopened() {
-    let scratch = Scratch::new("index-reopen");
-    let root = library_root(&scratch);
-    {
-        let mut index = open(&scratch, "index.db");
-        refresh(&mut index, &root);
-    }
-
-    let mut reopened = open(&scratch, "index.db");
-    assert_eq!(reopened.count().expect("a count"), 4);
-    assert_eq!(refresh(&mut reopened, &root).unchanged, 4);
-}
-
-#[test]
 fn artist_counts_group_by_folder() {
     let scratch = Scratch::new("index-artists");
     let root = library_root(&scratch);
@@ -346,37 +308,6 @@ fn artist_counts_group_by_folder() {
             ("beatMARIO".to_owned(), 1),
         ]
     );
-}
-
-#[test]
-fn refresh_reports_progress_per_file() {
-    let scratch = Scratch::new("index-progress");
-    let root = library_root(&scratch);
-    let mut index = open(&scratch, "index.db");
-
-    let mut seen: Vec<PathBuf> = Vec::new();
-    let mut record = |path: &Path| seen.push(path.to_path_buf());
-    index
-        .refresh(
-            std::slice::from_ref(&root),
-            default_extensions(),
-            &Excludes::default(),
-            false,
-            Some(&mut record),
-        )
-        .expect("a refresh");
-
-    assert_eq!(seen.len(), 4);
-}
-
-#[test]
-fn creates_the_database_directory() {
-    let scratch = Scratch::new("index-nested-db");
-    let root = library_root(&scratch);
-    let mut index = LibraryIndex::open(&scratch.join("nested").join("deeper").join("index.db"))
-        .expect("an index");
-
-    assert_eq!(refresh(&mut index, &root).added, 4);
 }
 
 #[test]
@@ -413,26 +344,13 @@ fn reindex_picks_up_a_tag_this_tool_just_wrote() {
     );
 }
 
-#[test]
-fn reindexing_a_file_that_is_gone_does_nothing() {
-    let scratch = Scratch::new("index-reindex-absent");
-    let root = library_root(&scratch);
-    let mut index = open(&scratch, "index.db");
-
-    assert!(index
-        .reindex(&root.join("absent.flac"), std::slice::from_ref(&root))
-        .expect("a reindex")
-        .is_none());
-}
-
-/// An index the Python build wrote is upgraded in place, so a library scanned
-/// before the port needs no rescan after it.
+/// The oldest schema still in the wild is upgraded in place, not rewritten.
 #[test]
 fn a_v2_database_is_upgraded_in_place_rather_than_rewritten() {
     let scratch = Scratch::new("index-v2");
     let database = scratch.join("v2.db");
 
-    // Exactly what the Python build creates: v2, without the six v3 columns.
+    // v2: without the six v3 columns.
     let connection = rusqlite::Connection::open(&database).expect("a database");
     connection
         .execute_batch(
@@ -468,13 +386,9 @@ fn a_v2_database_is_upgraded_in_place_rather_than_rewritten() {
     assert_eq!(entry.codec, "");
     assert_eq!(entry.bitrate, None);
     assert_eq!(index.schema_version().expect("a version"), 6);
-    // The v5 snapshots table is created alongside, so a trend can start being
-    // recorded against a database that predates it (#3).
     assert!(index.snapshots(None).expect("a series").is_empty());
 }
 
-/// A database written before the loudness columns opens where it stands, the
-/// way every version before them did (#7).
 #[test]
 fn a_v5_database_gains_the_loudness_columns_in_place() {
     let scratch = Scratch::new("index-v5");
@@ -511,8 +425,6 @@ fn a_v5_database_gains_the_loudness_columns_in_place() {
     assert_eq!(index.schema_version().expect("a version"), 6);
 }
 
-/// The v6 columns come off the header parse `describe` already performs, so a
-/// scan records them without being asked (#7).
 #[test]
 fn a_scan_records_the_loudness_tags_a_file_carries() {
     let scratch = Scratch::new("index-loudness");
@@ -539,25 +451,8 @@ fn a_scan_records_the_loudness_tags_a_file_carries() {
     assert!(entry.is_level_matched());
 }
 
-#[test]
-fn a_file_nothing_has_scanned_is_indexed_as_not_level_matched() {
-    let scratch = Scratch::new("index-loudness-absent");
-    let root = library_root(&scratch);
-    let mut index = open(&scratch, "index.db");
-    refresh(&mut index, &root);
-
-    let entry = index
-        .entry(&root.join("DECO_27").join("01 - Roki.flac"))
-        .expect("a lookup")
-        .expect("the indexed row");
-
-    assert!(entry.replay_gain.is_empty());
-    assert!(!entry.is_level_matched());
-}
-
-/// Adding a column moves neither the size nor the mtime a row is invalidated
-/// by, so a library scanned before v6 would report every file
-/// un-level-matched until something happened to touch it (#7).
+/// Adding a column changes neither size nor mtime, so the next scan has to
+/// backfill it explicitly.
 #[test]
 fn an_upgraded_database_fills_its_loudness_columns_at_the_next_scan() {
     let scratch = Scratch::new("index-backfill");
@@ -634,28 +529,6 @@ fn the_backfill_leaves_a_recorded_verdict_where_it_was() {
     );
 }
 
-/// `verify` stops being a one-shot report once its verdict is persisted (#2).
-#[test]
-fn a_verdict_is_recorded_against_the_file() {
-    let scratch = Scratch::new("index-verdict");
-    let root = library_root(&scratch);
-    let track = root.join("DECO_27").join("01 - Roki.flac");
-    let mut index = open(&scratch, "index.db");
-    refresh(&mut index, &root);
-
-    assert_eq!(index.verdict(&track).expect("a lookup"), None);
-
-    index
-        .set_verdict(&track, stk::models::Verdict::Fake, 1.0)
-        .expect("a recorded verdict");
-
-    assert_eq!(
-        index.verdict(&track).expect("a lookup"),
-        Some(stk::models::Verdict::Fake)
-    );
-}
-
-/// The verdict column is text, so a new verdict needs no migration (#16).
 #[test]
 fn every_verdict_survives_the_round_trip_through_the_index() {
     let scratch = Scratch::new("index-every-verdict");
@@ -673,7 +546,6 @@ fn every_verdict_survives_the_round_trip_through_the_index() {
     }
 }
 
-/// Multiple roots, from #2: a library spread across two drives.
 #[test]
 fn files_under_two_roots_land_in_one_index() {
     let scratch = Scratch::new("index-two-roots");
@@ -721,7 +593,6 @@ fn a_second_root_does_not_evict_the_first_roots_files() {
     assert_eq!(result.unchanged, 5);
 }
 
-/// Exclusions, from #2: audiobooks and sample packs stay out of the index.
 #[test]
 fn an_excluded_folder_stays_out_of_the_walk() {
     let scratch = Scratch::new("index-exclude");

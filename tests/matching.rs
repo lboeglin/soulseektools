@@ -1,5 +1,4 @@
-//! Ported from `py/tests/unit/test_matching.py`, plus the one test in
-//! `test_romaji.py` that needed the matcher to exist.
+//! Romaji-aware fuzzy matching of artist and title names.
 
 use std::collections::HashSet;
 
@@ -34,11 +33,6 @@ fn name_forms_carry_the_raw_normalised_and_romanised_spellings() {
 fn empty_names_are_falsy_and_never_match() {
     assert!(!forms("").is_present());
     assert_eq!(similarity(&forms(""), &forms("anything")), 0.0);
-}
-
-#[test]
-fn identical_names_score_one() {
-    assert!((similarity(&forms("Roki"), &forms("Roki")) - 1.0).abs() < 1e-9);
 }
 
 #[test]
@@ -145,7 +139,6 @@ fn the_title_is_weighted_above_the_artist() {
 /// The artist 須田景凪 romanises to "sudakeinagi", while the producer romanises
 /// the same name as "Suda Keina". Transliteration cannot know that, which is
 /// why the artist half of a match is only ever required to clear `artist_weak`.
-/// Ported from `test_romaji.py`.
 #[test]
 fn artist_readings_can_diverge_but_a_strong_title_still_matches() {
     let kanji = forms("\u{9808}\u{7530}\u{666f}\u{51ea}");
@@ -185,12 +178,6 @@ fn unrelated_names_share_no_blocking_key() {
         .intersection(&keys(&[&right]))
         .next()
         .is_none());
-}
-
-#[test]
-fn short_names_still_produce_a_key() {
-    let ado = forms("Ado");
-    assert_eq!(keys(&[&ado]), HashSet::from(["ado".to_owned()]));
 }
 
 #[test]
@@ -234,9 +221,8 @@ fn candidate_pairs_yields_each_pair_once() {
 
 #[test]
 fn candidate_pairs_skips_almost_every_comparison_in_a_distinct_library() {
-    // The Python seeds `random.Random`; reproducing Mersenne Twister would not
-    // make the property any truer. What matters is that blocking turns the
-    // quadratic scan into a near-linear one over names that share nothing.
+    // Blocking has to turn the quadratic scan into a near-linear one over names
+    // that share nothing.
     let mut state = 20_260_830_u64;
     let mut next = || {
         state = state

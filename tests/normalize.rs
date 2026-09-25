@@ -131,7 +131,7 @@ fn sanitize_folder_name_replaces_characters_a_filesystem_rejects() {
     for (raw, expected) in [
         ("DECO*27", "DECO_27"),
         ("AC/DC", "AC_DC"),
-        // A backslash is the separator this function exists to neutralise; see #5.
+        // A backslash is the separator this function exists to neutralise.
         (r"AC\DC", "AC_DC"),
         (
             "\u{4e0a}\u{6d77}\u{30a2}\u{30ea}\u{30b9}\u{5e7b}\u{6a02}\u{56e3}",
@@ -161,7 +161,7 @@ fn sanitize_folder_name_falls_back_when_nothing_survives() {
 }
 
 /// What `stk get --album` files a download under: the folder gives no tracklist,
-/// so the filename's own number is the only one there is (#13).
+/// so the filename's own number is the only one there is.
 #[test]
 fn a_filename_gives_up_the_track_number_it_leads_with() {
     for (name, expected) in [

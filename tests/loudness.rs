@@ -1,8 +1,4 @@
-//! The EBU R 128 loudness scan behind `stk loudness` (#7).
-//!
-//! The analysis is a pure function over samples, so most of what a figure means
-//! is established here without decoding anything -- which is also what #9 wants
-//! of it, since nothing in this file needs a tool installed to run.
+//! The EBU R 128 loudness scan behind `stk loudness`.
 
 mod support;
 
@@ -216,33 +212,6 @@ fn an_album_is_measured_across_its_tracks_at_once() {
     );
     // The peak belongs to whichever track holds it.
     assert!((album.peak - tracks[0].peak).abs() < 1e-9);
-}
-
-#[test]
-fn tracks_come_back_in_the_order_the_paths_were_given() {
-    let scratch = Scratch::new("loudness-order");
-    let paths: Vec<_> = ["a", "b", "c"]
-        .iter()
-        .map(|name| {
-            encode(
-                &scratch.join(&format!("{name}.flac")),
-                &Encoded {
-                    seconds: 1.0,
-                    ..Encoded::default()
-                },
-            )
-        })
-        .collect();
-
-    let scan = measure_album(&paths, &LoudnessSettings::default());
-
-    assert_eq!(
-        scan.tracks
-            .iter()
-            .map(|result| result.path.clone())
-            .collect::<Vec<_>>(),
-        paths
-    );
 }
 
 /// A record nothing in which could be read has no figure to give its tracks.

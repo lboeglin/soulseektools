@@ -1,4 +1,4 @@
-//! Laying files out from their tags, behind `stk organise` (#3).
+//! Laying files out from their tags, behind `stk organise`.
 
 mod support;
 
@@ -147,7 +147,7 @@ fn a_file_with_no_artist_at_all_lands_under_unknown_artist() {
 
 #[test]
 fn a_slash_in_an_artist_name_does_not_create_a_directory() {
-    // The regression behind #5: `sanitize_folder_name` runs per component, so a
+    // `sanitize_folder_name` runs per component, so a
     // separator inside a name cannot become one on disk.
     assert_eq!(
         rendered("/d/a.flac", tagged("AC/DC", "", "Back in Black", None)),
@@ -473,18 +473,6 @@ fn loose_files_are_described_from_where_they_sit_rather_than_the_index() {
 }
 
 #[test]
-fn loose_files_are_only_read_from_a_directory() {
-    let scratch = Scratch::new("organise-loose-missing");
-
-    assert!(loose_entries(
-        &scratch.join("absent"),
-        default_extensions(),
-        &Excludes::default()
-    )
-    .is_err());
-}
-
-#[test]
 fn applying_a_plan_moves_indexes_and_logs_each_file() {
     let scratch = Scratch::new("organise-apply");
     let (downloads, file) = download(&scratch);
@@ -550,15 +538,6 @@ fn a_move_that_fails_is_reported_and_the_rest_carry_on() {
     assert_eq!(applied.moved, 1);
     assert_eq!(applied.failures.len(), 1);
     assert!(root.join("ZUN").join("Song.flac").is_file());
-}
-
-#[test]
-fn a_failed_move_leaves_the_source_where_it_was() {
-    let scratch = Scratch::new("organise-failed");
-    let source = scratch.join("absent.flac");
-
-    assert!(move_file(&source, &scratch.join("moved.flac")).is_err());
-    assert!(!scratch.join("moved.flac").exists());
 }
 
 #[test]

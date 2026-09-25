@@ -1,5 +1,4 @@
-//! Ported from `py/tests/unit/test_romaji.py`, with the readings IPADIC gets
-//! right where pykakasi did not.
+//! Reading Japanese names as romaji.
 
 use stk::text::romaji::{contains_japanese, to_romaji};
 

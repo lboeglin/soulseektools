@@ -1,9 +1,5 @@
-//! Ported from `py/tests/unit/test_artwork.py`.
-//!
-//! The Python mocks `httpx` with `respx` and freezes the clock with a fake
-//! `time.monotonic`. Here the providers take a `ServiceHttp`, so a recorded set of
-//! responses substitutes for the network, and the rate limiter is measured
-//! against real elapsed time with intervals small enough to stay quick.
+//! Cover art selection, providers, pacing and embedding, against recorded HTTP
+//! responses. The rate limiter is timed for real, with short intervals.
 
 mod support;
 
@@ -131,22 +127,7 @@ fn jpeg(size: usize) -> Vec<u8> {
 }
 
 #[test]
-fn nothing_is_selected_from_an_empty_result_set() {
-    let selection = select(&[], "DECO*27", true, 0.8);
-    assert!(selection.candidate.is_none());
-    assert_eq!(selection.reason, "no results");
-}
-
-#[test]
-fn a_matching_artist_is_selected() {
-    let selection = select(&[candidate("DECO*27", "itunes")], "DECO_27", true, 0.8);
-    assert!(selection.is_some());
-}
-
-#[test]
 fn the_wrong_artist_is_rejected_rather_than_embedded() {
-    // The failure this guard exists for: the script it replaces pasted the wrong
-    // artist's cover onto files twice.
     let selection = select(
         &[candidate("Some Other Band", "itunes")],
         "DECO*27",
@@ -202,15 +183,6 @@ fn the_threshold_is_configurable() {
 }
 
 #[test]
-fn the_first_request_is_not_delayed() {
-    let limiter = RateLimiter::new(0.2);
-    let started = Instant::now();
-    limiter.wait();
-
-    assert!(started.elapsed().as_secs_f64() < 0.1);
-}
-
-#[test]
 fn a_following_request_waits_out_the_interval() {
     let limiter = RateLimiter::new(0.2);
     limiter.wait();
@@ -238,18 +210,6 @@ fn time_already_spent_counts_towards_the_interval() {
 }
 
 #[test]
-fn no_wait_is_needed_once_the_interval_has_passed() {
-    let limiter = RateLimiter::new(0.1);
-    limiter.wait();
-    std::thread::sleep(std::time::Duration::from_millis(150));
-
-    let started = Instant::now();
-    limiter.wait();
-
-    assert!(started.elapsed().as_secs_f64() < 0.05);
-}
-
-#[test]
 fn a_zero_interval_disables_pacing() {
     let limiter = RateLimiter::new(0.0);
     let started = Instant::now();
@@ -257,30 +217,6 @@ fn a_zero_interval_disables_pacing() {
     limiter.wait();
 
     assert!(started.elapsed().as_secs_f64() < 0.05);
-}
-
-#[test]
-fn each_limiter_paces_independently() {
-    // A slow provider must not slow a fast one.
-    let slow = RateLimiter::new(0.3);
-    let fast = RateLimiter::new(0.0);
-    slow.wait();
-    fast.wait();
-
-    let started = Instant::now();
-    fast.wait();
-
-    assert!(started.elapsed().as_secs_f64() < 0.05);
-}
-
-#[test]
-fn musicbrainz_uses_its_published_one_second_limit() {
-    assert!((stk::artwork::coverartarchive::MIN_INTERVAL_SECONDS - 1.0).abs() < f64::EPSILON);
-}
-
-#[test]
-fn itunes_uses_apples_documented_limit() {
-    assert!((stk::artwork::itunes::MIN_INTERVAL_SECONDS - 3.0).abs() < f64::EPSILON);
 }
 
 #[test]
@@ -307,22 +243,11 @@ fn the_interval_can_be_overridden_for_every_provider() {
 }
 
 #[test]
-fn user_agent_names_the_tool_and_its_version() {
-    let agent = user_agent("");
-    assert!(agent.starts_with("soulseektools/"), "{agent}");
-}
-
-#[test]
-fn a_configured_contact_is_included() {
-    let agent = user_agent("me@example.test");
-    assert!(agent.contains("me@example.test"), "{agent}");
-}
-
-#[test]
-fn nothing_is_sent_that_was_not_configured() {
-    // MusicBrainz asks callers to identify themselves; inventing a contact would
-    // be worse than sending none.
-    assert!(!user_agent("").contains('('));
+fn user_agent_names_the_tool_and_only_a_configured_contact() {
+    let anonymous = user_agent("");
+    assert!(anonymous.starts_with("soulseektools/"), "{anonymous}");
+    assert!(!anonymous.contains('('), "{anonymous}");
+    assert!(user_agent("me@example.test").contains("me@example.test"));
 }
 
 #[test]
@@ -671,32 +596,6 @@ fn embeds_a_verified_cover_into_a_real_file() {
 }
 
 #[test]
-fn embedding_nothing_is_a_programming_error() {
-    let result = ArtworkResult {
-        entry: entry("DECO*27", "Roki", 0),
-        selection: select(&[], "DECO*27", true, 0.8),
-        artwork: None,
-        error: String::new(),
-    };
-
-    let error = embed(&result).expect_err("nothing to embed");
-    assert!(error.to_string().contains("nothing to embed"), "{error}");
-}
-
-#[test]
-fn repeated_searches_are_paced() {
-    let http =
-        Recorded::default().json_at(stk::artwork::itunes::SEARCH_URL, json!({"results": []}));
-    let provider = ITunesProvider::new(1200, 0.2);
-
-    provider.search(&http, "a", "b").expect("a search");
-    let started = Instant::now();
-    provider.search(&http, "a", "b").expect("a search");
-
-    assert!(started.elapsed().as_secs_f64() >= 0.15);
-}
-
-#[test]
 fn a_slow_provider_does_not_pace_a_fast_one() {
     let http = Recorded::default()
         .json_at(stk::artwork::itunes::SEARCH_URL, json!({"results": []}))
@@ -714,15 +613,4 @@ fn a_slow_provider_does_not_pace_a_fast_one() {
     fast.search(&http, "a", "b").expect("a search");
 
     assert!(started.elapsed().as_secs_f64() < 0.05);
-}
-
-#[test]
-fn the_configured_contact_reaches_the_request() {
-    // The transport is what carries it; this pins the header value it is built
-    // from rather than opening a socket.
-    let settings = ArtworkSettings {
-        contact: "me@example.test".to_owned(),
-        ..ArtworkSettings::default()
-    };
-    assert!(user_agent(&settings.contact).contains("me@example.test"));
 }

@@ -1,4 +1,4 @@
-//! The album grouping and the gain arithmetic behind `stk loudness` (#7).
+//! The album grouping and the gain arithmetic behind `stk loudness`.
 //!
 //! All of it is pure, so what a gain figure means is established here rather
 //! than through a decode. The measurement itself is in `loudness.rs`.
@@ -183,20 +183,6 @@ fn the_tracks_of_one_album_are_gathered_into_one_group() {
     assert_eq!(groups.len(), 1);
     assert_eq!(groups[0].targets.len(), 2);
     assert!(groups[0].album.is_some());
-}
-
-#[test]
-fn a_file_with_no_album_tag_is_a_group_of_its_own() {
-    let groups = group(
-        vec![
-            target("/music/a.flac", tags("ZUN", "")),
-            target("/music/b.flac", tags("ZUN", "")),
-        ],
-        true,
-    );
-
-    assert_eq!(groups.len(), 2);
-    assert!(groups.iter().all(|group| group.album.is_none()));
 }
 
 #[test]

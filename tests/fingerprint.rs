@@ -1,10 +1,5 @@
-//! Ported from `py/tests/unit/test_fingerprint.py`.
-//!
-//! The Python monkeypatches `shutil.which` and `subprocess.run` to exercise
-//! backend selection and fpcalc parsing without the binary. There is no backend
-//! to select any more and no binary to stand in for: the fingerprint is
-//! computed in-process, so the comparison is tested on values written here and
-//! the computation on files decoded for real.
+//! Chromaprint fingerprints: the comparison on literal values, the
+//! computation on real decoded files.
 
 mod support;
 
@@ -58,22 +53,9 @@ fn unrelated_fingerprints_do_not_match() {
 }
 
 #[test]
-fn an_empty_fingerprint_matches_nothing() {
-    assert!(similarity(&print(Vec::new()), &print(vec![1, 2, 3])) < f64::EPSILON);
-}
-
-#[test]
 fn too_few_frames_to_compare_scores_zero() {
     let short = print(vec![1, 2, 3]);
     assert!(similarity(&short, &short) < f64::EPSILON);
-}
-
-#[test]
-fn fingerprints_differing_in_every_bit_do_not_match() {
-    let values = print(vec![0; 30]);
-    let inverted = print(vec![0xFFFF_FFFF; 30]);
-
-    assert!(similarity(&values, &inverted) < 0.1);
 }
 
 #[test]

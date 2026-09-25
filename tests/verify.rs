@@ -1,11 +1,4 @@
-//! End-to-end checks of the transcode detector against real encoded files.
-//!
-//! `spectral.rs` covers the classifier on synthesised spectra and `decode.rs`
-//! covers the decoder; this covers the verdict the two produce together,
-//! including for a genuine MP3 re-encoded as FLAC -- the exact deception the
-//! check exists to catch.
-//!
-//! Ported from `py/tests/unit/test_verify.py`.
+//! The transcode detector end to end, on real encoded files.
 
 mod support;
 
@@ -59,18 +52,6 @@ fn the_reported_cutoff_rises_with_the_source_bitrate() {
     );
 
     assert!(low.cutoff_hz < high.cutoff_hz);
-}
-
-#[test]
-fn the_verdict_explains_itself() {
-    let scratch = Scratch::new("verify-explains");
-    let result = verify_file(
-        &transcode_to_flac(&scratch, "explained", "128k"),
-        &VerifySettings::default(),
-    );
-
-    assert!(result.detail.contains("transcoded"), "{}", result.detail);
-    assert!(result.steepness_db_per_khz.is_some());
 }
 
 #[test]

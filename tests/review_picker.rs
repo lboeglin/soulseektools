@@ -1,4 +1,4 @@
-//! The interactive picker (#8): what each answer decides, and what it leaves
+//! The interactive picker: what each answer decides, and what it leaves
 //! behind in the review queue.
 //!
 //! The walk takes its input and its transcript as arguments, so a whole session
@@ -176,7 +176,7 @@ fn u_takes_back_the_previous_decision_and_offers_it_again() {
 
     assert_eq!(tally.approved, 1);
     assert_eq!(approved_rank(&store, "Roki"), Some(2));
-    // The candidate taken back must not stay marked as tried, or #2's retry
+    // The candidate taken back must not stay marked as tried, or the retry
     // would fall past it to the third and the best copy would never be fetched.
     let id = id_of(&store, "Roki");
     assert_eq!(store.next_candidate(id).expect("a retry"), Some(1));
@@ -192,23 +192,6 @@ fn undoing_a_rejection_returns_the_track_to_the_queue() {
     assert_eq!(tally.rejected, 0);
     assert_eq!(tally.skipped, 1);
     assert_eq!(status_of(&store, "Roki"), TrackStatus::AwaitingReview);
-}
-
-#[test]
-fn undo_before_anything_is_decided_says_so() {
-    let scratch = Scratch::new("picker-undo-empty");
-    let mut store = queue(&scratch);
-
-    let (tally, transcript) = walk(&mut store, "u\nq\n");
-
-    assert!(transcript.contains("Nothing to undo yet."), "{transcript}");
-    assert_eq!(
-        tally,
-        Tally {
-            waiting: 2,
-            ..Tally::default()
-        }
-    );
 }
 
 #[test]

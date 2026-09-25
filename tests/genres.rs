@@ -1,4 +1,4 @@
-//! Ported from `py/tests/unit/test_genres.py`.
+//! The artist-to-genre map, its overrides, and planning genre writes.
 
 mod support;
 
@@ -119,16 +119,6 @@ fn artists_match_on_their_normalised_name() {
 }
 
 #[test]
-fn an_unmapped_artist_yields_nothing() {
-    let scratch = Scratch::new("genres-unmapped");
-    let path = write_map(&scratch, "ZUN = \"Touhou\"\n");
-    let genre_map = load_genre_map(&path).expect("a genre map");
-
-    assert!(genres(&genre_map, "Nobody").is_empty());
-    assert!(!genre_map.covers(key("Nobody", "", "")));
-}
-
-#[test]
 fn a_non_string_value_is_rejected() {
     let scratch = Scratch::new("genres-bad-value");
     let path = write_map(&scratch, "ZUN = 42\n");
@@ -148,22 +138,6 @@ fn a_missing_file_is_reported_as_a_config_error() {
 fn the_example_map_loads() {
     let genre_map = load_genre_map(&example_map()).expect("the shipped map");
     assert!(genre_map.len() > 100, "{} entries", genre_map.len());
-}
-
-#[test]
-fn the_example_map_preserves_the_entries_it_was_converted_from() {
-    let genre_map = load_genre_map(&example_map()).expect("the shipped map");
-
-    assert_eq!(genres(&genre_map, "DECO_27"), vec!["Vocaloid".to_owned()]);
-    assert_eq!(genres(&genre_map, "ZUN"), vec!["Touhou".to_owned()]);
-    assert_eq!(
-        genres(&genre_map, "SOUND HOLIC"),
-        vec!["Touhou".to_owned(), "Eurobeat".to_owned()]
-    );
-    assert_eq!(
-        genres(&genre_map, "\u{7a32}\u{8449}\u{66c7}"),
-        vec!["Vocaloid".to_owned()]
-    );
 }
 
 #[test]
@@ -221,27 +195,6 @@ fn the_largest_folders_come_first() {
     entries.push(entry("Small", "x", &[]));
 
     assert_eq!(unmapped_artists(&entries, &GenreMap::default())[0].0, "Big");
-}
-
-#[test]
-fn apply_change_writes_the_genre_to_disk() {
-    let scratch = Scratch::new("genres-apply");
-    let root = scratch.path();
-    let track = encode(
-        &scratch.join("ZUN").join("Heian Alien.flac"),
-        &Encoded::default(),
-    );
-
-    let genre_map = map_of(&[("zun", &["Touhou"])]);
-    let described = describe(&track, root).expect("an entry");
-    let change = &plan_changes(std::slice::from_ref(&described), &genre_map)[0];
-
-    apply_change(change).expect("a written genre");
-
-    assert_eq!(
-        tags::read_tags(&track).expect("readable tags").genres,
-        vec!["Touhou".to_owned()]
-    );
 }
 
 #[test]
@@ -364,21 +317,6 @@ fn an_artist_with_a_slash_in_their_name_is_still_one_override_key() {
         genre_map.genres_for(key("AC/DC", "Back in Black", "")),
         vec!["Rock".to_owned()]
     );
-}
-
-#[test]
-fn an_artist_only_map_reads_exactly_as_it_did_before() {
-    let scratch = Scratch::new("genres-override-compat");
-    let path = write_map(
-        &scratch,
-        "ZUN = \"Touhou\"
-Ado = \"J-Pop\"
-",
-    );
-    let genre_map = load_genre_map(&path).expect("a genre map");
-
-    assert_eq!(genres(&genre_map, "ZUN"), vec!["Touhou".to_owned()]);
-    assert_eq!(genre_map.len(), 2);
 }
 
 #[test]

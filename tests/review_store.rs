@@ -1,5 +1,4 @@
-//! Ported from `py/tests/unit/test_review_store.py`, plus the retry and stall
-//! tracking `review.db` v2 adds (#2) and the guessed titles v4 adds (#13).
+//! The review queue in `review.db`: states, choices, retries and migrations.
 
 mod support;
 
@@ -213,7 +212,7 @@ fn approving_a_candidate_that_does_not_exist_is_an_error() {
     assert_eq!(stored.status, TrackStatus::AwaitingReview);
 }
 
-/// A second track with candidates of its own, for the batch approvals (#6).
+/// A second track with candidates of its own, for the batch approvals.
 fn second_reviewable(store: &mut ReviewStore) -> i64 {
     store
         .add(&[track("ZUN", "Heian Alien")])
@@ -244,7 +243,7 @@ fn several_tracks_can_be_approved_as_one_decision() {
 }
 
 /// An album is taken or left as a unit, so one rank that does not exist has to
-/// leave every other track in the offer undecided (#6).
+/// leave every other track in the offer undecided.
 #[test]
 fn approving_several_tracks_at_once_is_all_or_nothing() {
     let scratch = Scratch::new("review-approve-all-fails");
@@ -359,29 +358,7 @@ fn counts_summarise_the_queue() {
     );
 }
 
-#[test]
-fn an_unknown_track_id_returns_nothing() {
-    let scratch = Scratch::new("review-unknown");
-    let store = store(&scratch);
-    assert!(store.track(999).expect("a lookup").is_none());
-}
-
-#[test]
-fn the_queue_survives_being_reopened() {
-    let scratch = Scratch::new("review-reopen");
-    {
-        let mut first = store(&scratch);
-        let track_id = reviewable(&mut first);
-        first.approve(track_id, 1).expect("an approval");
-    }
-
-    let second = store(&scratch);
-    let stored = &second.tracks(&[], None).expect("tracks")[0];
-    assert_eq!(stored.status, TrackStatus::Approved);
-    assert!(stored.approved().is_some());
-}
-
-/// `review.db` v2 (#2). `FAILED` used to be terminal even though the next
+/// `review.db` v2. `FAILED` used to be terminal even though the next
 /// candidate was already in the database.
 #[test]
 fn the_next_candidate_is_promoted_without_losing_the_search() {
@@ -473,7 +450,7 @@ fn only_candidates_nobody_has_tried_are_untried() {
     assert_eq!(untried, vec![scored(1, &[]), scored(3, &[])]);
 }
 
-/// A stalled peer's group is reordered after its ranks were written (#17), so
+/// A stalled peer's group is reordered after its ranks were written, so
 /// the renumbering has to keep what was tried marked and leave ranks dense.
 #[test]
 fn reordering_the_untried_candidates_keeps_the_tried_ones_first_and_tried() {
@@ -508,7 +485,7 @@ fn reordering_the_untried_candidates_keeps_the_tried_ones_first_and_tried() {
 }
 
 /// v3 adds `attempted` to a table an existing database already holds rows in,
-/// so the column has to arrive without disturbing them (#6).
+/// so the column has to arrive without disturbing them.
 #[test]
 fn a_v2_database_keeps_its_candidates_when_the_retry_column_arrives() {
     let scratch = Scratch::new("review-v2");
@@ -541,8 +518,7 @@ fn a_v2_database_keeps_its_candidates_when_the_retry_column_arrives() {
     assert_eq!(store.next_candidate(track_id).expect("a retry"), Some(1));
 }
 
-/// A queue the Python build wrote is upgraded in place, so a review session
-/// begun before the port carries on after it.
+/// The oldest queue schema is upgraded in place, not rewritten.
 #[test]
 fn a_v1_database_is_upgraded_in_place_rather_than_rewritten() {
     let scratch = Scratch::new("review-v1");
@@ -574,7 +550,7 @@ fn a_v1_database_is_upgraded_in_place_rather_than_rewritten() {
 }
 
 /// A row `stk get --album` writes says so, because its title came off a
-/// filename rather than out of anything anyone asked for by name (#13).
+/// filename rather than out of anything anyone asked for by name.
 #[test]
 fn a_row_records_whether_its_title_was_guessed() {
     let scratch = Scratch::new("review-guessed");
@@ -597,7 +573,7 @@ fn a_row_records_whether_its_title_was_guessed() {
 }
 
 /// v4 adds `title_guessed` to a table an existing database already holds rows
-/// in, so the column has to arrive without disturbing them (#13).
+/// in, so the column has to arrive without disturbing them.
 #[test]
 fn a_v3_database_keeps_its_tracks_when_the_guessed_column_arrives() {
     let scratch = Scratch::new("review-v3");

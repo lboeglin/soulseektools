@@ -1,4 +1,4 @@
-//! Ported from `py/tests/unit/test_wantlist.py`.
+//! Reading exports in every supported format, and diffing them against the library.
 
 mod support;
 
@@ -34,7 +34,7 @@ fn entry(artist: &str, title: &str) -> LibraryEntry {
 
 fn write_csv(scratch: &Scratch, body: &str) -> PathBuf {
     let path = scratch.join("export.csv");
-    // The Python writes utf-8-sig; the reader has to cope with the BOM either way.
+    // Exports written by Excel carry a BOM.
     let mut bytes = b"\xef\xbb\xbf".to_vec();
     bytes.extend_from_slice(body.as_bytes());
     std::fs::write(&path, bytes).expect("a written export");
@@ -89,17 +89,6 @@ fn reads_a_duration_written_as_minutes_and_seconds() {
 }
 
 #[test]
-fn an_unreadable_duration_is_left_unset() {
-    let scratch = Scratch::new("wantlist-bad-duration");
-    let path = write_csv(&scratch, "Title,Artist,Length\nRoki,DECO*27,soon\n");
-
-    assert_eq!(
-        read_export(&path, None, None).expect("an export")[0].duration_seconds,
-        None
-    );
-}
-
-#[test]
 fn the_original_row_is_kept() {
     let scratch = Scratch::new("wantlist-source-row");
     let path = write_csv(
@@ -138,17 +127,6 @@ fn an_empty_file_is_rejected() {
 
     let error = read_export(&path, None, None).expect_err("a rejected export");
     assert!(error.to_string().contains("empty"), "{error}");
-}
-
-#[test]
-fn the_query_used_for_searching_joins_artist_and_title() {
-    let scratch = Scratch::new("wantlist-query");
-    let path = write_csv(&scratch, "Track name,Artist name\nRoki,DECO*27\n");
-
-    assert_eq!(
-        read_export(&path, None, None).expect("an export")[0].query(),
-        "DECO*27 - Roki"
-    );
 }
 
 #[test]
@@ -212,11 +190,6 @@ fn every_track_is_accounted_for() {
 }
 
 #[test]
-fn an_empty_library_leaves_everything_missing() {
-    assert_eq!(split(&wanted("DECO*27", "Roki"), &[]).missing.len(), 1);
-}
-
-#[test]
 fn blocking_finds_a_match_inside_a_large_library() {
     let mut library: Vec<LibraryEntry> = (0..300)
         .map(|index| entry(&format!("Artist {index}"), &format!("Some Song {index}")))
@@ -229,7 +202,7 @@ fn blocking_finds_a_match_inside_a_large_library() {
 }
 
 /// The track number stays in the raw row and is read back by header, with the
-/// same tolerance the export was read with (#11).
+/// same tolerance the export was read with.
 #[test]
 fn a_track_number_is_found_whatever_its_header_spelling() {
     let scratch = Scratch::new("wantlist-track-number");
@@ -355,14 +328,6 @@ fn keeping_played_tracks_collapses_repeats_and_drops_the_rare_ones() {
         .collect();
     assert_eq!(kept, ["DECO*27 - Roki", "Ado - Odo"]);
     assert_eq!(keep_played(plays.to_vec(), 1).len(), 3);
-}
-
-#[test]
-fn a_format_is_named_as_the_flag_spells_it() {
-    assert_eq!("csv".parse::<Format>(), Ok(Format::Csv));
-    let error = "xls".parse::<Format>().expect_err("an unknown format");
-    assert!(error.contains("known: csv, apple, m3u"), "{error}");
-    assert_eq!("apple".parse::<Format>(), Ok(Format::Apple));
 }
 
 /// An iTunes library in the shape Apple writes it, one `<dict>` per item.

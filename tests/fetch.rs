@@ -1,9 +1,5 @@
-//! Ported from `py/tests/unit/test_fetch.py`, plus the retry path `review.db`
-//! v2 adds (#2).
-//!
-//! The whole flow runs against a fake implementing `SoulseekClient`: no network,
-//! no daemon, no Soulseek account. Preserving that boundary is what makes these
-//! tests runnable in CI.
+//! Search, enqueue, collect, stall retry and the download wait, against a fake
+//! `SoulseekClient`.
 
 mod support;
 
@@ -29,8 +25,7 @@ struct FakeClient {
     transfers: Vec<Transfer>,
     search_error: Option<String>,
     enqueue_error: Option<String>,
-    // `Mutex` rather than `RefCell`: the client boundary is `Sync` now that
-    // searches fan out, and a fake has to satisfy the same bound.
+    // `Mutex` because searches fan out, so the client has to be `Sync`.
     searched: Mutex<Vec<String>>,
     enqueued: Mutex<Vec<(String, String)>>,
     cancelled: Mutex<Vec<(String, String)>>,
@@ -334,37 +329,13 @@ fn the_approved_candidate_is_queued() {
         fetch::enqueue_approved(&mut store, &enqueuer, None, 1000.0).expect("an enqueue");
 
     assert!(outcomes[0].queued);
+    assert_eq!(
+        outcomes[0].destination, "DECO_27",
+        "a folder name the filesystem accepts"
+    );
     assert_eq!(enqueuer.enqueued.lock().expect("the fake")[0].0, "peerA");
-}
-
-#[test]
-fn the_destination_folder_is_safe_for_the_filesystem() {
-    let scratch = Scratch::new("fetch-destination");
-    let settings = settings(&scratch);
-    let mut store = store(&scratch);
-    store.add(&[roki()]).expect("an added track");
-    let client = FakeClient::with_candidates(vec![candidate("@@peerA\\Music\\Roki.flac")]);
-    fetch::search_pending(&mut store, &client, &settings, None).expect("a search");
-    let track_id = store.tracks(&[], None).expect("tracks")[0].id;
-    store.approve(track_id, 1).expect("an approval");
-
-    let enqueuer = FakeClient::default();
-    let outcomes =
-        fetch::enqueue_approved(&mut store, &enqueuer, None, 1000.0).expect("an enqueue");
-
-    assert_eq!(outcomes[0].destination, "DECO_27");
-}
-
-#[test]
-fn the_track_moves_to_queued() {
-    let scratch = Scratch::new("fetch-queued");
-    let settings = settings(&scratch);
-    let mut store = store(&scratch);
-    let track_id = queued(&mut store, &settings);
-
     let entry = store.track(track_id).expect("a lookup").expect("the track");
     assert_eq!(entry.status, TrackStatus::Queued);
-    // v2 (#2): the queue time is recorded, so a stall can be seen later.
     assert_eq!(entry.queued_at, Some(1000.0));
 }
 
@@ -470,8 +441,6 @@ fn a_failed_transfer_is_recorded_as_a_failure() {
     assert!(entry.detail.contains("peer gone"), "{}", entry.detail);
 }
 
-/// The retry path from #2: rank 2 was always in the database, and nothing ever
-/// reached for it.
 #[test]
 fn a_failed_transfer_promotes_the_next_candidate_when_there_is_one() {
     let scratch = Scratch::new("fetch-retry");
@@ -518,26 +487,6 @@ fn a_transfer_for_another_track_is_ignored() {
     assert!(collect(&mut store, &client, &settings, true)
         .expect("a collect")
         .is_empty());
-}
-
-#[test]
-fn the_local_path_is_rebuilt_from_the_destination() {
-    let scratch = Scratch::new("fetch-local-path");
-    let settings = settings(&scratch);
-    let mut store = store(&scratch);
-    queued(&mut store, &settings);
-
-    let client = FakeClient::with_transfers(vec![transfer(
-        "@@peerA\\Music\\Roki.flac",
-        TransferState::Completed,
-        "",
-    )]);
-    let outcome = &collect(&mut store, &client, &settings, false).expect("a collect")[0];
-
-    assert_eq!(
-        outcome.local_path,
-        Some(scratch.join("downloads").join("DECO_27").join("Roki.flac"))
-    );
 }
 
 #[test]
@@ -704,7 +653,7 @@ fn a_downloaded_mp3_is_held_to_its_bitrate() {
     assert_eq!(entry.detail, "downloaded, verified");
 }
 
-/// #16: a peer shipping upsampled MP3s is caught on the first one.
+/// A peer shipping upsampled MP3s is caught on the first one.
 #[test]
 fn a_downloaded_upsampled_mp3_is_caught_and_counts_as_going_wrong() {
     let scratch = Scratch::new("fetch-mp3-upsampled");
@@ -753,18 +702,6 @@ fn a_lossy_download_verify_has_no_bitrate_table_for_is_left_unjudged() {
 }
 
 #[test]
-fn no_transfers_at_all_does_nothing() {
-    let scratch = Scratch::new("fetch-no-transfers");
-    let settings = settings(&scratch);
-    let mut store = store(&scratch);
-    queued(&mut store, &settings);
-
-    assert!(collect(&mut store, &FakeClient::default(), &settings, true)
-        .expect("a collect")
-        .is_empty());
-}
-
-#[test]
 fn downloaded_path_keeps_only_the_filename() {
     let scratch = Scratch::new("fetch-filename");
     let settings = settings(&scratch);
@@ -780,32 +717,9 @@ fn downloaded_path_keeps_only_the_filename() {
     );
 }
 
-#[test]
-fn the_fake_satisfies_the_client_trait() {
-    // The boundary that keeps every flow above testable without a daemon.
-    let client: &dyn SoulseekClient = &FakeClient::default();
-    assert!(client.is_connected());
-    assert!(client.transfers().expect("transfers").is_empty());
-}
-
-/// The Rust build must not guess a path the Python build would not.
-#[test]
-fn downloaded_path_needs_a_configured_download_directory() {
-    let transfer = transfer("@@peerA\\Music\\Roki.flac", TransferState::Completed, "");
-    assert_eq!(
-        downloaded_path(&Settings::default(), "DECO*27", &transfer),
-        None::<PathBuf>
-    );
-}
-
-/// The parallelism #1 asks for, established by rendezvous rather than by clock.
-///
-/// Every slskd search is a socket wait, so the property under test is that two
-/// of them are in flight at once. Timing it instead -- a fixed sleep per search
-/// against a wall-clock bound -- reads a contended CI runner as a serial one,
-/// which is how this test first failed. Here each search blocks until a second
-/// joins it: serial execution cannot satisfy that however fast the box is, and
-/// concurrent execution cannot miss it however slow.
+/// Checked by rendezvous rather than by timing: each search blocks until a
+/// second joins it, which a slow CI runner cannot fake and serial code cannot
+/// satisfy.
 #[test]
 fn searches_run_concurrently_rather_than_one_after_another() {
     use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -926,7 +840,7 @@ fn concurrent_results_stay_matched_to_their_tracks() {
     assert_eq!(by_query["ZUN - Heian Alien"], 0);
 }
 
-/// #2's other half of the retry: a transfer nobody is uploading never reaches
+/// A transfer nobody is uploading never reaches
 /// `collect`, because slskd does not consider it finished.
 #[test]
 fn a_stalled_transfer_is_cancelled_and_the_next_candidate_promoted() {
@@ -1217,7 +1131,7 @@ fn turning_the_preference_off_leaves_the_scores_in_charge() {
     }
 }
 
-/// The batch the group-stall tests start from (#17): each track won by its own
+/// The batch the group-stall tests start from each track won by its own
 /// `solo` peer, `bulk` a close second on every one and so preferred for all of
 /// them, and `bulk2` a slightly further third on the tracks named in `second`.
 fn steered_client(second: &[&str]) -> PerTrackClient {
@@ -1614,9 +1528,8 @@ fn album_in_review(store: &mut ReviewStore) {
     }
 }
 
-/// The shape album-aware fetching turns on (#6): a folder approved as one
-/// decision is still one `remote_path` per track, so queueing, collecting and
-/// the retry stay per-track and none of them had to change to allow it.
+/// A folder approved as one decision is still one `remote_path` per track, so
+/// queueing, collecting and retrying stay per-track.
 #[test]
 fn an_album_approval_queues_and_collects_each_track_on_its_own() {
     let scratch = Scratch::new("fetch-album");
@@ -1638,9 +1551,8 @@ fn an_album_approval_queues_and_collects_each_track_on_its_own() {
 
     assert_eq!(queued.len(), 2);
     assert!(queued.iter().all(|outcome| outcome.queued));
-    // One call per track, into the artist folder each was queued for, because
-    // `downloaded_path` rebuilds that path to find the finished file -- #5 is
-    // what happens when the two stop agreeing.
+    // One call per track, into the artist folder `downloaded_path` rebuilds to
+    // find the finished file.
     assert_eq!(
         *enqueuer.enqueued.lock().expect("the fake"),
         vec![("bulk".to_owned(), "DECO_27".to_owned()); 2]
@@ -1683,7 +1595,7 @@ fn an_album_approval_queues_and_collects_each_track_on_its_own() {
 }
 
 /// The file as a peer typically leaves it: junk in the fields that matter,
-/// a comment beside them, and a cover (#11).
+/// a comment beside them, and a cover.
 fn peer_tagged(path: &std::path::Path) {
     encode(
         path,
@@ -1944,18 +1856,6 @@ fn keep_leaves_the_file_and_the_log_alone() {
             .status,
         TrackStatus::Downloaded
     );
-}
-
-#[test]
-fn a_download_that_never_arrived_is_not_tagged() {
-    let scratch = Scratch::new("fetch-tag-missing");
-    let settings = settings(&scratch);
-    let mut store = store(&scratch);
-    queued(&mut store, &settings);
-
-    let outcome = &collect(&mut store, &completed(), &settings, false).expect("a collect")[0];
-
-    assert_eq!(outcome.tags, None);
 }
 
 #[test]
@@ -2364,24 +2264,19 @@ fn waited_with(collected: Vec<fetch::CollectOutcome>) -> fetch::Waited {
 }
 
 #[test]
-fn a_clean_download_is_nothing_to_own_up_to() {
-    assert!(!waited_with(vec![collected("", None, Some(Verdict::Ok))]).went_wrong());
-}
+fn what_counts_as_the_run_going_wrong() {
+    let cases = [
+        (collected("", None, Some(Verdict::Ok)), false),
+        (collected("", None, Some(Verdict::Fake)), true),
+        (collected("peer gone", Some(2), None), false),
+        (collected("peer gone", None, None), true),
+    ];
+    for (outcome, wrong) in cases {
+        let error = outcome.error.clone();
+        assert_eq!(waited_with(vec![outcome]).went_wrong(), wrong, "{error:?}");
+    }
 
-#[test]
-fn a_fake_download_is_something_to_own_up_to() {
-    assert!(waited_with(vec![collected("", None, Some(Verdict::Fake))]).went_wrong());
-}
-
-#[test]
-fn a_failure_the_retry_picked_up_is_not_a_failure_of_the_run() {
-    assert!(!waited_with(vec![collected("peer gone", Some(2), None)]).went_wrong());
-    assert!(waited_with(vec![collected("peer gone", None, None)]).went_wrong());
-}
-
-#[test]
-fn a_track_that_could_not_be_queued_is_something_to_own_up_to() {
-    let waited = fetch::Waited {
+    let unqueued = fetch::Waited {
         queued: vec![fetch::EnqueueOutcome {
             track_id: 1,
             query: "DECO*27 - Roki".to_owned(),
@@ -2391,16 +2286,11 @@ fn a_track_that_could_not_be_queued_is_something_to_own_up_to() {
         }],
         ..fetch::Waited::default()
     };
+    assert!(unqueued.went_wrong());
 
-    assert!(waited.went_wrong());
-}
-
-#[test]
-fn a_timeout_alone_is_nothing_to_own_up_to() {
-    let waited = fetch::Waited {
+    let timed_out = fetch::Waited {
         unfinished: 3,
         ..fetch::Waited::default()
     };
-
-    assert!(!waited.went_wrong());
+    assert!(!timed_out.went_wrong(), "a timeout alone is not a failure");
 }

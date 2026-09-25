@@ -1,8 +1,7 @@
-//! Ported from `py/tests/unit/test_duplicates.py`.
+//! Duplicate detection by title and by audio, grouping, and resolving.
 //!
-//! The Python monkeypatches `fingerprints.fingerprint` so no decoding happens;
-//! here the fingerprint source is a closure the caller supplies, so a table
-//! keyed by filename substitutes for it directly.
+//! The fingerprint source is a closure, so a table keyed by filename stands in
+//! for decoding.
 mod support;
 
 use std::collections::HashMap;

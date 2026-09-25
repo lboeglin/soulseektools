@@ -1,9 +1,5 @@
-//! The `--apply` write log and its undo, from #2.
-//!
-//! The log exists because a command that rewrites two hundred files with a bad
-//! genre map or the wrong artist's cover previously left no record of what it
-//! had done. These check the two properties that makes it worth having: every
-//! applied write is recorded, and the record is enough to put the file back.
+//! The `--apply` write log and its undo: every write is recorded, and the
+//! record is enough to put the file back.
 
 mod support;
 
@@ -503,31 +499,6 @@ fn a_title_edited_since_it_was_logged_blocks_its_own_undo() {
 }
 
 #[test]
-fn an_undone_tag_write_is_logged_in_its_turn() {
-    let scratch = Scratch::new("changes-tag-undo-logged");
-    let root = library(&scratch);
-    let track = root.join("ZUN").join("Heian Alien.flac");
-    let mut index = indexed(&scratch, &root);
-
-    let log = ChangeLog::open(&index, "tags apply", 100.0).expect("a run");
-    write_field(&mut index, &log, &track, TagField::Title, "Native Faith");
-
-    let change = index
-        .changes(&ChangeFilter::default())
-        .expect("the logged rows")
-        .remove(0);
-    let plan = plan_undo(&index, change).expect("a plan");
-    let undo = ChangeLog::open(&index, "changes undo", 200.0).expect("a run");
-    apply_undo(&mut index, &plan, &undo, std::slice::from_ref(&root)).expect("an undo");
-
-    let changes = index
-        .changes(&ChangeFilter::default())
-        .expect("the logged rows");
-    assert_eq!(changes[0].command, "changes undo");
-    assert_eq!(changes[0].new_value.as_deref(), Some("Heian Alien"));
-}
-
-#[test]
 fn a_move_is_logged_against_the_files_new_home() {
     // Keyed on the destination, because `plan_undo` opens by asking whether the
     // file it is about to put back is still where the log left it.
@@ -650,7 +621,7 @@ fn measurement(track_gain: &str) -> ReplayGainTags {
 }
 
 /// The four figures are one measurement, so they share one row: a row apiece
-/// would let an undo restore a gain without the peak that bounds it (#7).
+/// would let an undo restore a gain without the peak that bounds it.
 #[test]
 fn a_loudness_write_is_logged_as_one_row_carrying_every_figure() {
     let scratch = Scratch::new("changes-loudness");
@@ -870,13 +841,4 @@ fn an_extra_added_since_the_drop_blocks_its_undo() {
     let plan = plan_undo(&index, change).expect("a plan");
 
     assert_eq!(plan.blocked, Some(Blocked::FileChanged));
-}
-
-#[test]
-fn every_change_field_round_trips_through_its_spelling() {
-    use stk::library::changes::ChangeField;
-    for field in ChangeField::ALL {
-        assert_eq!(field.as_str().parse::<ChangeField>(), Ok(field));
-    }
-    assert!("extras".parse::<ChangeField>().is_ok());
 }

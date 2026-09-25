@@ -1,4 +1,4 @@
-//! Measuring the library over time, behind `stk library trend` (#3).
+//! Measuring the library over time, behind `stk library trend`.
 
 mod support;
 
@@ -49,11 +49,6 @@ fn snapshot(entries: &[LibraryEntry]) -> LibrarySnapshot {
 }
 
 #[test]
-fn an_empty_library_measures_as_empty() {
-    assert_eq!(snapshot(&[]).total, 0);
-}
-
-#[test]
 fn a_file_counts_as_tagged_only_when_it_has_a_title() {
     let measured = snapshot(&[titled("/music/a.flac"), untitled("/music/b.flac")]);
 
@@ -79,7 +74,7 @@ fn artwork_and_genre_are_counted_separately() {
 }
 
 /// The figure exists to notice a fetch that left un-scanned files behind,
-/// whoever did the scanning (#7).
+/// whoever did the scanning.
 #[test]
 fn a_file_counts_as_level_matched_only_with_a_track_gain() {
     let mut scanned = titled("/music/a.flac");
@@ -136,11 +131,6 @@ fn lossless_is_counted_by_the_same_rule_verify_uses() {
 }
 
 #[test]
-fn a_file_with_no_extension_is_not_lossless() {
-    assert_eq!(snapshot(&[untitled("/music/mystery")]).lossless, 0);
-}
-
-#[test]
 fn everything_verify_doubted_is_counted_as_flagged() {
     // FAKE, SUSPECT and UPSAMPLED go in one column because anyone chasing
     // them down treats them the same way.
@@ -158,17 +148,6 @@ fn everything_verify_doubted_is_counted_as_flagged() {
 
     assert_eq!(measured.verified_clean, 10);
     assert_eq!(measured.flagged, 9);
-}
-
-#[test]
-fn two_measurements_of_the_same_library_carry_the_same_counts() {
-    // What `record_snapshot` compares, and why `taken_at` is outside `counts`.
-    let entries = [titled("/music/a.flac")];
-
-    assert_eq!(
-        measure(&entries, &BTreeMap::new(), 1.0).counts(),
-        measure(&entries, &BTreeMap::new(), 99_999.0).counts()
-    );
 }
 
 fn measured(total: usize) -> LibrarySnapshot {

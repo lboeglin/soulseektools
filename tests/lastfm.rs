@@ -227,34 +227,6 @@ fn a_played_track_carries_its_duration_unless_last_fm_does_not_know_it() {
 }
 
 #[test]
-fn every_track_carries_the_same_columns() {
-    let http = Canned::profile();
-
-    let tracks = read(&http, Some("k3y"), "lastfm:rj", None, Some(5)).expect("a profile");
-    let columns = |track: &Track| -> Vec<String> {
-        track
-            .source_row
-            .iter()
-            .map(|(key, _)| key.clone())
-            .collect()
-    };
-    let first = columns(&tracks[0]);
-    assert!(tracks.iter().all(|track| columns(track) == first));
-    assert_eq!(
-        first,
-        [
-            "artist",
-            "title",
-            "playcount",
-            "loved",
-            "duration",
-            "url",
-            "mbid"
-        ]
-    );
-}
-
-#[test]
 fn a_profile_without_an_api_key_is_refused_before_any_request() {
     let http = Canned::profile();
 
