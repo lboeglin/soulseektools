@@ -1,13 +1,5 @@
 #!/usr/bin/env bash
-# Regenerate the committed audio fixtures.
-#
-# Everything the test suite can build in Rust it builds at test time; these are
-# the files it cannot. There is no pure-Rust encoder for MP3, AAC, Vorbis or
-# Opus, and the transcode detector needs audio a real lossy encoder produced --
-# the brickwall it recognises is LAME's, and you cannot synthesise an authentic
-# one. So these are encoded once, here, and committed.
-#
-# Needs ffmpeg. Run it only when a fixture has to change; the suite never does.
+# Regenerate tests/data/audio: the lossy fixtures Rust can't encode. Needs ffmpeg.
 set -euo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -29,48 +21,36 @@ encoder() {
   esac
 }
 
-# Two untagged seconds of tone per container the suite cannot encode, which
-# `support::fixture` copies and then tags through lofty.
+# Untagged tone, which the tests copy and tag through lofty.
 for extension in mp3 m4a ogg opus; do
   ffmpeg -v error -y -f lavfi -i "$tone" -ac 2 $(encoder "$extension") "$out/tone.$extension"
 done
 
-# The same audio carrying tags ffmpeg wrote, so the reader is still checked
-# against a writer this project had no hand in.
+# Tags written by ffmpeg, so the reader is checked against another writer.
 for extension in flac mp3 m4a ogg opus; do
   ffmpeg -v error -y -f lavfi -i "$tone" -ac 2 $(encoder "$extension") \
     -metadata "artist=DECO*27" -metadata "album=Ghost" -metadata "title=Roki" \
     -metadata "genre=Vocaloid" -metadata "track=3" "$out/tagged.$extension"
 done
 
-# One recording in two containers, for the fingerprint comparison. Both come
-# from this source, which is the whole point of committing the pair.
+# One recording in two containers, for fingerprint comparison.
 ffmpeg -v error -y -f lavfi -i "$swept" -ac 2 $(encoder flac) "$out/pair.flac"
 ffmpeg -v error -y -f lavfi -i "$swept" -ac 2 $(encoder mp3) "$out/pair.mp3"
 
-# Broadband noise through LAME at the bitrates the classifier keys on. The
-# tests decode these and re-encode them as FLAC, which is the deception
-# `stk verify` exists to catch.
+# Noise through LAME at the bitrates the transcode check knows.
 for bitrate in 128k 192k 320k; do
   ffmpeg -v error -y -f lavfi -i "$noise" -ac 2 -c:a libmp3lame -b:a "$bitrate" \
     "$out/noise-$bitrate.mp3"
 done
 
-# A genuine VBR encode, and the 128 kbps file re-encoded at a higher claim:
-# what an upsampled MP3 is, LAME's own 128 kbps brickwall under a 320 kbps
-# header. Derived from the committed MP3 rather than from fresh noise, so the
-# lie is the only thing that differs. The VBR one is ABR rather than V0: V0
-# spends only what the content needs, so a band-limited source averages too
-# little to claim a higher tier at all.
+# A genuine VBR encode, and the 128k file re-encoded at 320k (CBR and ABR): an
+# upsampled MP3. ABR, because V0 of a band-limited source averages too low.
 ffmpeg -v error -y -f lavfi -i "$noise" -ac 2 -c:a libmp3lame -q:a 0 "$out/noise-v0.mp3"
 ffmpeg -v error -y -i "$out/noise-128k.mp3" -c:a libmp3lame -b:a 320k "$out/noise-128k-as-320k.mp3"
 ffmpeg -v error -y -i "$out/noise-128k.mp3" -c:a libmp3lame -abr 1 -b:a 320k "$out/noise-128k-as-vbr320.mp3"
 
-# 44.1 kHz noise through ffmpeg's own default resampler to 96 kHz. A sharp
-# wall is synthesised in the suite; this soft filter's shape -- a gentle slope
-# past 22.05 kHz, then a drop to silence 3 kHz on -- is what most upsampled
-# FLACs were made with, and it cannot be. Quiet enough not to clip, since the
-# distortion would fill the spectrum the check reads.
+# 44.1 kHz noise through ffmpeg's default (soft) resampler to 96 kHz, quiet
+# enough not to clip.
 ffmpeg -v error -y -f lavfi -i "anoisesrc=d=1.5:c=white:r=44100:a=0.25" \
   -af aresample=96000 -c:a flac -sample_fmt s16 "$out/noise-44k-as-96k.flac"
 

@@ -1,23 +1,11 @@
-"""Generate the kanji readings `text/romaji.rs` falls back on.
+"""Generate src/text/kanji_readings.tsv, the reading for kanji IPADIC doesn't know.
 
-IPADIC reads words, not characters, and a kanji it has no entry for comes back
-without a reading -- 号哭 as ``gou哭``, 幻樂団 as ``maboroshi樂団``. Unihan's
-``kJapanese`` field gives every kanji its readings in kana, on'yomi in
-katakana first and kun'yomi in hiragana after, so a character IPADIC cannot
-read is given its first on'yomi: a lone kanji IPADIC does not know is almost
-always part of a Sino-Japanese compound. Characters with only a kun'yomi get
-that instead.
+Each kanji gets its first on'yomi from Unihan's kJapanese field (a lone unknown
+kanji is usually part of a Sino-Japanese compound), else its kun'yomi, in
+hiragana.
 
-Only the ranges ``contains_japanese`` treats as kanji are kept, and every
-reading is written in hiragana, which is what the kana table reads.
-
-The data is under the Unicode licence; the header of the output records the
-Unihan version it came from.
-
-Usage: ``python scripts/unihan_readings.py Unihan_Readings.txt src/text/kanji_readings.tsv``
-
-``Unihan_Readings.txt`` is in ``Unihan.zip``, at
-https://www.unicode.org/Public/UCD/latest/ucd/Unihan.zip.
+Usage: python scripts/unihan_readings.py Unihan_Readings.txt src/text/kanji_readings.tsv
+Unihan_Readings.txt is in https://www.unicode.org/Public/UCD/latest/ucd/Unihan.zip
 """
 
 from __future__ import annotations
