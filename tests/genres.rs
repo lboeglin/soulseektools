@@ -95,7 +95,7 @@ fn artists_match_on_their_normalised_name() {
 #[test]
 fn the_example_map_loads() {
     let genre_map = load_genre_map(&example_map()).expect("the shipped map");
-    assert!(genre_map.len() > 100, "{} entries", genre_map.len());
+    assert_eq!(genre_map.len(), 5);
 }
 
 #[test]

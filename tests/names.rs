@@ -1,5 +1,6 @@
-//! Every distinct artist and title form from a real, Japanese-heavy library,
-//! with the `normalize` and `to_romaji` output each must produce.
+//! Artist and title forms covering the hard cases -- kanji IPADIC misreads,
+//! small kana, featured credits, full-width symbols -- with their expected
+//! `normalize` and `to_romaji` output.
 
 use std::path::Path;
 

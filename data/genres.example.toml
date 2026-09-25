@@ -1,179 +1,19 @@
-# Artist-to-genre map for `stk genre apply`.
+# Artist-to-genre map for `stk genre apply`. Copy it to the path in
+# `genres.map_path` and list your own artists.
 #
-# This is per-library data: it describes one person's artist roster and is not
-# meant to be reused as-is. Copy it to the path named by `genres.map_path` in
-# your config and edit it for your own library.
-#
-# Artists are matched on their normalised name, so "DECO*27" here also covers a
-# "DECO_27" folder on disk. A value may be one genre or a list of them.
-#
-# An artist who crosses genres can be pinned down further with the [albums] and
-# [tracks] sections at the bottom of this file. The most specific entry wins:
+# Names match on their normalised form, so "DECO*27" also covers a "DECO_27"
+# folder. A value is one genre or a list. The most specific entry wins:
 # track, then album, then artist.
 
 [artists]
-"25時、ナイトコードで。" = "Vocaloid"
-32ki = "Vocaloid"
-9Lana = "Vocaloid"
-Ace = "Eurobeat"
-Ado = "J-Pop"
-"After the Rain" = "Vocaloid"
-"Aiobahn +81" = "Electronic"
-"aki _3" = "Vocaloid"
-ALICESOFT = "Video Game Soundtrack"
-Anamanaguchi = "Electronic"
-"Ayako Saso" = "Video Game Soundtrack"
-Azari = "Vocaloid"
-beatMARIO = "Touhou"
-Chinozo = "Vocaloid"
-"Chris Stanton" = "Eurobeat"
-"COOL&CREATE" = "Touhou"
-Crusher-P = "Vocaloid"
-"D.Essex" = "Eurobeat"
-"Dave Mc Loud" = "Eurobeat"
-"Dave Rodgers" = "Eurobeat"
-"Dave Simon" = "Eurobeat"
-decaying = "Vocaloid"
-DECO_27 = "Vocaloid"
-"Dejo Bon Bratt Sinclaire" = "Eurobeat"
-"Delta Queens" = "Eurobeat"
-Domino = "Eurobeat"
-"Dr. Love" = "Eurobeat"
-Duca = "Anime"
-"Ducky Chix Bratt Sinclaire" = "Eurobeat"
-"Edo Boys" = "Eurobeat"
-Elisa = "Eurobeat"
-Eve = "J-Pop"
-Fahmi = "Vocaloid"
-Fastway = "Eurobeat"
-"Garrett Williamson" = "Video Game Soundtrack"
-Giga = "Vocaloid"
-GO2 = "Eurobeat"
-hachi = "Vocaloid"
-HiiragiKirai = "Vocaloid"
-"Hoshimachi Suisei" = "VTuber"
-Hotblade = "Eurobeat"
-Inabakumori = "Vocaloid"
-IOSYS = "Touhou"
-"iroha(sasaki)" = "Vocaloid"
-Iyowa = "Vocaloid"
-Jager = "Eurobeat"
-"James Landino" = "Electronic"
-Jilly = "Eurobeat"
-Jin = "Vocaloid"
-JOJAN = "Eurobeat"
-jon-YAKITORY = "Vocaloid"
-"Kairiki Bear" = "Vocaloid"
-Kanaria = "Vocaloid"
-kemu = "Vocaloid"
-"Ken Blast" = "Eurobeat"
-"Kevin & Cherry" = "Eurobeat"
-Kikuo = "Vocaloid"
-Koa = "Vocaloid"
-KOTOKO = "Anime"
-Kuroneko = "Vocaloid"
-Leo_need = "Vocaloid"
-"Leslie Parrish" = "Eurobeat"
-livetune = "Vocaloid"
-"Lou Grant" = "Eurobeat"
-"m.o.v.e" = "Eurobeat"
-"Mako & Sayuki" = "Eurobeat"
-Mamemi = [
-    "Touhou",
-    "Eurobeat",
-]
-Manuel = "Eurobeat"
-"Marcin Przybyłowicz" = "Video Game Soundtrack"
-Maretu = "Vocaloid"
-"Marko Polo" = "Eurobeat"
-"Max Coveri" = "Eurobeat"
-"Mega Nrg Man" = "Eurobeat"
-"Mikito P" = "Vocaloid"
-Move = "Eurobeat"
-"Mr.Groove" = "Eurobeat"
-"Nanahoshi Orchestra" = "J-Rock"
-"Nando Bratt Sinclaire" = "Eurobeat"
-"Nashimoto Ui" = "Vocaloid"
-Nathalie = "Eurobeat"
-natori = "Vocaloid"
-Nayutalien = "Vocaloid"
-"NEEDY GIRL OVERDOSE" = "Video Game Soundtrack"
-Neru = "Vocaloid"
-Niko = "Eurobeat"
-"Norma Sheffield" = "Eurobeat"
-Nuage = "Eurobeat"
-"Omaru Polka" = "VTuber"
-OMGkawaiiAngel = "Happy Hardcore"
-otetsu = "Vocaloid"
-Overload = "Eurobeat"
-PinocchioP = "Vocaloid"
-Priscilla = "Eurobeat"
-Ray = "Vocaloid"
-Reol = "Vocaloid"
-"ryo (supercell)" = "Vocaloid"
-"Ryokuoushoku Shakai" = "J-Rock"
-S3RL = "Happy Hardcore"
-"S3RL & Sara" = "Happy Hardcore"
-samfree = "Vocaloid"
-Sara = "Eurobeat"
-"Sasuke Haraguchi" = "Vocaloid"
-SAWTOWNE = "Vocaloid"
-Shihori = [
-    "Touhou",
-    "Eurobeat",
-]
-Siinamota = "J-Rock"
-"SLAVE.V-V-R" = "Vocaloid"
-"SOUND HOLIC" = [
-    "Touhou",
-    "Eurobeat",
-]
-Speedman = "Eurobeat"
-Suzumu = "Vocaloid"
-Symbol = "Eurobeat"
-Syudou = "Vocaloid"
-TAK = "Vocaloid"
-"The Snake" = "Eurobeat"
-THREEE = "Vocaloid"
-"TOMATO GUMMY" = "Vocaloid"
-TUYU = "Vocaloid"
-"Vicky Vale" = "Eurobeat"
-Victoria = "Eurobeat"
-"Wain L" = "Eurobeat"
-"Wonderful★opportunity!" = "Vocaloid"
-wowaka = "Vocaloid"
-YOASOBI = "J-Pop"
-"Yoshida Yasei" = "Vocaloid"
-"Yuikonnu & Ayaponzu-" = "Vocaloid"
-Yuuyu = "Vocaloid"
-Za-Za = "Eurobeat"
+"DECO*27" = "Vocaloid"
 ZUN = "Touhou"
-"ぐちり" = "Vocaloid"
-"さたぱんP" = "Vocaloid"
-"ゆこぴ" = "Vocaloid"
-"ショコラ(CV_八木侑紀)" = "Anime"
-"ファントムシータ" = "Vocaloid"
-"マサラダ" = "Vocaloid"
+"Dave Rodgers" = "Eurobeat"
+"COOL&CREATE" = ["Touhou", "Electronic"]
 "上海アリス幻樂団" = "Touhou"
-"可不" = "Vocaloid"
-"宝鐘マリン" = "VTuber"
-"宵崎奏" = "Anime"
-"柊キライ" = "Vocaloid"
-"柊マグネタイト" = "Vocaloid"
-"森羅万象" = "Vocaloid"
-"白上フブキ" = "VTuber"
-"稲葉曇" = "Vocaloid"
-"香椎モイミ" = "Vocaloid"
 
-# Per-album and per-track overrides, for an artist whose files are not all one
-# genre. Both are keyed by artist first, then by album title or track title, and
-# both match on the normalised name exactly as the artist keys above do.
-#
-# Nested tables rather than an "Artist/Album" key, because an artist name may
-# itself contain a slash and a combined key could not say which one separated.
-#
-# [albums.Shihori]
-# "Prismatic" = "J-Pop"
-#
-# [tracks.Shihori]
-# "Sakura Sunrise" = "Anime"
+[albums."Dave Rodgers"]
+"Super Eurobeat Presents Initial D" = "Anime"
+
+[tracks.ZUN]
+"Bad Apple!!" = "Anime"
