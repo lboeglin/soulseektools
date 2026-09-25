@@ -1,4 +1,4 @@
-//! The kana spelling `oracle/romaji.csv` was captured with.
+//! Hepburn romanisation of kana.
 
 use stk::text::kana::kana_to_romaji;
 

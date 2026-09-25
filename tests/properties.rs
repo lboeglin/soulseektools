@@ -1,8 +1,4 @@
 //! Properties that must hold for any input, not only the fixtures named elsewhere.
-//!
-//! The oracle tests pin behaviour against a private library and skip in CI, so
-//! without these the parsers and classifiers are exercised only on the inputs
-//! the unit tests happen to name (#19).
 
 mod support;
 

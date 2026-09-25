@@ -37,11 +37,6 @@ A new dependency whose licence is not on the list needs a decision, not just a
 line added to it. Data a crate embeds is not on the list at all: IPADIC is
 under its own NAIST/IPA licence, which permits redistribution with its notice.
 
-The tests that diff against `oracle/` -- reference output from the original
-Python build, captured against a real library -- skip when it is absent, which is
-what CI sees: `oracle/` is not committed, because it names every file in a
-private library. Run them locally against your own capture.
-
 ## Code as documentation
 
 Write code that explains itself, and reserve prose for what the code cannot say.
@@ -87,13 +82,6 @@ No change lands without tests for its behaviour.
   not -- `hi_res_flac` writes 24-bit, padded or brickwalled FLAC at any rate.
   `scripts/make-fixtures.sh` regenerates the committed files with ffmpeg; no
   test runs it.
-- **`scripts/word_chars.py` is a fixture generator, not a build step.** It dumps
-  the characters Python's `\w` and `\s` match, and `character_classes.rs` checks
-  the crate's own predicates against that dump: Rust's `\w` would otherwise take
-  in 10,549 combining marks Python folds to a space, and the difference would
-  surface as shifted matching scores rather than a failing test. The dump is
-  committed under `tests/data`, so no build or test run needs Python. Only
-  regenerating it does, which happens approximately never.
 - **`scripts/unihan_readings.py` generates `src/text/kanji_readings.tsv`**, the
   reading a kanji IPADIC does not know falls back on, from Unihan's
   `kJapanese`. It is committed for the same reason, and regenerating it needs

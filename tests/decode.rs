@@ -27,7 +27,7 @@ fn a_stream_reports_its_properties() {
     let audio = Audio::open(&track).expect("an opened file");
     let stream = audio.stream();
 
-    // The spellings are ffprobe's, because `oracle/verify.csv` carries them.
+    // Codec names are spelled the way ffprobe spells them.
     assert_eq!(stream.codec, "flac");
     assert_eq!(stream.sample_rate, 44100);
     assert_eq!(stream.channels, 2);

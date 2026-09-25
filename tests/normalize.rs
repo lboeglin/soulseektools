@@ -1,4 +1,4 @@
-//! Ported from `py/tests/unit/test_normalize.py`.
+//! `normalize` and the filename helpers built on it.
 
 use stk::text::normalize::{
     normalize, sanitize_folder_name, strip_artist_prefix, strip_track_number, track_number,
@@ -182,4 +182,17 @@ fn a_filename_gives_up_the_track_number_it_leads_with() {
 fn a_disc_prefixed_filename_yields_the_track_not_the_disc() {
     assert_eq!(track_number("1-05 Roki.flac"), Some(5));
     assert_eq!(track_number("2.03 - Ghost Rule.flac"), Some(3));
+}
+
+#[test]
+fn a_combining_mark_is_punctuation_not_part_of_a_word() {
+    // Rust's `\w` would keep it; only L, Nd, Nl and No are word characters here.
+    assert_eq!(normalize("a\u{20dd}b"), "a b");
+}
+
+#[test]
+fn the_separator_controls_count_as_whitespace() {
+    for separator in '\u{1c}'..='\u{1f}' {
+        assert_eq!(normalize(&format!("a{separator}b")), "a b", "{separator:?}");
+    }
 }

@@ -946,9 +946,7 @@ every command that can run without slskd:
 ## History
 
 This replaced a set of ad-hoc scripts and a Nicotine+ plugin, and was then
-ported from Python to Rust against reference output captured from the Python
-build -- see [`oracle/`](oracle/README.md) and
-[issue #1](https://github.com/lboeglin/soulseektools/issues/1). Both earlier
+ported from Python to Rust. Both earlier
 trees stay reachable by tag:
 
 ```bash
