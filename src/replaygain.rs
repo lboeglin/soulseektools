@@ -1,21 +1,7 @@
-//! Turning a loudness measurement into the tags a player acts on (#7).
+//! Turning a loudness measurement into ReplayGain track and album tags.
 //!
-//! Two figures, and they are not interchangeable. **Track gain** flattens every
-//! file to the same loudness, which is what shuffle wants. **Album gain**
-//! applies one figure across a record, so a quiet interlude stays quiet
-//! relative to the track after it. Players choose per context, so both are
-//! written.
-//!
-//! An album is defined by its tags -- `(album artist or artist, album)` -- and
-//! nothing else. That is exactly how a player groups when it applies album
-//! gain, so measuring any other way would produce a figure it never uses. A
-//! file with no album tag has no album to belong to and gets a track gain only;
-//! falling back to the containing folder would give a folder of unrelated
-//! singles one shared figure, which is the wrong answer for that folder.
-//!
-//! The grouping is also what a scan is decided and run in. `audio/loudness.rs`
-//! measures a record as one programme, so the figures here are arithmetic over
-//! what it already worked out rather than an average of the tracks.
+//! An album is `(album artist or artist, album)` from the tags, as players
+//! group it. A file with no album tag gets a track gain only.
 
 use std::collections::{HashMap, HashSet};
 use std::hash::BuildHasher;
@@ -41,9 +27,7 @@ pub struct Target {
 
 /// The files a scan decides on, measures and levels together.
 ///
-/// One record, or one file that names none. A group is the unit throughout: an
-/// album gain describes a whole record, so measuring part of one would produce
-/// a figure derived from part of one.
+/// One record, or one file that names none.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Group {
     /// Absent when these files name no album, and so get a track gain only.
@@ -83,9 +67,8 @@ pub struct Selection {
 
 /// The album a file belongs to, or `None` when its tags name none.
 ///
-/// Compared through [`flatten`] rather than `normalize`: `normalize` drops a
-/// bracketed suffix, which would file "Ghost Rule (Deluxe Edition)" and
-/// "Ghost Rule" as one record when they are two, mastered separately.
+/// Compared through [`flatten`], not `normalize`, which would merge "Ghost
+/// Rule (Deluxe Edition)" into "Ghost Rule".
 #[must_use]
 pub fn album_key(tags: &TrackTags) -> Option<(String, String)> {
     let album = flatten(&tags.album);
@@ -102,8 +85,7 @@ pub fn album_key(tags: &TrackTags) -> Option<(String, String)> {
 
 /// Gather files into the records they belong to, keeping the order they came in.
 ///
-/// `album_gain` off makes every file its own group, which is what
-/// `--track-only` means: nothing is measured against anything else.
+/// With `album_gain` off (`--track-only`), every file is its own group.
 #[must_use]
 pub fn group(targets: Vec<Target>, album_gain: bool) -> Vec<Group> {
     let mut groups: Vec<Group> = Vec::new();
@@ -140,16 +122,8 @@ pub fn album_counts(entries: &[LibraryEntry]) -> HashMap<(String, String), usize
 
 /// The records this run holds only part of.
 ///
-/// An album gain describes a whole record, so a run naming one track of a
-/// twelve-track album has no album figure to write: one measured from that
-/// track alone would tell a player the record is as loud as that one song. The
-/// tracks these groups were built from decide it, against what the library
-/// knows the record to hold.
-///
-/// A record the index has never heard of is taken at face value. That covers
-/// both the run over the whole library, where a group is the record by
-/// construction, and the folder nothing has scanned yet -- and an index that
-/// disagrees with the disk is a reason to scan, not to refuse a figure.
+/// These get no album gain, which would describe only the tracks present.
+/// A record the index doesn't know is taken as complete.
 #[must_use]
 pub fn partial_records<S: BuildHasher>(
     groups: &[Group],
@@ -167,9 +141,7 @@ pub fn partial_records<S: BuildHasher>(
 
 /// Decide what to measure, never overwriting a scan somebody else already ran.
 ///
-/// A record every one of whose tracks is already scanned is left alone; one
-/// with any gap is measured entire, because an album gain derived from half a
-/// record is not an album gain.
+/// A fully scanned record is left alone; one with any gap is measured entire.
 #[must_use]
 pub fn select(groups: Vec<Group>, force: bool) -> Selection {
     let mut selection = Selection::default();
@@ -190,8 +162,7 @@ pub fn select(groups: Vec<Group>, force: bool) -> Selection {
 
 /// Work out the tags every measured file would carry.
 ///
-/// A file the scan could not measure yields nothing: there is no figure to
-/// write, and the caller reports why separately.
+/// A file the scan could not measure yields nothing.
 #[must_use]
 pub fn plan(scanned: &[Scanned], settings: &LoudnessSettings) -> Vec<GainChange> {
     scanned
@@ -251,8 +222,7 @@ pub fn format_peak(amplitude: f64) -> String {
 /// The Opus header's own spelling of a gain: Q7.8 fixed point against
 /// -23 LUFS, whatever reference the `REPLAYGAIN_*` figures were measured to.
 ///
-/// The field is a signed 16 bit integer, so it saturates rather than wrapping --
-/// a wrapped value would be a loud file asking to be made louder still.
+/// Saturates rather than wrapping, which would flip the sign of the gain.
 #[must_use]
 #[allow(clippy::cast_possible_truncation)]
 pub fn format_r128(gain_db: f64, reference_lufs: f64) -> String {

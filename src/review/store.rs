@@ -1,9 +1,4 @@
 //! The review queue: what is wanted, what was found, and what was approved.
-//!
-//! This replaces the review CSV the Nicotine+ plugin polled every thirty
-//! seconds. A CSV made the approval step a hand-edit and gave no way to record a
-//! track's progress beyond a free-text column; a table makes each track's state
-//! explicit and lets the TUI, the CLI and the downloader all read the same thing.
 
 use std::collections::{BTreeMap, HashSet};
 use std::fmt::Write as _;
@@ -14,8 +9,6 @@ use rusqlite::{params, params_from_iter, Connection, OptionalExtension, Transact
 use crate::errors::{Error, Result};
 use crate::models::{Candidate, ScoredCandidate, Track, TrackStatus};
 
-/// Bumped from 1 to 2 by the retry tracking in #2, to 3 by the album fallback
-/// in #6, and to 4 by the guessed titles in #13.
 pub const SCHEMA_VERSION: i64 = 4;
 
 const SCHEMA: &str = "
@@ -62,33 +55,20 @@ CREATE INDEX IF NOT EXISTS candidates_track ON candidates (track_id, rank);
 CREATE INDEX IF NOT EXISTS tracks_status ON tracks (status);
 ";
 
-/// The two columns schema v2 adds to `tracks`, from #2.
-///
-/// Nullable or defaulted, so a build that predates them opens the database
-/// unchanged. Added with `ALTER TABLE` at open time so an existing database is
-/// upgraded in place rather than rewritten.
+/// The columns schema v2 adds to `tracks`, for stall detection and retries.
 const V2_COLUMNS: &[(&str, &str)] = &[
     ("queued_at", "REAL"),
     ("attempts", "INTEGER NOT NULL DEFAULT 0"),
 ];
 
-/// The column schema v3 adds to `candidates`, from #6.
-///
-/// The retry used to promote `approved_rank + 1`, which assumes the choice being
-/// retried was the first one. An album approval routinely takes a rank other
-/// than 1 -- the whole point is preferring one peer's folder over each track's
-/// own best -- so everything ranked *above* the album's pick was unreachable,
-/// and a track failed with its own best copy never tried. Recording which
-/// candidates have been tried is what lets the fallback reach them.
+/// The column schema v3 adds to `candidates`. An album approval may pick a
+/// rank other than 1, so the retry has to know which candidates were tried
+/// rather than assume those above the pick were.
 const V3_COLUMNS: &[(&str, &str)] = &[("attempted", "INTEGER NOT NULL DEFAULT 0")];
 
-/// The column schema v4 adds to `tracks`, from #13.
-///
-/// A row `stk get --album` writes carries a title read off a peer's filename:
-/// the folder was what was asked for, and no tracklist says what is inside it.
-/// Every other row in the queue was typed or exported, so nothing had to record
-/// the difference before -- and the difference decides whether `fetch download`
-/// may write that title over the one the peer put on the file.
+/// The column schema v4 adds to `tracks`: whether the title was guessed from a
+/// filename by `stk get --album`, so `fetch download` won't write it over the
+/// peer's own.
 const V4_COLUMNS: &[(&str, &str)] = &[("title_guessed", "INTEGER NOT NULL DEFAULT 0")];
 
 /// A wanted track and everything found for it.
@@ -100,9 +80,9 @@ pub struct ReviewTrack {
     pub detail: String,
     pub candidates: Vec<ScoredCandidate>,
     pub approved_rank: Option<i64>,
-    /// When the track entered `QUEUED`, so a stalled transfer is visible (#2).
+    /// When the track entered `QUEUED`, so a stalled transfer is visible.
     pub queued_at: Option<f64>,
-    /// How many candidates have been tried for it (#2).
+    /// How many candidates have been tried for it.
     pub attempts: i64,
 }
 
@@ -235,9 +215,7 @@ impl ReviewStore {
 
     /// Every track query the queue has ever held, whatever became of it.
     ///
-    /// What makes `wantlist diff --new` possible: a track the queue rejected or
-    /// failed on is still missing from the library, so a plain diff reports it
-    /// again on every run. This says which of those have been seen before.
+    /// Used by `wantlist diff --new` to skip what has been seen before.
     pub fn known_queries(&self) -> Result<HashSet<String>> {
         self.connection
             .prepare("SELECT query FROM tracks")
@@ -304,13 +282,9 @@ impl ReviewStore {
         self.approve_all(&[(track_id, rank)])
     }
 
-    /// Choose a candidate for several tracks as one decision, or for none (#6).
+    /// Choose a candidate for several tracks as one decision, or for none.
     ///
-    /// What an album offer is approved through: a folder covers many tracks and
-    /// is taken or left as a unit, so a rank that turns out not to exist has to
-    /// leave the whole offer undecided rather than half of it. Returning early
-    /// drops the transaction, which rolls it back -- the same reason a bad rank
-    /// has always left the previous choice standing.
+    /// Used for album offers: one bad rank leaves the whole offer undecided.
     pub fn approve_all(&mut self, picks: &[(i64, i64)]) -> Result<()> {
         let transaction = self
             .connection
@@ -332,14 +306,10 @@ impl ReviewStore {
         self.set_status(track_id, TrackStatus::Rejected, reason)
     }
 
-    /// Take back a decision nothing has acted on yet (#8).
+    /// Take back a decision nothing has acted on yet.
     ///
-    /// What the picker's undo is: a choice made a keystroke ago and regretted.
-    /// The `attempted` mark goes with the approval, because [`Self::approve`]
-    /// sets it so the retry in [`Self::next_candidate`] never offers a tried
-    /// candidate twice -- and a candidate nothing has queued was never tried.
-    /// Only sound for a track no download has started for, which is the only
-    /// kind the picker walks.
+    /// The picker's undo. Clears the `attempted` mark too, since a candidate
+    /// nothing queued was never tried. Only for tracks not yet downloading.
     pub fn undecide(&mut self, track_id: i64) -> Result<()> {
         self.connection
             .execute(
@@ -368,19 +338,15 @@ impl ReviewStore {
         self.set_status(track_id, TrackStatus::Pending, "")
     }
 
-    /// Promote the best candidate nobody has tried yet (#2).
+    /// Promote the best candidate nobody has tried yet.
     ///
-    /// Returns the rank now approved, or `None` when every candidate has been
-    /// tried -- which is the only point at which a track becomes `FAILED`.
-    /// Unlike [`Self::reset`] this keeps the search results, so a stalled
-    /// transfer costs a re-queue rather than a re-search.
+    /// Returns the rank now approved, or `None` (and the track `FAILED`) when
+    /// every candidate has been tried. Keeps the search, unlike [`Self::reset`].
     pub fn next_candidate(&mut self, track_id: i64) -> Result<Option<i64>> {
         if self.track(track_id)?.is_none() {
             return Ok(None);
         }
-        // The best candidate nobody has tried yet, rather than the one after the
-        // current choice: an album approval takes a rank of its own choosing, so
-        // walking upward from it would strand everything above (#6).
+        // Not the rank after the current one: an album pick may skip better ones.
         let next: Option<i64> = self
             .connection
             .query_row(
@@ -411,16 +377,11 @@ impl ReviewStore {
         self.candidate_rows(track_id, "AND attempted = 0")
     }
 
-    /// Put the untried candidates in a new order, behind the tried ones (#17).
+    /// Put the untried candidates in a new order, behind the tried ones.
     ///
-    /// The one place a stored list is reordered after its ranks were written,
-    /// which [`crate::soulseek::ranking::prefer_one_uploader`] otherwise forbids:
-    /// an approval points at a rank, and renumbering under it would repoint it
-    /// at a different file. Here the approval is being discarded -- its peer
-    /// stalled -- so every approval on the track is cleared, the tried rows keep
-    /// their `attempted` mark so the retry never offers them back, and the ranks
-    /// stay dense from 1 for [`ReviewTrack::approved`]'s positional lookup.
-    /// Whatever is approved next has to be written after this, not before.
+    /// The only place ranks are renumbered after being written. Clears every
+    /// approval on the track (renumbering would repoint it), keeps tried rows
+    /// marked, and keeps ranks dense from 1. Approve again only after this.
     pub fn reorder_untried(&mut self, track_id: i64, untried: &[ScoredCandidate]) -> Result<()> {
         let tried = self.candidate_rows(track_id, "AND attempted = 1")?;
         let transaction = self
@@ -452,10 +413,7 @@ impl ReviewStore {
             .map_err(|error| sqlite_error(&error))
     }
 
-    /// Mark a track queued, recording when, so a stall becomes visible (#2).
-    ///
-    /// Nothing recorded *when* a track entered `QUEUED` before, so a transfer
-    /// sitting for six hours was indistinguishable from one queued a minute ago.
+    /// Mark a track queued, recording when, so a stall becomes visible.
     pub fn mark_queued(&mut self, track_id: i64, at: f64, detail: &str) -> Result<()> {
         self.connection
             .execute(
@@ -466,7 +424,7 @@ impl ReviewStore {
         Ok(())
     }
 
-    /// Tracks queued longer than `stall_after_seconds` (#2).
+    /// Tracks queued longer than `stall_after_seconds`.
     pub fn stalled(&self, now: f64, stall_after_seconds: f64) -> Result<Vec<ReviewTrack>> {
         Ok(self
             .tracks(&[TrackStatus::Queued], None)?
@@ -526,9 +484,7 @@ impl ReviewStore {
 
 /// Add any of `columns` the table does not already carry.
 ///
-/// Nullable or defaulted throughout, and applied with `ALTER TABLE` at open
-/// time, so a database an earlier build wrote is upgraded where it stands
-/// rather than rewritten.
+/// Applied with `ALTER TABLE` at open time, so older databases upgrade in place.
 fn add_missing_columns(
     connection: &Connection,
     table: &str,
@@ -678,8 +634,7 @@ fn to_scored(row: &rusqlite::Row<'_>) -> rusqlite::Result<ScoredCandidate> {
     })
 }
 
-/// `source_row` is a JSON object in the database; the Python stores a dict and
-/// this keeps the insertion order the export had.
+/// `source_row` as a JSON object, in the export's column order.
 fn source_row_json(source_row: &[(String, String)]) -> String {
     let map: serde_json::Map<String, serde_json::Value> = source_row
         .iter()
@@ -708,8 +663,7 @@ fn now_iso8601() -> String {
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default();
-    // The column is only ever read back as an opaque timestamp, so seconds since
-    // the epoch rendered in RFC 3339 keeps it sortable without a date crate.
+    // RFC 3339 keeps it sortable without a date crate.
     let seconds = now.as_secs();
     let (days, rest) = (seconds / 86400, seconds % 86400);
     let (year, month, day) = civil_from_days(i64::try_from(days).unwrap_or(0));

@@ -1,13 +1,7 @@
 //! Laying files out on disk from what their tags say.
 //!
-//! For a tool whose pitch is "keep it clean", nothing here touched file layout
-//! (#3). Downloads land as `<download dir>/<Artist>/<whatever the peer called
-//! it>` -- often `01 track.flac` or worse -- and there was no way to get from
-//! there to `Artist/Album/01 - Title.flac`.
-//!
-//! Planning is pure: where a file belongs, and what stands in the way, are
-//! decided from indexed entries alone, so the pattern language is tested without
-//! moving anything.
+//! Planning works on indexed entries alone and moves nothing; [`apply_moves`]
+//! carries a plan out.
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -48,10 +42,8 @@ impl Placeholder {
 
     /// The value for one file.
     ///
-    /// `artist` and `title` are the resolved forms the index already derived --
-    /// tags, then the directory layout, then the filename -- so the fallback
-    /// rule is reused rather than restated here. An absent artist becomes
-    /// `Unknown Artist`, which is what `fetch` already files one under.
+    /// `artist` and `title` use the index's resolved forms. An absent artist
+    /// becomes `Unknown Artist`, as `fetch` files it.
     fn value(self, entry: &LibraryEntry, settings: &OrganiseSettings) -> String {
         match self {
             Self::Artist => artist_of(entry),
@@ -132,8 +124,6 @@ impl Pattern {
             })
             .collect();
         if !named.contains(&Placeholder::Title) {
-            // Without it every track of an album renders to one name, and the
-            // collision rule refuses the lot. Better said now than per file.
             return bad("must contain {title}, or every track of an album collides");
         }
         Ok(Self { components })
@@ -178,10 +168,8 @@ const STRANDED: &[char] = &['-', '_', '.', '(', ')', '[', ']', ' '];
 
 /// Render one component, dropping what an absent field leaves behind.
 ///
-/// An empty placeholder takes the literal next to it with it, so
-/// `{track} - {title}` with no track number is `Title` and not ` - Title`. A
-/// component whose placeholders were all empty renders empty, and the caller
-/// decides what that means for a directory and for a filename.
+/// An empty placeholder takes the following literal with it, so `{track} -
+/// {title}` without a track number is `Title`, not ` - Title`.
 fn render_component(
     segments: &[Segment],
     entry: &LibraryEntry,
@@ -204,10 +192,7 @@ fn render_component(
             Segment::Field(placeholder) => {
                 let value = placeholder.value(entry, settings);
                 if value.is_empty() {
-                    // Only a literal can be taken away, and only the one that
-                    // actually follows: `index + 1 < len` would leave the flag
-                    // set across a second placeholder and eat someone else's
-                    // separator two segments later.
+                    // Only the literal immediately after, never one further on.
                     if matches!(segments.get(index + 1), Some(Segment::Literal(_))) {
                         skip_literal = true;
                     } else if last_was_literal {
@@ -243,8 +228,7 @@ pub fn render(
     let mut relative = PathBuf::new();
     for segments in directories {
         let rendered = render_component(segments, entry, settings);
-        // An empty directory is dropped rather than filled in: inventing
-        // "Unknown Album" folders is the mess this command exists to remove.
+        // Drop an empty directory rather than invent "Unknown Album".
         if !rendered.is_empty() {
             relative.push(sanitize_folder_name(&rendered, UNKNOWN_ARTIST));
         }
@@ -307,8 +291,7 @@ impl PlannedMove {
 /// Work out where every file should go, and which moves collide.
 ///
 /// `destination` consolidates everything into one place. Left unset, each file
-/// stays under the root it is already in: with several roots configured, moving
-/// a file between them is a decision nobody asked this command to make.
+/// stays under its own root.
 #[must_use]
 pub fn plan_moves(
     entries: &[LibraryEntry],
@@ -339,15 +322,11 @@ pub fn plan_moves(
             if same_path(&target, &entry.path) {
                 return blocked(target, Obstacle::AlreadyInPlace);
             }
-            // Checked before anything is written, so the plan is truthful about
-            // two files that render to one name.
+            // Two files rendering to one name are caught while planning.
             if !claimed.insert(comparable(&target)) {
                 return blocked(target.clone(), Obstacle::Claimed(target));
             }
-            // A destination that is the same file under another spelling is a
-            // case-only rename, not something in the way: on Windows `exists`
-            // cannot tell those apart, and refusing would block the one rename
-            // most worth making.
+            // The same file under another case is a rename, not a collision.
             if !same_file(&target, &entry.path) && target.exists() {
                 return blocked(target.clone(), Obstacle::Occupied(target));
             }
@@ -363,9 +342,7 @@ pub fn plan_moves(
 
 /// Files under a directory that is not part of the library.
 ///
-/// Described rather than looked up: nothing outside a root is in the index, and
-/// the flat `<download dir>/<Artist>/<peer's filename>` layout a fetch leaves
-/// behind is exactly what the index has not seen.
+/// Described from disk, since nothing outside a root is indexed.
 pub fn loose_entries(
     source: &Path,
     extensions: &[&str],
@@ -404,9 +381,7 @@ pub fn apply_moves(
     let mut applied = Applied::default();
     for planned in ready {
         let from = &planned.entry.path;
-        // Logged before the rename: a row for a move that did not happen is
-        // refused by `changes undo` as a file that is gone, where a move with no
-        // row is a hole in the record.
+        // Logged before the rename; see `ChangeLog::moved`.
         log.moved(index, from, &planned.destination)?;
         match move_file(from, &planned.destination) {
             Ok(()) => {
@@ -427,8 +402,7 @@ pub fn apply_moves(
 
 /// Whether two paths are spelled the same, separators aside.
 ///
-/// Compared component by component rather than as strings, because `a/b` and
-/// `a` are one path on Windows and two different strings.
+/// Compared by component, because `a/b` and `a\b` are one path on Windows.
 #[must_use]
 pub fn same_path(left: &Path, right: &Path) -> bool {
     spelling(left) == spelling(right)
@@ -436,14 +410,8 @@ pub fn same_path(left: &Path, right: &Path) -> bool {
 
 /// Whether two paths reach the same file.
 ///
-/// On Windows and macOS, `Foo.flac` and `foo.flac` are one file. That makes it
-/// different from [`same_path`], and the difference is the point: a case-only
-/// rename is two spellings of one file, so it is a real change to make and not
-/// a collision to refuse.
-///
-/// On Unix the filesystem is asked when both exist, because case sensitivity
-/// belongs to the volume rather than the platform: APFS can be formatted
-/// case-sensitive, and an exFAT drive mounted on Linux is not.
+/// Unlike [`same_path`], this folds case on Windows and macOS. On Unix the
+/// filesystem is asked when both exist, since case sensitivity is per volume.
 #[must_use]
 pub fn same_file(left: &Path, right: &Path) -> bool {
     match (identity(left), identity(right)) {
@@ -474,9 +442,8 @@ fn spelling(path: &Path) -> String {
 
 /// A path spelled the way the platform's default filesystem tells names apart.
 ///
-/// Folding where the volume turns out to be case-sensitive only costs a
-/// refused move; not folding where it is insensitive lets a second rename
-/// overwrite the first.
+/// Folding on a case-sensitive volume only costs a refused move; not folding
+/// on an insensitive one could overwrite a file.
 fn comparable(path: &Path) -> String {
     let text = spelling(path);
     if cfg!(any(windows, target_os = "macos")) {
@@ -488,10 +455,8 @@ fn comparable(path: &Path) -> String {
 
 /// Move one file, creating the directories it needs.
 ///
-/// A rename across volumes is copied and then removed: the download directory
-/// and the library routinely sit on different drives, and `fs::rename` cannot
-/// cross one. The copy is removed again if anything after it fails, so a
-/// failure never leaves two files.
+/// Across volumes the file is copied then removed, and the copy is cleaned up
+/// if that fails.
 pub fn move_file(from: &Path, to: &Path) -> Result<()> {
     if let Some(parent) = to.parent() {
         std::fs::create_dir_all(parent)
@@ -537,10 +502,8 @@ fn copy_across(from: &Path, to: &Path) -> Result<()> {
 
 /// Remove the directories a move emptied, up to but never including `root`.
 ///
-/// `remove_dir` refuses a directory that is not empty, which is the guard: a
-/// folder still holding `cover.jpg` is not empty and is correctly left alone.
-/// Nothing is deleted to make a directory empty -- `--apply` on a command that
-/// moves files did not consent to removing anyone's cover art.
+/// `remove_dir` refuses a non-empty directory, so a folder still holding
+/// `cover.jpg` stays.
 pub fn prune_empty(from: &Path, root: &Path) -> Vec<PathBuf> {
     let mut removed = Vec::new();
     let mut directory = from.parent().map(Path::to_path_buf);
@@ -560,9 +523,8 @@ pub fn prune_empty(from: &Path, root: &Path) -> Vec<PathBuf> {
 
 /// The path as the filesystem spells it, which need not be what was asked for.
 ///
-/// `create_dir_all("zun")` silently reuses an existing `ZUN` on Windows, so a
-/// key built from the requested path would claim a directory the file is not
-/// in. The index stores paths verbatim, so it has to be told the real one.
+/// `create_dir_all("zun")` reuses an existing `ZUN` on Windows, and the index
+/// needs the real spelling.
 #[must_use]
 pub fn spelled_on_disk(path: &Path) -> PathBuf {
     let (Some(parent), Some(name)) = (path.parent(), path.file_name()) else {

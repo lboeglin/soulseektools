@@ -1,25 +1,9 @@
-//! Album-aware review: a peer's folder as one decision (#6, #13).
+//! A peer's folder as one review decision.
 //!
-//! Soulseek's real unit is the folder, not the track. One peer holding a whole
-//! album means one queue position, one consistent rip and consistent tags, where
-//! twelve tracks from twelve strangers is twelve of each, any of which can stall
-//! on its own. The folder was present at every stage and discarded at every one:
-//! `ranking` scores the whole remote path -- that is the core of its scoring --
-//! but never parses the folder out of it.
-//!
-//! An offer is derived rather than stored. `candidates` already carries
-//! `username` and `remote_path`, so the grouping key costs no column. And
-//! because every covered track keeps its own candidate row, an approved album is
-//! still one `remote_path` per track: the folder is a unit of *decision*, not of
-//! transfer, which is what leaves `fetch::collect`, `fetch::downloaded_path` and
-//! the stall retry untouched by it.
-//!
-//! [`offers`] comes at that from the queue: here are tracks, which folder covers
-//! several of them. [`folders`] comes at it from the other end, for `stk get
-//! --album` (#13): here is a folder, and nothing is known about what is inside
-//! it beyond the filenames, because an album asked for by name brings no
-//! tracklist with it. The offer that results is taken whole and becomes rows of
-//! exactly the shape above.
+//! [`offers`] groups queued tracks by the folder that can supply several of
+//! them. [`folders`] groups a search for `stk get --album`, where only the
+//! filenames are known. Either way an approved album is still one candidate
+//! row per track, so downloading and retrying stay per-track.
 
 use std::collections::{HashMap, HashSet};
 
@@ -74,12 +58,6 @@ impl AlbumOffer {
     }
 
     /// How many covered tracks this folder already holds the first choice for.
-    ///
-    /// The listing's cost signal. Unlike `prefer_one_uploader`, which reorders
-    /// candidates unseen and so needs a score window to bound what it may
-    /// trade, an offer is shown before it is taken -- but "this folder is
-    /// nobody's first choice" is the part a table of names does not otherwise
-    /// say.
     #[must_use]
     pub fn top_picks(&self) -> usize {
         self.tracks.iter().filter(|track| track.rank == 1).count()
@@ -94,19 +72,15 @@ impl AlbumOffer {
 
 /// Every folder one peer could supply at least `minimum` of these tracks from.
 ///
-/// Pass tracks awaiting review only. A track that has already been decided must
-/// not be swept back up into an album, or approving one would silently overrule
-/// a choice someone made by hand.
+/// Pass tracks awaiting review only, or approving an album would overrule a
+/// choice already made by hand.
 #[must_use]
 pub fn offers(tracks: &[ReviewTrack], minimum: usize) -> Vec<AlbumOffer> {
     let mut grouped: HashMap<(&str, &str), AlbumOffer> = HashMap::new();
 
     for entry in tracks {
-        // The score the track would have had on its own, which is what taking
-        // it from this folder instead is measured against. Taken as a maximum
-        // rather than off the head of the list, because `prefer_one_uploader`
-        // promotes its peer's candidate to the front before the ranks are
-        // written, so rank 1 is not always the highest-scoring row.
+        // The maximum, not rank 1: `prefer_one_uploader` may have promoted a
+        // lower-scoring candidate to the front.
         let best = entry
             .candidates
             .iter()
@@ -126,9 +100,7 @@ pub fn offers(tracks: &[ReviewTrack], minimum: usize) -> Vec<AlbumOffer> {
             };
 
             let key = (scored.candidate.username.as_str(), folder);
-            // Rows arrive in rank order, so a folder holding two files for one
-            // track contributes the one the review listing puts first, and
-            // nothing else.
+            // Rows arrive in rank order, so the first file per folder wins.
             if !seen.insert(key) {
                 continue;
             }
@@ -153,8 +125,7 @@ pub fn offers(tracks: &[ReviewTrack], minimum: usize) -> Vec<AlbumOffer> {
         .into_values()
         .filter(|offer| offer.covered() >= minimum)
         .collect();
-    // Most tracks first; then the cheapest; then by name, so one queue always
-    // produces the same listing and an index from it stays meaningful.
+    // Deterministic, so an index into the listing stays meaningful.
     offers.sort_by(|left, right| {
         right
             .covered()
@@ -166,15 +137,8 @@ pub fn offers(tracks: &[ReviewTrack], minimum: usize) -> Vec<AlbumOffer> {
     offers
 }
 
-/// A peer's folder as one search turned it up, before anything is queued (#13).
-///
-/// The sibling of [`AlbumOffer`], approached from the other end. That one
-/// starts from tracks already in the queue and asks which folder covers several
-/// of them, so every file it names is a file someone asked for. This one starts
-/// from a folder and knows nothing about what is inside it beyond the
-/// filenames, because `stk get --album` is given an album by name and no
-/// tracklist comes with it. The folder is therefore taken whole -- all of its
-/// audio, and nothing but its audio.
+/// A peer's folder as one search turned it up, before anything is queued.
+/// Taken whole: all of its audio and nothing else.
 #[derive(Debug, Clone, PartialEq)]
 pub struct FolderOffer {
     pub username: String,
@@ -184,9 +148,7 @@ pub struct FolderOffer {
     /// review row's single candidate.
     pub files: Vec<ScoredCandidate>,
 
-    /// What else is inside it: a `.cue`, a `.log`, a scan. Counted so the
-    /// listing describes the folder as it is, and never queued -- the album was
-    /// asked for, not the uploader's paperwork.
+    /// Non-audio files (`.cue`, `.log`, scans): counted, never queued.
     pub extras: usize,
 
     pub score: i64,
@@ -194,11 +156,8 @@ pub struct FolderOffer {
     /// The reject and penalise terms its paths carry.
     pub flags: Vec<String>,
 
-    /// How many of its files miss `--lossless` or `--min-bitrate`.
-    ///
-    /// A warning rather than a filter: a folder is taken whole, so hiding the
-    /// files that fail would offer a folder that is not the one on the peer's
-    /// disk, and the one on the peer's disk is what would arrive.
+    /// How many of its files miss `--lossless` or `--min-bitrate`. A warning,
+    /// not a filter, since the folder arrives whole.
     pub below_quality: usize,
 }
 
@@ -221,11 +180,8 @@ impl FolderOffer {
         containers(self.files.iter().map(|file| &file.candidate))
     }
 
-    /// Whether the peer has an upload slot free.
-    ///
-    /// The peer's, not the file's: slskd spreads one search response's free
-    /// slot and queue length across every file it returned, so any file of the
-    /// folder answers for all of them.
+    /// Whether the peer has an upload slot free. slskd reports this per
+    /// response, so any file of the folder answers for all of them.
     #[must_use]
     pub fn free_slots(&self) -> bool {
         self.files
@@ -249,12 +205,8 @@ impl FolderOffer {
 
 /// Every folder a search turned up holding at least `minimum` audio files.
 ///
-/// `wanted` is the flattened album query, as [`crate::soulseek::ranking::rank`]
-/// builds it: a term the caller asked for is not evidence against a result.
-///
-/// Ordered best first, then by the fuller folder, then by peer and path, so one
-/// search always produces the same listing and an index read off it keeps
-/// naming what it named.
+/// `wanted` is the normalised album query, so a term the caller asked for is
+/// not held against a result. Ordered best first, deterministically.
 #[must_use]
 pub fn folders(
     candidates: &[Candidate],
@@ -294,9 +246,7 @@ pub fn folders(
                     }
                     ScoredCandidate {
                         candidate: candidate.clone(),
-                        // The folder's score, because the folder is what was
-                        // scored: no file in it was held against a title, and
-                        // none of them is taken on its own.
+                        // The folder's score: the folder is what was judged.
                         score: scored.score,
                         title_ratio: 0.0,
                         flags,
@@ -329,14 +279,9 @@ pub fn folders(
 /// The review rows one folder becomes: one per audio file, each carrying the
 /// title its filename gives and the peer's file as its only candidate.
 ///
-/// The title is the weak part, and cannot be otherwise. A folder is a list of
-/// filenames; what one says once the track number and the artist are off it is
-/// the only thing there is to call the track. The row records that it is a
-/// guess, so `fetch download` does not write it over a title the peer had right.
-///
-/// Two filenames reducing to the same title would collide on the queue's unique
-/// key and the second would silently take the first's row, so the first wins and
-/// the rest are dropped.
+/// The row records that its title is a guess from the filename, so `fetch
+/// download` won't write it over the peer's own. When two filenames reduce to
+/// the same title, the first wins.
 #[must_use]
 pub fn album_rows(offer: &FolderOffer, artist: &str, album: &str) -> Vec<(Track, ScoredCandidate)> {
     let mut rows: Vec<(Track, ScoredCandidate)> = Vec::new();
@@ -382,16 +327,8 @@ pub struct QueuedFolder {
 
 /// Queue a folder's rows, each approved with its single candidate.
 ///
-/// One row per file and one candidate per row, which is what leaves
-/// `fetch::collect`, `fetch::downloaded_path` and the stall retry untouched by
-/// this: the folder is a unit of decision, not of transfer. With one candidate
-/// there is nothing for the retry to promote, so a file that never arrives fails
-/// and is `stk get`'s to fetch by name -- the folder was the point, and taking
-/// one of its tracks from a stranger instead is a different decision.
-///
-/// A row already `QUEUED` or `DOWNLOADED` is left alone and named. An album
-/// asked for as a whole is not a reason to re-queue a transfer already in flight
-/// or to fetch a second copy of a track that is already here.
+/// With one candidate per row there is nothing to retry: a file that never
+/// arrives fails. Rows already `QUEUED` or `DOWNLOADED` are left alone.
 pub fn queue_folder(
     store: &mut ReviewStore,
     rows: &[(Track, ScoredCandidate)],
@@ -399,8 +336,7 @@ pub fn queue_folder(
     let tracks: Vec<Track> = rows.iter().map(|(track, _)| track.clone()).collect();
     store.add(&tracks)?;
 
-    // `add` hands back a count rather than ids, and a row may have been in the
-    // queue already, so the ids come back off one read of the queue.
+    // `add` returns a count, not ids, so read them back.
     let queued: HashMap<String, (i64, TrackStatus)> = store
         .tracks(&[], None)?
         .into_iter()
@@ -439,15 +375,10 @@ fn folder_name(folder: &str) -> &str {
 }
 
 /// The containers a set of files uses, commonest first: `2 flac, 1 mp3`.
-///
-/// Enough to see that a folder is mixed without restating the judgement the
-/// ranker already made about each file in it.
 fn containers<'a>(files: impl Iterator<Item = &'a Candidate>) -> String {
     let mut counts: Vec<(String, usize)> = Vec::new();
     for candidate in files {
-        // `extension` hands back the whole filename when it holds no dot, which
-        // `ScoredCandidate::describe` shows as "?" rather than printing a track
-        // name in a column of containers.
+        // `extension` returns the whole filename when there is no dot.
         let extension = match candidate.filename().rfind('.') {
             Some(_) => candidate.extension(),
             None => "?".to_owned(),
@@ -467,13 +398,9 @@ fn containers<'a>(files: impl Iterator<Item = &'a Candidate>) -> String {
 
 /// The folder a candidate sits in, or `None` when its path names none.
 ///
-/// The folder has to contain a separator of its own, which rules out all three
-/// ways a remote path can fail to name one. `Candidate::split_path` returns the
-/// whole path as *both* halves when there is no separator at all, so a bare
-/// filename would otherwise group with itself and be offered as an album of one.
-/// A file shared at the root of a peer's library yields `@@peer`, which is the
-/// share and not a directory within it. A leading separator yields an empty
-/// string, which would be offered under a blank name.
+/// Requiring a separator inside the folder rules out a bare filename (which
+/// `split_path` returns as both halves), a file at the share root (`@@peer`),
+/// and a leading separator (an empty name).
 fn folder_of(candidate: &Candidate) -> Option<&str> {
     let folder = candidate.folder();
     folder.contains(['\\', '/']).then_some(folder)

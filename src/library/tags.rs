@@ -1,14 +1,5 @@
-//! One place where container formats are handled.
-//!
-//! The scripts this replaces each grew their own dispatch, and the copies
-//! drifted: some handled Ogg and some did not, some treated a missing ID3 header
-//! as an error and some as an empty tag. Everything that touches metadata goes
-//! through this module, so a format is supported everywhere or nowhere.
-//!
-//! The Python reads through mutagen's "easy" key mapping, which presents
-//! artist/album/title/genre identically across ID3, Vorbis comments and MP4
-//! atoms. `lofty`'s `Tag` accessors are the same idea, so the container
-//! dispatch mutagen needed for artwork is not repeated here.
+//! Every tag read and write goes through this module, so a container format is
+//! supported everywhere or nowhere.
 
 use std::fmt;
 use std::path::Path;
@@ -75,10 +66,7 @@ fn tags_of(file: &TaggedFile) -> TrackTags {
     }
 }
 
-/// The number a track-number field states, ignoring any total after it.
-///
-/// Written as "3" or as "3/12"; the Python keeps the leading digits and ignores
-/// anything that is not a plain number.
+/// The number a track-number field states (`3` or `3/12`), or `None`.
 #[must_use]
 pub fn leading_number(value: &str) -> Option<i64> {
     value
@@ -89,33 +77,22 @@ pub fn leading_number(value: &str) -> Option<i64> {
         .and_then(|digits| digits.parse().ok())
 }
 
-/// The track length in seconds, straight from the container header.
-///
-/// The header already carries this, so nothing here needs to spawn ffprobe once
-/// per file the way the original duplicate scan did.
+/// The track length in seconds, from the container header.
 pub fn read_duration(path: &Path) -> Result<Option<f64>> {
     let file = read_file(path)?;
     let seconds = file.properties().duration().as_secs_f64();
     Ok((seconds != 0.0).then_some(seconds))
 }
 
-/// The stream properties `stk upgrade` needs, from the same header read.
-///
-/// New in schema v3 (#2). `read_duration` already opens the file and parses its
-/// header; codec, bitrate, sample rate and bit depth come off the same parse, so
-/// storing them costs no extra I/O and makes "every file under 320 kbps"
-/// expressible for the first time.
+/// Codec, bitrate, sample rate and bit depth, from the container header.
 pub fn read_stream_info(path: &Path) -> Result<StreamInfo> {
     Ok(stream_info_of(&read_file(path)?))
 }
 
 /// Whether an MP3 was encoded at a variable bitrate.
 ///
-/// Its header bitrate is then an average rather than a setting, which
-/// `stk verify` has to allow for. An encoder marks a VBR stream by opening it
-/// with a `Xing` or `VBRI` frame; `Info` is the same frame on a CBR stream,
-/// and no frame at all means CBR. lofty reads that frame and does not say
-/// which it found.
+/// A VBR stream opens with a `Xing` or `VBRI` frame; `Info` (the same frame)
+/// or no frame means CBR. lofty parses the frame but doesn't expose which.
 #[must_use]
 pub fn mp3_is_vbr(path: &Path) -> bool {
     use std::io::Read as _;
@@ -180,9 +157,7 @@ fn stream_info_of(file: &TaggedFile) -> StreamInfo {
 
 /// What a container's header says about its audio stream.
 ///
-/// `channels` is not an index column: nothing reports it, and it is here
-/// because a loudness scan has to tell the analyser how the samples it is
-/// handed are laid out. It comes off the same parse as the rest.
+/// `channels` isn't stored in the index; the loudness scan needs it.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct StreamInfo {
     pub codec: String,
@@ -212,13 +187,8 @@ fn codec_name(file_type: lofty::file::FileType) -> String {
     .to_owned()
 }
 
-/// Everything the index stores about a file, from one parse of its header.
-///
-/// Each public reader in this module opens the file for itself, which is right
-/// for a caller that wants one of them and was three parses per file for
-/// [`describe`](crate::library::index::describe) -- four once the loudness tags
-/// joined them. Reading them together is what keeps the v6 columns free, the
-/// way #2's `codec` and `bitrate` were.
+/// Everything the index stores about a file, from one parse of its header
+/// rather than one per reader.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Described {
     pub tags: TrackTags,
@@ -245,11 +215,8 @@ pub fn describe_file(path: &Path) -> Result<Described> {
     })
 }
 
-/// A metadata field this project can write, and put back.
-///
-/// The set is closed on purpose: these are the fields an edited `tags dump`
-/// carries, and each one is a `ChangeField` in the write log, so an undo has
-/// somewhere to put every value this module can change.
+/// A metadata field this project can write, and put back. Each is a
+/// `ChangeField` in the write log, so every write can be undone.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TagField {
     Artist,
@@ -341,14 +308,8 @@ pub const GENRE_SEPARATOR: &str = "; ";
 
 /// Replace every metadata field this project writes.
 ///
-/// Total rather than a patch, so it mirrors [`read_tags`] and round-trips with
-/// it. A caller changing one field reads the file, edits what it means to
-/// change and writes the result back, which is one save per file however many
-/// fields moved.
-///
-/// An empty value removes the key rather than writing an empty one, so a file
-/// whose title was cleared reads back the way an untagged file does. Embedded
-/// pictures are left alone: only these six keys are touched.
+/// Total rather than a patch, so it round-trips with [`read_tags`]. An empty
+/// value removes the key. Embedded pictures are left alone.
 pub fn write_tags(path: &Path, tags: &TrackTags) -> Result<()> {
     let mut file = read_file(path)?;
     let tag_type = existing_or_default_tag_type(&file);
@@ -369,9 +330,7 @@ pub fn write_tags(path: &Path, tags: &TrackTags) -> Result<()> {
         }
     }
 
-    // Only the number. A "3/12" reaches this as a separate `TrackTotal` item,
-    // which is left alone and rejoined on save, so the total is not this
-    // function's to write.
+    // Only the number: a total is a separate `TrackTotal` item, left alone.
     tag.remove_key(&ItemKey::TrackNumber);
     if let Some(number) = tags.track_number {
         tag.push(lofty::tag::TagItem::new(
@@ -418,10 +377,8 @@ pub fn write_genres(path: &Path, genres: &[String]) -> Result<()> {
 /// A tag item outside the fields this project manages: a comment, an encoder
 /// name, a URL, lyrics -- whatever else a peer's tagger left in the block.
 ///
-/// `key` is spelled the way the file's own tag format spells it (`COMM`,
-/// `ENCODER`, `©too`), which is what makes it possible to put one back into the
-/// same block by name. A `locator` is a URL item, which ID3v2 and APE keep as
-/// their own kind of frame.
+/// `key` is spelled the way the file's tag format spells it (`COMM`, `ENCODER`,
+/// `©too`), so it can be put back by name. `locator` marks an ID3v2/APE URL item.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Extra {
     pub key: String,
@@ -430,9 +387,8 @@ pub struct Extra {
     pub locator: bool,
 }
 
-/// The keys an extra is never made of: what this module reads or writes on
-/// purpose, plus the encoder fields, which on Vorbis comments are the vendor
-/// string the container always carries and so could never be stripped.
+/// Keys that are never extras: the managed fields, plus the encoder fields,
+/// which on Vorbis are the vendor string and can't be stripped.
 fn is_kept(key: &ItemKey) -> bool {
     matches!(
         key,
@@ -454,9 +410,7 @@ fn is_kept(key: &ItemKey) -> bool {
 
 /// Every text item a file carries that this project does not manage.
 ///
-/// Binary items are not reported: they cannot be logged as text, and nothing
-/// a peer leaves in one is worth keeping. Embedded pictures are not items at
-/// all and are never touched by this or by [`write_extras`].
+/// Binary items are skipped. Embedded pictures are never touched.
 pub fn read_extras(path: &Path) -> Result<Vec<Extra>> {
     Ok(extras_of(&read_file(path)?))
 }
@@ -495,8 +449,7 @@ fn spell_key(key: &ItemKey, tag_type: TagType) -> String {
 /// Replace every unmanaged text item with `extras`, so an empty list strips a
 /// peer's comment, encoder and URL fields and leaves nothing else changed.
 ///
-/// Total rather than a patch, for the same reason [`write_tags`] is: an undo
-/// has to put back exactly the set that was logged.
+/// Total rather than a patch, so an undo puts back exactly what was logged.
 pub fn write_extras(path: &Path, extras: &[Extra]) -> Result<()> {
     let mut file = read_file(path)?;
     let tag_type = existing_or_default_tag_type(&file);
@@ -515,11 +468,8 @@ pub fn write_extras(path: &Path, extras: &[Extra]) -> Result<()> {
         .map_err(|error| Error::Tag(format!("{}: {error}", path.display())))
 }
 
-/// The keys the four ReplayGain figures live under.
-///
-/// `lofty` maps every one of them for ID3v2 (as a TXXX frame), Vorbis comments,
-/// MP4 freeform atoms and APE, so the per-format dispatch the rest of this
-/// module exists to avoid is not needed for them either.
+/// The keys the four ReplayGain figures live under. lofty maps each for every
+/// tag format.
 const REPLAY_GAIN_KEYS: [ItemKey; 4] = [
     ItemKey::ReplayGainTrackGain,
     ItemKey::ReplayGainTrackPeak,
@@ -535,17 +485,10 @@ fn unknown_key(key: &str) -> ItemKey {
     ItemKey::Unknown(key.to_owned())
 }
 
-/// Whether a container keeps its gain as an `R128_*` header field (#7).
+/// Whether a container keeps its gain as an `R128_*` header field.
 ///
-/// Opus does, and players read that in preference to anything else: the format
-/// defines the figure against a fixed -23 LUFS, where `REPLAYGAIN_*` is against
-/// whatever reference the scanner chose. Both are written, so a player reading
-/// either finds the same loudness.
-///
-/// Decided on the container rather than the suffix. Opus is routinely filed as
-/// `.ogg`, and since [`write_replay_gain`] replaces the whole set rather than
-/// patching it, guessing from the name would take the `R128_TRACK_GAIN` such a
-/// file already carried away without writing one back.
+/// Opus does, relative to a fixed -23 LUFS; both spellings are written.
+/// Decided on the container, not the suffix, because Opus is often named `.ogg`.
 fn carries_r128(file: &TaggedFile) -> bool {
     file.file_type() == lofty::file::FileType::Opus
 }
@@ -572,10 +515,8 @@ fn replay_gain_of(file: &TaggedFile) -> ReplayGainTags {
 
 /// Replace every loudness field, removing the ones the caller left absent.
 ///
-/// Total rather than a patch, for the same reason [`write_tags`] is: an undo
-/// restoring one figure without the rest would leave a player applying a gain
-/// with no peak to check it against. Nothing else in the tag block is touched,
-/// so a file's artist and cover survive a scan.
+/// Total rather than a patch, so an undo never restores a gain without its
+/// peak. Nothing else in the tag block is touched.
 pub fn write_replay_gain(path: &Path, gain: &ReplayGainTags) -> Result<()> {
     let mut file = read_file(path)?;
     let tag_type = existing_or_default_tag_type(&file);
@@ -602,9 +543,7 @@ pub fn write_replay_gain(path: &Path, gain: &ReplayGainTags) -> Result<()> {
     ] {
         tag.remove_key(&unknown_key(key));
         if let Some(value) = value.filter(|value| !value.is_empty()) {
-            // `push` refuses a key it cannot map to a variant, which is every
-            // key outside `lofty`'s table. The Opus comment header takes
-            // arbitrary names, so the check is the wrong one here.
+            // `push` refuses keys outside lofty's table; Opus takes any name.
             tag.push_unchecked(lofty::tag::TagItem::new(
                 unknown_key(key),
                 lofty::tag::ItemValue::Text(value.to_owned()),
@@ -616,12 +555,8 @@ pub fn write_replay_gain(path: &Path, gain: &ReplayGainTags) -> Result<()> {
         .map_err(|error| Error::Tag(format!("{}: {error}", path.display())))
 }
 
-/// Containers that can carry an embedded cover.
-///
-/// `lofty` would return no picture for a WAV rather than refusing, but the
-/// Python dispatches on the suffix and has no branch for one. Callers rely on
-/// the difference: `artwork_size` turns the refusal into a zero, while
-/// `art fetch` must not believe it embedded a cover it could not.
+/// Containers that can carry an embedded cover. lofty would silently return
+/// nothing for a WAV; refusing instead stops `art fetch` believing it embedded.
 const ARTWORK_EXTENSIONS: &[&str] = &[".flac", ".mp3", ".m4a", ".mp4", ".ogg", ".opus"];
 
 fn require_artwork_container(path: &Path) -> Result<()> {
@@ -649,8 +584,7 @@ pub fn read_artwork(path: &Path) -> Result<Option<Artwork>> {
 fn artwork_of(file: &TaggedFile) -> Option<Artwork> {
     let tag = first_tag(file)?;
 
-    // A front cover wins; failing that, whatever image is there. An untagged
-    // file has none, which is not an error.
+    // A front cover wins; failing that, whatever image is there.
     let picture = tag
         .pictures()
         .iter()
@@ -701,7 +635,7 @@ pub fn write_artwork(path: &Path, artwork: &Artwork) -> Result<()> {
 }
 
 /// Remove every embedded image, which is what undoing a first-time cover
-/// embed comes to (#2).
+/// embed comes to.
 pub fn clear_artwork(path: &Path) -> Result<()> {
     require_artwork_container(path)?;
     let mut file = read_file(path)?;
@@ -717,11 +651,8 @@ pub fn clear_artwork(path: &Path) -> Result<()> {
 
 /// How a multi-valued genre has to be handed to a tag block.
 ///
-/// ID3v2 keeps only the last of several `Genre` items, because a TCON frame is
-/// one frame: several values live inside it separated by NUL, which is what
-/// ID3v2.4 specifies and what lofty splits back out on the way in. Vorbis
-/// comments and MP4 atoms genuinely repeat the field, so joining there would
-/// write one genre with a NUL in its name.
+/// ID3v2 has one TCON frame, so several genres are NUL-joined inside it.
+/// Vorbis and MP4 repeat the field instead.
 fn genre_items(tag_type: TagType, values: &[&String]) -> Vec<String> {
     if values.is_empty() {
         return Vec::new();
@@ -731,7 +662,7 @@ fn genre_items(tag_type: TagType, values: &[&String]) -> Vec<String> {
             .iter()
             .map(|genre| genre.as_str())
             .collect::<Vec<_>>()
-            .join(" ")];
+            .join("\0")];
     }
     values.iter().map(|genre| (*genre).clone()).collect()
 }

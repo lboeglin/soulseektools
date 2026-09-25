@@ -17,11 +17,7 @@ use crate::models::LibraryEntry;
 use crate::services::HttpTransport;
 use crate::tagsheet::{self, Blanks, PlannedEdit, TagChange};
 
-/// The dump's columns, which `oracle/tags.csv` froze.
-///
-/// Not extended in place: the oracle is the specification for what the port
-/// preserved, and a round trip needs two more columns that nothing else does.
-/// `--round-trip` asks for those instead.
+/// The dump's columns. `--round-trip` adds the two a write-back needs.
 pub const DUMP_FIELDS: &[&str] = &[
     "path",
     "folder_artist",
@@ -34,8 +30,7 @@ pub const DUMP_FIELDS: &[&str] = &[
 
 /// The columns `stk tags apply` needs to put a row back exactly.
 ///
-/// `path` stays first: it is how the dump is keyed, and how the oracle suites
-/// find the library a capture was taken from.
+/// `path` stays first: it is how the sheet is keyed.
 pub const ROUND_TRIP_FIELDS: &[&str] = &[
     "path",
     "folder_artist",
@@ -161,8 +156,7 @@ fn dump(context: &AppContext, output: Option<&Path>, fields: &[&str]) -> Result<
         return Ok(0);
     }
 
-    // To stdout the Python uses a plain "\n" terminator rather than the CSV
-    // default, so the output pipes cleanly.
+    // A plain "\n" terminator on stdout, so the output pipes cleanly.
     let mut writer = csv::WriterBuilder::new()
         .terminator(csv::Terminator::Any(b'\n'))
         .from_writer(std::io::stdout().lock());
@@ -180,8 +174,7 @@ fn dump(context: &AppContext, output: Option<&Path>, fields: &[&str]) -> Result<
     Ok(0)
 }
 
-/// Written as `utf-8-sig`, matching the Python: a BOM is what stops Excel
-/// mangling every non-ASCII path.
+/// Written with a BOM, or Excel mangles every non-ASCII path.
 fn write_csv(destination: &Path, entries: &[LibraryEntry], fields: &[&str]) -> Result<()> {
     if let Some(parent) = destination.parent() {
         if !parent.as_os_str().is_empty() {
@@ -263,9 +256,8 @@ fn apply_sheet(context: &AppContext, sheet: &Path, apply: bool, clear_blanks: bo
 
 /// Write each planned change, log it, and re-read the file into the index.
 ///
-/// A file that refuses the write is reported rather than aborting the run;
-/// one whose tags moved since the plan is among those, since `apply_change`
-/// refuses it.
+/// A file that refuses the write, including one changed since the plan, is
+/// reported rather than aborting the run.
 fn write_changes(
     index: &mut LibraryIndex,
     roots: &[PathBuf],
@@ -379,11 +371,8 @@ fn report(
 
 /// Look files up on AcoustID and show, or write, what they turn out to be.
 ///
-/// Only files missing an artist or a title are looked up unless `--all` says
-/// otherwise: a lookup decodes two minutes of audio and costs a request, and
-/// a tagged file is usually right. What comes back is a plan in the same
-/// shape as `tags apply`'s, written through the same log, so an undo takes
-/// the run back the same way.
+/// Only files missing an artist or title unless `--all`. The result is a plan
+/// written through the same path as `tags apply`.
 fn identify_files(
     context: &AppContext,
     path: Option<&Path>,
@@ -485,9 +474,7 @@ fn identify_files(
 
 /// Re-file each written file's print under its new mtime.
 ///
-/// The cache is keyed on the file's mtime, and writing tags moves it, so the
-/// print that was just paid for would otherwise be a miss on the next run.
-/// The audio did not change because the tags did.
+/// Writing tags moves the mtime the cache is keyed on; the audio is unchanged.
 fn keep_prints(index: &mut LibraryIndex, changes: &[&TagChange], targets: &[LibraryEntry]) {
     for change in changes {
         let path = &change.edit.path;

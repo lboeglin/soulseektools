@@ -1,11 +1,6 @@
-//! What every public web service this tool talks to has in common.
-//!
-//! iTunes, MusicBrainz, the Cover Art Archive, AcoustID and Discogs are free,
-//! publish a request limit, and ask callers to say who they are. The pacing, the
-//! identification and the transport are one thing rather than one per service,
-//! and the transport is a trait so each service's wire format is testable
-//! against recorded responses with no network. The slskd daemon is not one of
-//! these: it is local, authenticated, and has its own client.
+//! What the public web services (iTunes, MusicBrainz, Cover Art Archive,
+//! AcoustID, Discogs, Last.fm) share: request pacing, a User-Agent, and a
+//! transport trait so tests use recorded responses.
 
 use std::time::{Duration, Instant};
 
@@ -15,10 +10,7 @@ use crate::errors::{Error, Result};
 
 /// The User-Agent sent to every service.
 ///
-/// MusicBrainz and AcoustID ask callers to identify themselves with a real
-/// contact -- a URL or an email address -- and throttle or block those that do
-/// not. Nothing is invented here: set `artwork.contact` and it is included,
-/// leave it unset and the header simply names the tool and its version.
+/// Names the tool and version, plus `artwork.contact` when set.
 #[must_use]
 pub fn user_agent(contact: &str) -> String {
     let version = crate::VERSION;
@@ -31,9 +23,7 @@ pub fn user_agent(contact: &str) -> String {
 
 /// Holds a caller to a minimum interval between requests.
 ///
-/// These APIs are free and publish limits; exceeding them earns 503s and then a
-/// block. One limiter lives on each service's client, so the pacing is per
-/// service rather than global -- a slow provider must not slow a fast one.
+/// One per service client, so a slow provider doesn't pace a fast one.
 #[derive(Debug)]
 pub struct RateLimiter {
     pub min_interval_seconds: f64,
@@ -83,9 +73,6 @@ pub trait ServiceHttp {
 }
 
 /// A refusal in the service's own words, where its error body has them.
-///
-/// Last.fm answers a bad key with a 403 and Discogs a deleted release with a
-/// 404, each with a JSON `message` saying which; the status alone says neither.
 fn refused(
     url: &reqwest::Url,
     status: reqwest::StatusCode,

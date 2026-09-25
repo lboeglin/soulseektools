@@ -1,9 +1,5 @@
-//! What the rest of the crate needs from a Soulseek backend.
-//!
-//! Everything above this line works against the trait, not against slskd, so the
-//! search and download flows are exercised in tests by a fake with no network,
-//! no daemon and no Soulseek account. Preserving that boundary is what makes the
-//! ported tests runnable in CI.
+//! What the rest of the crate needs from a Soulseek backend. Everything works
+//! against the trait, so tests run on a fake with no network or daemon.
 
 use std::fmt;
 use std::str::FromStr;
@@ -89,9 +85,7 @@ impl Transfer {
 
 /// A Soulseek backend that can search and download.
 ///
-/// `Sync`, because `fetch::search_pending` runs the searches concurrently: every
-/// one of them is spent waiting on a socket, and a serial port would be no
-/// faster than the serial Python it replaces.
+/// `Sync`, because `fetch::search_pending` runs searches concurrently.
 pub trait SoulseekClient: Sync {
     /// Whether the backend is logged in and able to search.
     fn is_connected(&self) -> bool;
@@ -116,9 +110,5 @@ pub trait SoulseekClient: Sync {
     fn transfers(&self) -> Result<Vec<Transfer>>;
 
     /// Abandon one queued or running download.
-    ///
-    /// A transfer that has stalled long enough to be retried elsewhere has to
-    /// go: a peer that wakes up hours later would otherwise deliver the file a
-    /// second time, beside the copy the retry already fetched.
     fn cancel(&self, username: &str, transfer_id: &str) -> Result<()>;
 }

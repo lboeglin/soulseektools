@@ -31,8 +31,7 @@ pub fn run(context: &AppContext, command: GenreCommand) -> Result<i32> {
 fn check(context: &AppContext) -> Result<i32> {
     let entries = context.open_index()?.entries()?;
 
-    // First-seen order, not sorted: the JSON document preserves it, exactly as
-    // the Python's dict does, and only the table below reorders by count.
+    // First-seen order for JSON; only the table sorts by count.
     let mut counts: Vec<(String, usize)> = Vec::new();
     let mut untagged = 0;
     for entry in &entries {

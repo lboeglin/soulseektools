@@ -1,12 +1,5 @@
-//! The slskd backend.
-//!
-//! Every request and response shape here was pinned against a running
-//! `slskd/slskd` container's OpenAPI document and its bundled web UI, not from
-//! memory; see `docs/slskd-setup.md`. Keeping the wire format in this one module
-//! means a change to slskd is a change to one file.
-//!
-//! Authentication is the `X-API-Key` header. The key never comes from the config
-//! file -- see [`crate::config`].
+//! The slskd backend. Request and response shapes follow slskd's OpenAPI
+//! document; authentication is the `X-API-Key` header.
 
 use std::time::{Duration, Instant};
 
@@ -26,9 +19,7 @@ const SEARCH_GRACE: Duration = Duration::from_secs(5);
 /// slskd reports the underlying Soulseek.NET transfer states, which are
 /// flag-like strings such as "Completed, Succeeded" or "Completed, Errored".
 ///
-/// The order matters: a terminal flag wins over the bare "Completed" that
-/// accompanies it, so "Completed, Errored" is a failure rather than a success.
-/// That was a real bug once -- see the changelog.
+/// Order matters: "Completed, Errored" is a failure, not a success.
 const TERMINAL_STATES: &[(&str, TransferState)] = &[
     ("succeeded", TransferState::Completed),
     ("cancelled", TransferState::Cancelled),
@@ -39,10 +30,6 @@ const TERMINAL_STATES: &[(&str, TransferState)] = &[
 
 /// The HTTP calls the client makes, so the wire format can be tested without a
 /// daemon.
-///
-/// The Python mocks `httpx` with `respx`; a trait here keeps the JSON handling
-/// -- which is the part that actually encodes slskd's quirks -- testable on its
-/// own.
 pub trait Http: Sync {
     /// Perform one request, returning the parsed body, or `None` for an empty one.
     fn request(&self, method: &str, path: &str, body: Option<&Value>) -> Result<Option<Value>>;
@@ -369,9 +356,7 @@ impl<H: Http> SlskdClient<H> {
 
 /// The headers every request carries.
 ///
-/// Split out so the `X-API-Key` carve-out is testable without a live daemon:
-/// the key is read from the environment, never from the config file, and this is
-/// the only place it reaches the wire.
+/// The only place the API key reaches the wire.
 #[must_use]
 pub fn headers_for(settings: &SlskdSettings) -> Vec<(String, String)> {
     let mut headers = vec![("Accept".to_owned(), "application/json".to_owned())];

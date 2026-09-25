@@ -1,16 +1,5 @@
-//! `stk sync` -- the recurring loop as one command (#14).
-//!
-//! Keeping a library in step with a growing export is six commands in a fixed
-//! order: `library scan`, `wantlist diff --new`, `fetch search`, `review pick`,
-//! `fetch download`, `organise --from <download dir>`. Each exists and works
-//! alone; this runs them in that order and adds the one step that had no command
-//! at all, waiting for the downloads to finish.
-//!
-//! The steps are the library calls those commands wrap, not the commands
-//! themselves, so the report is one document rather than six interleaved ones.
-//! One `--apply` gates the whole run. Without it the steps that only touch the
-//! index and the review queue run -- as their own commands do without a flag --
-//! and the rest is described: no file on disk changes.
+//! `stk sync`: scan, diff, search, pick, download (waiting for it) and organise
+//! in one run. Without `--apply` only the index and review queue change.
 
 use std::path::PathBuf;
 
@@ -199,8 +188,7 @@ pub fn run(context: &AppContext, args: &SyncArgs) -> Result<i32> {
 
 /// Where the organise step reads from and writes to.
 ///
-/// Settled before anything runs, so a layout the organise step would refuse is
-/// not discovered after an hour of waiting for downloads.
+/// Settled up front, not after an hour of waiting for downloads.
 fn target(context: &AppContext, apply: bool) -> Result<Option<Target>> {
     let Some(downloads) = context.settings().slskd.download_directory.clone() else {
         if apply {

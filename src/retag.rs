@@ -1,16 +1,5 @@
-//! What a fetched file is tagged with, and why the peer's block is not trusted.
-//!
-//! A download arrives carrying whatever its uploader's tagger left: nothing,
-//! `Track 01` under `Unknown Artist`, or a full block with a URL in the album
-//! field and a `ripped by` comment. The review row it was fetched for carries
-//! the artist, title and album that were asked for, which is better than all
-//! three -- and without it on the file, `organise`, `genre check`, `dupes` and
-//! `art fetch` are blind to the download (#11).
-//!
-//! The policy is configuration rather than a flag, because it is a statement
-//! about every download rather than about one run. Every write goes through
-//! the change log, so `stk changes undo` restores the peer's block if the
-//! replacement was the wrong call.
+//! What a fetched file is tagged with: the review row it was fetched for,
+//! under the `fetch.tags` policy, rather than whatever the peer's tagger left.
 
 use std::fmt;
 use std::path::{Path, PathBuf};
@@ -79,15 +68,13 @@ pub struct RowTags {
     pub album: String,
     pub track_number: Option<i64>,
 
-    /// Whether `title` was read off the peer's own filename (#13).
+    /// Whether `title` was read off the peer's own filename.
     pub title_guessed: bool,
 }
 
 impl RowTags {
-    /// The track number comes back out of the export's own columns, by the
-    /// same header tolerance `wantlist::read_export` reads them with. A column
-    /// holding the title is not one: Last.fm calls its title `track`, and a
-    /// song named "22" is not track 22.
+    /// The track number comes from the export's own columns. Last.fm's `track`
+    /// column is the title, so it is skipped when it holds the title.
     #[must_use]
     pub fn of(track: &Track) -> Self {
         let title = track.title.trim();
@@ -106,15 +93,8 @@ impl RowTags {
 
 /// The tags the file should carry, given what it carries now.
 ///
-/// Album artist and genres are never the row's to write: an export names
-/// neither, and `genre apply` owns the second. An `stk get` row has no album,
-/// and a title-only query no artist, so a blank in the row never blanks the
-/// file under either policy.
-///
-/// A guessed title is demoted one step. `replace` says the row is better than
-/// whatever the uploader's tagger left, which holds for a title that was asked
-/// for by name and not for one `stk get --album` read off a filename: there the
-/// peer's own tag is the better of the two guesses. It still fills a blank (#13).
+/// Album artist and genres are never written. A blank in the row never blanks
+/// the file. A guessed title only fills a blank, even under `replace`.
 #[must_use]
 pub fn plan(policy: TagPolicy, row: &RowTags, current: &TrackTags) -> TrackTags {
     let mut proposed = current.clone();
@@ -166,11 +146,8 @@ impl Retagged {
 
 /// Tag one download from its review row, and log what was written.
 ///
-/// A file that cannot be read or written is reported in the outcome rather
-/// than raised: one odd container must not stop the rest of a collect. The
-/// index is refreshed only for a file under a library root, since a download
-/// directory outside every root has no row to bring up to date and must not
-/// gain one the next scan will delete.
+/// Failures are reported in the outcome, not raised. The index is refreshed
+/// only for a file under a library root.
 pub fn apply(
     path: &Path,
     policy: TagPolicy,

@@ -1,13 +1,9 @@
 //! Hepburn romanisation of kana.
 //!
-//! The spelling is the one `oracle/romaji.csv` was captured with, so that a
-//! change of transliterator moves no score its readings did not move. A long
-//! vowel is written out: `おう` is `ou` and `ー` repeats the letter before it. `っ`
-//! doubles the consonant after it, except `n`, `m` and `w`, and is `tsu` where
-//! it doubles nothing. `ん` is `n` with no apostrophe, which `normalize` would
-//! turn into a word break.
-//! Only the pairs [`digraph`] names read as one syllable; any other small kana
-//! is its own vowel, which is how `ティ` comes out as `tei`.
+//! A long vowel is written out: `おう` is `ou` and `ー` repeats the letter before
+//! it. `っ` doubles the next consonant (not `n`, `m` or `w`), else is `tsu`.
+//! `ん` is `n` with no apostrophe, which `normalize` would split on. Only the
+//! pairs [`digraph`] names are one syllable, so `ティ` is `tei`.
 
 /// Romanise every kana in `text`, passing anything else through unchanged.
 #[must_use]

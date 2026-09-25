@@ -162,7 +162,7 @@ fn report(context: &AppContext, pairs: &[DuplicatePair], limit: usize, scanned: 
     );
 }
 
-/// Python's `round(value, 3)`, which breaks ties to even.
+/// Round to `digits` places, ties to even.
 fn round(value: f64, digits: usize) -> f64 {
     format!("{value:.digits$}").parse().unwrap_or(value)
 }

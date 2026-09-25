@@ -1,15 +1,8 @@
 //! Reading a wantlist and working out what is missing.
 //!
-//! A wantlist is any list of songs someone wants: a streaming-service export,
-//! a Last.fm scrobble log, a YouTube Takeout, an Apple Music library, a
-//! playlist, a Discogs collection, a Last.fm profile. Each shape has its own reader, and every reader produces the same
-//! [`Track`]s, with the source's own fields kept in `source_row` for
-//! `--missing` and for tagging a download (#11).
-//!
-//! The ownership test is deliberately asymmetric. A track is dropped from the
-//! wantlist only when a library file is convincingly the same song; anything
-//! uncertain stays in the list, because downloading a duplicate costs a few
-//! megabytes and silently skipping a track loses it.
+//! Every format's reader produces the same [`Track`]s, keeping the source's own
+//! columns in `source_row`. A track counts as owned only on a convincing match:
+//! a duplicate download is cheaper than a skipped track.
 
 use std::collections::{HashMap, HashSet};
 use std::fmt;
@@ -53,7 +46,7 @@ pub const DURATION_COLUMNS: &[&str] = &[
     "length",
 ];
 /// Not read into a [`Track`] field: it stays in `source_row` and is looked up
-/// when a download is tagged (#11).
+/// when a download is tagged.
 pub const TRACK_NUMBER_COLUMNS: &[&str] = &["track number", "track_number", "track no", "track"];
 
 /// A wanted track matched to a file already in the library.
@@ -243,9 +236,6 @@ pub fn read_export(
 }
 
 /// The tracks listed at least `min_plays` times, once each, in first-seen order.
-///
-/// A scrobble log lists every play, so read whole it is every song ever heard
-/// once; the repeats are what say which ones are wanted.
 #[must_use]
 pub fn keep_played(tracks: Vec<Track>, min_plays: usize) -> Vec<Track> {
     let key = |track: &Track| track.query().to_lowercase();
@@ -325,20 +315,17 @@ fn candidates(
         }
     }
     let mut ordered: Vec<usize> = positions.into_iter().collect();
-    // The Python iterates a set, whose order is arbitrary but whose best score
-    // wins regardless; sorting only makes ties resolve reproducibly.
+    // Sorted so ties resolve reproducibly.
     ordered.sort_unstable();
     ordered
 }
 
-/// The en and em dashes are deliberate: a track name pasted out of a browser or
-/// a music player usually carries one rather than a plain hyphen.
+/// Includes en and em dashes, which pasted track names often carry.
 pub const SEPARATORS: &[&str] = &[" - ", " \u{2013} ", " \u{2014} "];
 
 /// Split `artist - title` into its parts, tolerating either being absent.
 ///
-/// A query with no separator is treated as a title: searching for a title alone
-/// works, searching for a bare artist does not.
+/// A query with no separator is treated as a title.
 #[must_use]
 pub fn split_query(query: &str) -> (String, String) {
     for separator in SEPARATORS {

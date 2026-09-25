@@ -1,11 +1,7 @@
-//! Fuzzy matching between wantlist tracks, library files and search results.
+//! Fuzzy matching of names, in both normalised and romanised form.
 //!
-//! Every comparison in the project runs through [`similarity`], which scores a
-//! name against another in both its normalised and its romanised form. The
-//! asymmetric thresholds in [`MatchThresholds`] encode a deliberate bias: a very
-//! strong title match is allowed to carry a weak artist match, because artist
-//! readings are the unreliable half (see [`crate::text::romaji`]), but the
-//! reverse is never accepted.
+//! A strong title match may carry a weak artist match, since artist readings are
+//! the unreliable half, but never the reverse.
 
 use std::collections::{HashMap, HashSet};
 use std::hash::BuildHasher;
@@ -87,10 +83,8 @@ pub struct MatchScore {
     pub combined: f64,
 }
 
-/// rapidfuzz's `token_sort_ratio`, which the Rust crate does not ship.
-///
-/// It is `ratio` over the whitespace-separated tokens sorted and rejoined; the
-/// Python side applies no processor, and both inputs are already normalised.
+/// The tokens sorted and rejoined, for a `token_sort_ratio` the rapidfuzz crate
+/// doesn't ship.
 fn token_sort(text: &str) -> String {
     let mut tokens: Vec<&str> = text.split_whitespace().collect();
     tokens.sort_unstable();

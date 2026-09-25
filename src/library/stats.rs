@@ -1,12 +1,5 @@
-//! What the library looked like at one moment, so maintenance can be measured.
-//!
-//! `stk library stats` answers "what is in there now", which says nothing about
-//! whether the tagging, the artwork and the fake-lossless hunt are gaining on
-//! the problem or losing to it (#3). A snapshot per scan turns the same numbers
-//! into a series.
-//!
-//! Counting is a pure function over indexed entries and verdict counts, so what
-//! a figure means is tested directly rather than through a database.
+//! What the library looked like at one moment. Each scan records a snapshot,
+//! which `stk library trend` shows as a series.
 
 use std::collections::BTreeMap;
 
@@ -24,18 +17,15 @@ pub struct LibrarySnapshot {
     pub verified_clean: usize,
     pub flagged: usize,
 
-    /// How many files carry a track gain, new in v6 (#7).
+    /// How many files carry a track gain, new in v6.
     ///
-    /// Absent, rather than zero, on a measurement taken before the column
-    /// existed: that scan did not count this, which is not the same as having
-    /// counted none.
+    /// Absent on a measurement taken before the column existed.
     pub with_replay_gain: Option<usize>,
 }
 
 /// The counted part of a snapshot, which is what decides whether it is new.
 ///
-/// `taken_at` is deliberately outside it: two scans an hour apart that found
-/// exactly the same library are one measurement, not two.
+/// Excludes `taken_at`, so two identical scans are one measurement.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Counts {
     pub total: usize,
@@ -66,13 +56,8 @@ impl LibrarySnapshot {
 
 /// Count what an indexed library holds, at `taken_at`.
 ///
-/// `lossless` is decided by the container, the same rule `stk verify` uses to
-/// choose what to analyse, so the two figures describe one set of files.
-/// `flagged` is everything `verify` doubted -- FAKE, SUSPECT and UPSAMPLED --
-/// because a library owner chasing them down treats them the same way.
-/// `with_replay_gain` counts files carrying a track gain, whoever scanned them:
-/// the point of the figure is to notice a fetch that left new files behind, not
-/// to take credit for this tool's own writes.
+/// `lossless` uses the same container rule as `stk verify`. `flagged` is FAKE,
+/// SUSPECT and UPSAMPLED together. `with_replay_gain` counts any scanner's.
 #[must_use]
 pub fn measure(
     entries: &[LibraryEntry],
@@ -105,10 +90,6 @@ pub fn measure(
 }
 
 /// The day a measurement was taken, as `YYYY-MM-DD`.
-///
-/// A scan records at most one measurement per set of counts, so the axis a
-/// trend is read along is which day the library looked like that, not which
-/// second.
 #[must_use]
 #[allow(clippy::cast_possible_truncation)]
 pub fn date_of(taken_at: f64) -> String {

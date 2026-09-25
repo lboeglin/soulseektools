@@ -1,10 +1,5 @@
-//! M3U and M3U8 playlists, the inverse of what [`crate::playlist`] writes.
-//!
-//! A playlist names files, not songs, so each entry is described by the best
-//! evidence at hand: the file's own tags when it is on this machine, else the
-//! `#EXTINF` display text a player would show, else the filename. Only the last
-//! is a guess. Every track carries the same `source_row` keys, so `--missing`
-//! writes one header whichever of the three described it.
+//! M3U and M3U8 playlists. Each entry is described by the file's tags when it
+//! is on this machine, else its `#EXTINF` line, else its filename.
 
 use std::path::Path;
 use std::sync::LazyLock;

@@ -1,20 +1,9 @@
-//! The AcoustID lookup, and what its answer says.
+//! The AcoustID lookup, parsed into the recordings and releases [`super`]
+//! chooses between.
 //!
-//! One request: the compressed fingerprint and the duration go up, and what
-//! comes back is every MusicBrainz recording the print has been linked to, each
-//! with the release groups, releases and track positions it appears under.
-//! Nothing here decides anything; it turns the service's JSON into the domain
-//! types [`super`] chooses between.
-//!
-//! The response is asked for with `compress`, under which a value equal to its
-//! parent's is left out: a release with no title has its group's, a track with
-//! no title has its recording's. Those fall-backs are resolved here, so a
-//! release always names its title and every credit is complete.
-//!
-//! A track's own credit -- the spelling printed on that one release -- is not
-//! kept. The recording's credit is the artist's standing name, and a library
-//! wants `Dave Rodgers` on every file rather than `dave rodgers` on the one
-//! release whose sleeve wrote it that way.
+//! The response is `compress`ed, leaving out values equal to their parent's;
+//! those are filled back in here. The recording's credit is used rather than a
+//! release's one-off spelling.
 
 use serde_json::Value;
 

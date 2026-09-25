@@ -1,20 +1,9 @@
-//! Acoustic fingerprints, for finding duplicates that share no metadata.
+//! Chromaprint fingerprints (as AcoustID uses), computed by `rusty-chromaprint`
+//! and compared locally by bit error rate.
 //!
-//! Grouping by duration and file size -- what the original script did -- produces
-//! coincidental matches between unrelated tracks of similar length and bitrate.
-//! A fingerprint compares the audio itself.
-//!
-//! The fingerprint is chromaprint, the same one AcoustID uses, computed here by
-//! `rusty-chromaprint` rather than by the `fpcalc` binary. It is compared
-//! locally by bit error rate, so no web service and no API key are involved.
-//!
-//! The port is not bit-identical to `fpcalc`: over a real library the two agree
-//! to about 98.5% of bits, which is far above the 0.9 that decides a duplicate
-//! but far below the 1.0 two reads of one file should score. That is why
-//! [`KIND`] exists -- a fingerprint cached by the old backend is recomputed
-//! rather than compared against one from this.
-// Frame counts and offsets are cast between `usize`, `u64` and `f64`
-// throughout, all bounded by a track length rather than an address space.
+//! They agree with `fpcalc` on about 98.5% of bits, not 100%, so [`KIND`] tags
+//! each cached print and one from another backend is recomputed.
+// Casts between frame counts and offsets are bounded by a track length.
 #![allow(
     clippy::cast_precision_loss,
     clippy::cast_possible_truncation,
@@ -32,18 +21,13 @@ use crate::errors::{Error, Result};
 
 /// What produced a stored fingerprint.
 ///
-/// The index keeps this beside the values and treats a name it does not know as
-/// a miss, so changing it is how a cache is invalidated: rows written by
-/// `fpcalc` are recomputed instead of being compared against a port that
-/// disagrees with it in the last percent of bits.
+/// Stored beside each cached print; an unknown kind is a cache miss.
 pub const KIND: &str = "chromaprint-rs";
 
 /// How much of a track is fingerprinted.
 ///
-/// `fpcalc`'s own default, and therefore what every cached row was computed
-/// under. Two releases of the same recording differ at the end far more often
-/// than in the first two minutes, so the cap is also the more reliable
-/// comparison.
+/// `fpcalc`'s default. Releases of one recording differ at the end far more
+/// often than in the first two minutes.
 const LIMIT_SECONDS: u64 = 120;
 
 /// How far two fingerprints may be shifted against each other when comparing.
@@ -74,11 +58,8 @@ impl Fingerprint {
 
     /// The form AcoustID takes, which is what `fpcalc` prints.
     ///
-    /// The values are delta-coded and bit-packed, then written as URL-safe
-    /// base64 without padding. The first byte of the packed form names the
-    /// algorithm, so the configuration here has to be the one [`fingerprint`]
-    /// ran with: a print encoded under another preset would be looked up
-    /// against the wrong index and match nothing.
+    /// Delta-coded, bit-packed, URL-safe base64 without padding. The first byte
+    /// names the algorithm, so it must match what [`fingerprint`] used.
     #[must_use]
     pub fn compressed(&self) -> String {
         let configuration = preset();

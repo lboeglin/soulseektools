@@ -1,10 +1,4 @@
-//! Layered configuration.
-//!
-//! Every path, threshold and term list that used to be a literal in a script is
-//! a field here. Resolution across the CLI flags, the `STK_` environment, the
-//! TOML file and these defaults arrives with the CLI in step 5 of the port; the
-//! sections themselves are needed sooner, because the matcher and the ranker
-//! take them.
+//! Layered configuration: CLI flag, `STK_` environment, TOML file, defaults.
 
 use std::path::{Path, PathBuf};
 
@@ -56,18 +50,13 @@ impl MatchingSettings {
 /// How Soulseek search results are scored.
 ///
 /// `reject_terms` and `penalise_terms` are matched against the whole remote
-/// path, folder included. Scoring the filename alone was the root cause of most
-/// wrong downloads: a file named exactly right still turns out to be a live
-/// recording or an orchestral cover, and only its folder says so.
+/// path, because a live recording or a cover often only says so in its folder.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, default)]
 pub struct RankingSettings {
     pub min_title_ratio: f64,
 
     /// Rank lossless above lossy, whatever the lossy file's bitrate.
-    ///
-    /// Turn this off to judge results on availability and name match alone,
-    /// which is what you want when a smaller file beats a better one.
     pub prefer_lossless: bool,
 
     /// Discard lossy results outright rather than ranking them lower.
@@ -112,11 +101,7 @@ impl Default for RankingSettings {
     }
 }
 
-/// Preferring one uploader across a batch (#3).
-///
-/// Soulseek's cost is per queue position, not per file, so eight tracks from
-/// one peer beats eight tracks from eight peers whenever the per-track choice
-/// is close.
+/// Preferring one uploader across a batch when the per-track choice is close.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, default)]
 pub struct UploaderSettings {
@@ -125,26 +110,17 @@ pub struct UploaderSettings {
     /// How far below a track's best a candidate may score and still be taken
     /// from the preferred peer.
     ///
-    /// 2000 is the exact span of the availability part of the score: a free
-    /// slot is worth 1000, a full queue costs up to 500, and the name match up
-    /// to 500 more. Everything structural is further away than that -- a
-    /// content penalty is 2,000,000, a quality tier 10,000,000, one sample-rate
-    /// step within lossless 624,000 -- so a preference can trade availability
-    /// and name match and can never trade a codec, a master or a live version.
+    /// 2000 spans availability and name match (free slot 1000, queue up to 500,
+    /// name up to 500) and nothing structural: a content penalty is 2,000,000
+    /// and a quality tier 10,000,000.
     pub score_window: i64,
 
-    /// How many of the batch's tracks a peer must cover to be preferred.
-    ///
-    /// A count rather than a fraction, so it behaves the same over ten tracks
-    /// and over four hundred: a fraction would demand forty tracks from one
-    /// peer on a large batch, which essentially never happens, and would
-    /// silently switch the feature off on exactly the runs it helps most.
+    /// How many of the batch's tracks a peer must cover to be preferred. A count,
+    /// not a fraction, so large batches don't switch the feature off.
     pub minimum_coverage: usize,
 
-    /// How many candidates per track the batch pass may look at.
-    ///
-    /// Deeper than the review cap, or a peer holding most of the batch is
-    /// invisible on every track where they placed fourth.
+    /// How many candidates per track the batch pass looks at. Deeper than the
+    /// review cap, so a peer ranked fourth on every track is still seen.
     pub pool_per_track: usize,
 }
 
@@ -194,23 +170,16 @@ impl VerifySettings {
     }
 }
 
-/// Tuning for the ReplayGain scan (#7).
+/// Tuning for the ReplayGain scan.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, default)]
 pub struct LoudnessSettings {
-    /// What a scanned file is levelled to.
-    ///
-    /// -18 LUFS is ReplayGain 2.0, and what `loudgain`, `rsgain` and
-    /// foobar2000 write today. Moving it makes this tool's figures disagree
-    /// with theirs, which is a reason to leave it alone and the reason it is
-    /// settable at all.
+    /// What a scanned file is levelled to. -18 LUFS is ReplayGain 2.0, as
+    /// `loudgain`, `rsgain` and foobar2000 write it.
     pub reference_lufs: f64,
 
-    /// Measure the true peak rather than the loudest sample.
-    ///
-    /// A true-peak scan oversamples and catches the inter-sample peaks above
-    /// 0 dBFS that a player applying positive gain clips on; the sample peak
-    /// misses them and costs less to find.
+    /// Measure the oversampled true peak rather than the loudest sample, to
+    /// catch inter-sample peaks above 0 dBFS.
     pub true_peak: bool,
 }
 
@@ -223,11 +192,10 @@ impl Default for LoudnessSettings {
     }
 }
 
-/// Connection details for the headless Soulseek daemon.
+/// Connection details for slskd.
 ///
-/// `api_key` is deliberately absent from the serialised form: it is read from
-/// the bare `SLSKD_API_KEY` variable only, never from the TOML file, so a config
-/// file stays safe to commit and `stk config show` stays safe to paste.
+/// `api_key` is never serialised: it comes from `SLSKD_API_KEY` only, so a
+/// config file is safe to commit and `stk config show` safe to paste.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, default)]
 pub struct SlskdSettings {
@@ -238,14 +206,10 @@ pub struct SlskdSettings {
     pub search_response_limit: u32,
     pub request_timeout_seconds: f64,
     pub download_directory: Option<PathBuf>,
-    /// How long a queued transfer may sit before it counts as stalled (#2).
+    /// How long a queued transfer may sit before it counts as stalled.
     pub stall_after_seconds: f64,
-    /// How many searches to run at once.
-    ///
-    /// Every search is spent waiting on slskd rather than computing, so this is
-    /// the one number that decides how long a batch takes. Bounded rather than
-    /// unlimited: slskd relays each search to the Soulseek network, and a
-    /// hundred at once is a good way to be throttled.
+    /// How many searches to run at once. Bounded because slskd relays each one
+    /// to the Soulseek network, which throttles floods.
     pub search_concurrency: usize,
 }
 
@@ -268,14 +232,11 @@ impl Default for SlskdSettings {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, default)]
 pub struct LibrarySettings {
-    /// The single-root spelling, kept because most libraries have one.
-    ///
-    /// It folds into [`Self::roots`] on read, so nothing downstream has to know
-    /// which of the two a config used.
+    /// The single-root spelling. [`Self::all_roots`] folds it into `roots`.
     pub root: PathBuf,
-    /// Every root to scan (#2). Empty means "just `root`".
+    /// Every root to scan. Empty means "just `root`".
     pub roots: Vec<PathBuf>,
-    /// Globs to skip, so audiobooks and sample packs stay out of the index (#2).
+    /// Globs to skip, so audiobooks and sample packs stay out of the index.
     pub exclude: Vec<String>,
     pub extensions: Vec<String>,
 }
@@ -327,10 +288,7 @@ pub struct ReviewSettings {
     pub candidates_per_track: usize,
 
     /// How many of the queue's tracks one peer's folder must hold to be offered
-    /// as an album (#6).
-    ///
-    /// A folder holding a single wanted track is not an album -- approving it is
-    /// `review approve` with more typing.
+    /// as an album.
     pub album_minimum_tracks: usize,
 }
 
@@ -354,18 +312,11 @@ pub struct ArtworkSettings {
     pub artist_match_threshold: f64,
     pub request_timeout_seconds: f64,
     pub preferred_size: u32,
-    /// Override the pacing between requests to every provider.
-    ///
-    /// Unset by default, which leaves each provider on its own published limit
-    /// -- one second for MusicBrainz, three for iTunes. Setting this to 0
-    /// disables pacing entirely, which will get you throttled on a large run.
+    /// Override the pacing between requests to every provider. Unset leaves
+    /// each on its published limit; 0 disables pacing.
     pub min_request_interval_seconds: Option<f64>,
-    /// A URL or email address identifying you to every web service.
-    ///
-    /// MusicBrainz and AcoustID ask callers to identify themselves and throttle
-    /// those that do not; it is sent to all of them, artwork or not, because a
-    /// contact is a fact about you rather than about a service. Optional, and
-    /// empty by default: nothing is sent that you did not set.
+    /// A URL or email address sent to every web service in the User-Agent.
+    /// MusicBrainz and AcoustID throttle anonymous callers.
     pub contact: String,
 }
 
@@ -384,26 +335,18 @@ impl Default for ArtworkSettings {
     }
 }
 
-/// Identifying a file from its audio through AcoustID (#12).
+/// Identifying a file from its audio through AcoustID.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, default)]
 pub struct IdentifySettings {
-    /// How sure AcoustID has to be before a match is proposed at all.
-    ///
-    /// The service scores a lookup on how much of the print it recognised.
-    /// A re-encode of the same recording scores near 1; a live take, a remix
-    /// or a different recording of the same song scores well under this and
-    /// is reported as no confident match rather than written, since a
-    /// wrongly tagged file is worse than an untagged one.
+    /// How sure AcoustID has to be before a match is proposed. A re-encode of
+    /// the same recording scores near 1; a live take or remix well under.
     pub min_score: f64,
 
-    /// How alike two names must be to count as the same one: a release title
-    /// and the file's album tag or folder name, a recording's credit and the
-    /// artist the file is filed under.
-    ///
-    /// Above the score the matcher gives one name contained in another,
-    /// deliberately: a file filed under `Dave Rodgers` must not have every
-    /// release with his name in its title claimed as the album it came from.
+    /// How alike a release title and the file's album or folder, or a credit
+    /// and the file's artist, must be to count as the same. Above the score for
+    /// one name containing another, so an artist's name inside a release title
+    /// doesn't match.
     pub name_match_threshold: f64,
 
     pub request_timeout_seconds: f64,
@@ -419,20 +362,14 @@ impl Default for IdentifySettings {
     }
 }
 
-/// Reading a wantlist from a web service rather than a file (#20).
-///
-/// The Discogs token and the Last.fm key are absent from the serialised form,
-/// as the slskd key is: they come from `DISCOGS_TOKEN` and `LASTFM_API_KEY`
-/// only, so a config file stays safe to commit.
+/// Reading a wantlist from a web service. The Discogs token and Last.fm key
+/// come from the environment only, like the slskd key.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, default)]
 pub struct WantlistSettings {
     pub request_timeout_seconds: f64,
-    /// Every Discogs release tracklist fetched so far, by release ID.
-    ///
-    /// A collection is one request per release, paced to the API's limit, and
-    /// `stk sync` reads it on every run; a release's tracklist does not change,
-    /// so it is fetched once.
+    /// Every Discogs tracklist fetched so far, by release ID. A tracklist
+    /// doesn't change, so each is fetched once.
     pub discogs_cache: PathBuf,
     /// Optional: Discogs answers without it, at 25 requests a minute rather than 60.
     #[serde(skip)]
@@ -454,22 +391,15 @@ impl Default for WantlistSettings {
     }
 }
 
-/// How files are laid out on disk (#3).
+/// How files are laid out on disk.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, default)]
 pub struct OrganiseSettings {
-    /// Where a file belongs, relative to its library root.
-    ///
-    /// Directories are separated with `/` on every platform. The extension is
-    /// never part of it: a pattern that could change one would let a rename lie
-    /// about the container.
+    /// Where a file belongs, relative to its library root, with `/` between
+    /// directories. The extension always comes from the file.
     pub pattern: String,
 
     /// How many digits a track number is padded to.
-    ///
-    /// A setting rather than a `{track:02}` format spec: nobody varies the
-    /// padding within one pattern, and a mini-language is a parser and a
-    /// validation surface for something that never changes.
     pub track_number_width: usize,
 
     /// Remove the directories a move emptied.
@@ -490,16 +420,12 @@ impl Default for OrganiseSettings {
     }
 }
 
-/// What `stk dupes resolve` is sure enough about to act on (#15).
+/// What `stk dupes resolve` is sure enough about to act on.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, default)]
 pub struct DupesSettings {
     /// The lowest score a pair in a group may have for the group to be resolved.
-    ///
-    /// Stricter than the finders' own thresholds on purpose. A pair is a
-    /// judgement, not a fact -- a name match, or a fingerprint similar enough --
-    /// and reporting a doubtful one costs a glance where moving it costs a
-    /// track. A group with any pair below this is shown and left alone.
+    /// Stricter than the finders' thresholds: a doubtful group is only shown.
     pub resolve_min_score: f64,
 }
 
@@ -511,7 +437,7 @@ impl Default for DupesSettings {
     }
 }
 
-/// What happens to a download's tags once it has arrived (#11).
+/// What happens to a download's tags once it has arrived.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, default)]
 pub struct FetchSettings {
@@ -536,9 +462,6 @@ impl Default for GenreSettings {
 }
 
 /// The complete resolved configuration.
-///
-/// The five-layer resolution -- CLI flag, `STK_` environment, `stk.toml`, the
-/// per-user file, these defaults -- arrives with the CLI in step 5.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, default)]
 pub struct Settings {
@@ -560,11 +483,8 @@ pub struct Settings {
     pub wantlist: WantlistSettings,
 }
 
-/// Where `platformdirs` puts application data, reproduced exactly.
-///
-/// The `directories` crate appends its own component on Windows, which would
-/// point at a different file from the one an existing install already has its
-/// databases in.
+/// The per-user data directory. Not the `directories` crate, which adds its own
+/// component on Windows and would miss existing databases.
 #[must_use]
 pub fn default_data_path(name: &str) -> PathBuf {
     app_directory().join(name)
@@ -635,11 +555,8 @@ pub fn find_config_file(start: Option<&Path>) -> Option<PathBuf> {
 const VERBATIM_PREFIX: &str = r"\\?\";
 const VERBATIM_UNC_PREFIX: &str = r"\\?\UNC\";
 
-/// Drop the extended-length prefix a canonicalised Windows path carries.
-///
-/// Every later `display()` would otherwise put it into output the Python never
-/// produces: `config path` exists to be pasted into another command, and that
-/// form is not what anyone typed.
+/// Drop the extended-length prefix a canonicalised Windows path carries, so
+/// printed paths look like what the user typed.
 fn strip_verbatim(path: &Path) -> PathBuf {
     let text = path.display().to_string();
     if let Some(rest) = text.strip_prefix(VERBATIM_UNC_PREFIX) {
@@ -725,18 +642,9 @@ fn normalise(path: &Path) -> PathBuf {
 
 /// Build the settings from the config file, the environment and `overrides`.
 ///
-/// Values resolve in this order, first match winning:
-///
-/// 1. an explicit override passed by a CLI flag
-/// 2. a `STK_`-prefixed environment variable (`STK_LIBRARY__ROOT`)
-/// 3. the TOML file -- `stk.toml` beside the project, else the per-user config
-/// 4. the defaults
-///
-/// Secrets are the exception: the API key is read from the environment only,
-/// never from the TOML file, so a config file stays safe to commit.
-///
-/// `config_path` is discovered when not given; passing a path that does not
-/// exist is an error, because it means a `--config` flag pointed at nothing.
+/// First match wins: CLI override, `STK_` variable, TOML file, defaults.
+/// Secrets come from the environment only. An explicit `config_path` that
+/// doesn't exist is an error.
 pub fn load_settings(config_path: Option<&Path>, overrides: &Overrides) -> Result<Resolved> {
     if let Some(path) = config_path {
         if !path.is_file() {
@@ -790,10 +698,8 @@ pub fn read_toml(path: &Path) -> Result<toml::Table> {
         .map_err(|error| Error::Config(format!("cannot read {}: {error}", path.display())))
 }
 
-/// Overlay `STK_SECTION__KEY` variables onto the parsed file.
-///
-/// Only the nested form is honoured, matching pydantic-settings' `env_prefix`
-/// plus `env_nested_delimiter`. A bare `STK_FOO` names no section and is ignored.
+/// Overlay `STK_SECTION__KEY` variables onto the parsed file. A bare `STK_FOO`
+/// names no section and is ignored.
 fn apply_environment(table: &mut toml::Table) {
     for (name, value) in std::env::vars() {
         let Some(rest) = name.strip_prefix(ENV_PREFIX) else {
@@ -843,10 +749,7 @@ fn apply_overrides(table: &mut toml::Table, overrides: &Overrides) {
     }
 }
 
-/// Serialise settings back to TOML, with secrets omitted.
-///
-/// `api_key` is `#[serde(skip)]`, so it cannot reach the file even by accident:
-/// `stk config show` stays safe to paste.
+/// Serialise settings back to TOML. Secrets are `#[serde(skip)]`.
 pub fn render_toml(settings: &Settings) -> Result<String> {
     toml::to_string_pretty(settings)
         .map_err(|error| Error::Config(format!("cannot render configuration: {error}")))
@@ -876,7 +779,7 @@ pub fn write_config(path: &Path, settings: &Settings) -> Result<PathBuf> {
 }
 
 impl LibrarySettings {
-    /// Accept `FLAC` and `.Mp3` alike, as the Python's validator does.
+    /// Accept `FLAC` and `.Mp3` alike.
     fn normalise_extensions(&mut self) {
         self.extensions = self
             .extensions
@@ -894,10 +797,8 @@ impl LibrarySettings {
 }
 
 impl Settings {
-    /// The range checks pydantic does with `Field(ge=..., le=...)`.
-    ///
-    /// serde has no equivalent, and a threshold outside `[0, 1]` silently
-    /// disables a guard rather than failing, so they are checked by hand.
+    /// Range checks serde can't express. A threshold outside `[0, 1]` would
+    /// silently disable a guard.
     fn validate(&self, location: &str) -> Result<()> {
         let bad = |field: &str, detail: &str| {
             Err(Error::Config(format!(
@@ -979,8 +880,7 @@ impl Settings {
         if !(1..=4).contains(&self.organise.track_number_width) {
             return bad("organise.track_number_width", "must be between 1 and 4");
         }
-        // Parsed here so a pattern that will not work fails at load, like every
-        // other invalid setting, rather than at the moment of moving files.
+        // Fail at load rather than halfway through moving files.
         if let Err(error) = crate::organise::Pattern::parse(&self.organise.pattern) {
             return Err(Error::Config(format!(
                 "invalid configuration ({location}): {error}"

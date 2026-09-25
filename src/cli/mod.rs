@@ -1,8 +1,4 @@
 //! The `stk` entry point.
-//!
-//! Global flags live on the root and must precede the subcommand, matching the
-//! Python's typer callback: `stk --json library stats`, not
-//! `stk library stats --json`.
 
 pub mod commands;
 pub mod context;
@@ -121,8 +117,7 @@ pub fn run(arguments: Vec<std::ffi::OsString>) -> i32 {
     let cli = match Cli::try_parse_from(arguments) {
         Ok(cli) => cli,
         Err(error) => {
-            // clap prints help and version to stdout with exit 0, and usage
-            // errors to stderr with exit 2, which is what the Python does.
+            // Help and version exit 0; usage errors exit 2.
             let _ = error.print();
             return i32::from(error.exit_code() != 0) * 2;
         }

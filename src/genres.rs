@@ -1,16 +1,6 @@
-//! Assigning a consistent genre taxonomy across a library.
-//!
-//! The mapping lives in a TOML file rather than in this module. It is inherently
-//! per-library data -- one person's artist roster says nothing about anyone
-//! else's -- and editing it should not mean editing source.
-//!
-//! Artists are matched on their normalised name, so a `DECO*27` entry also
-//! covers a `DECO_27` folder, and an entry may name either one genre or several.
-//!
-//! An artist is not always one genre, though, so a per-album and a per-track
-//! table sit above the artist one (#3). The most specific entry wins, which is
-//! the only ordering that lets a map say "this artist is Vocaloid, except for
-//! that one Eurobeat record".
+//! Assigning genres from a TOML map of artists, with per-album and per-track
+//! overrides. Names match on their normalised form, and the most specific entry
+//! wins.
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -24,10 +14,6 @@ use crate::text::normalize::normalize;
 pub type Overrides = HashMap<(String, String), Vec<String>>;
 
 /// What a file is filed under, as a genre lookup needs it.
-///
-/// A domain type rather than three positional strings: `album` and `title` are
-/// both plain text, and a caller that swaps them gets no complaint from the
-/// compiler and no genres from the map.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TrackKey<'a> {
     pub artist: &'a str,
@@ -38,9 +24,8 @@ pub struct TrackKey<'a> {
 impl<'a> TrackKey<'a> {
     /// How an indexed file is addressed by a map.
     ///
-    /// The artist is the folder it is filed under, falling back to the resolved
-    /// name; the title is the resolved one, so a file with no tags at all is
-    /// still addressable by the name it shows up under.
+    /// The artist is the folder, falling back to the resolved name, so an
+    /// untagged file is still addressable.
     #[must_use]
     pub fn of(entry: &'a LibraryEntry) -> Self {
         Self {
@@ -116,9 +101,6 @@ impl GenreMap {
     }
 
     /// Whether the map names this artist at all, overrides aside.
-    ///
-    /// What `genre check` reports on: an artist covered only by a one-album
-    /// override is still an artist the map has nothing general to say about.
     #[must_use]
     pub fn covers_artist(&self, artist: &str) -> bool {
         self.artists.contains_key(&normalize(artist))
@@ -147,9 +129,7 @@ impl GenreChange {
 /// `[albums."Artist"]` and `[tracks."Artist"]` name overrides below it, keyed by
 /// album title and by track title.
 ///
-/// Nested tables rather than an `"Artist/Album"` composite key: an artist name
-/// may itself contain a slash, and a composite key would have no way to say
-/// which one separates.
+/// Nested tables, not an `"Artist/Album"` key, because names can contain `/`.
 pub fn load_genre_map(path: &Path) -> Result<GenreMap> {
     let text = std::fs::read_to_string(path)
         .map_err(|error| Error::Config(format!("cannot read {}: {error}", path.display())))?;
@@ -172,13 +152,9 @@ pub fn load_genre_map(path: &Path) -> Result<GenreMap> {
 
 /// The artist table, wherever the file put it.
 ///
-/// A map with no `[artists]` section is read whole, which is the flat spelling.
-/// That cannot apply once an override section exists, since `[albums]` would
-/// then be read as an artist named "albums"; `alone` says which case this is.
-///
-/// A flat map that grows its first `[albums]` section is the trap: every artist
-/// in it would otherwise vanish without a word, and `genre apply` would quietly
-/// become a no-op. Anything left at the top level is named and refused instead.
+/// Without an `[artists]` section the whole file is the artist table, unless
+/// an override section exists (`alone` is false). Then top-level artists are
+/// refused rather than silently ignored.
 fn artist_table(path: &Path, data: &toml::Value, alone: bool) -> Result<toml::Table> {
     let expected = || {
         Error::Config(format!(

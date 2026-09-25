@@ -122,8 +122,8 @@ fn loose(context: &AppContext, source: &Path) -> Result<Vec<LibraryEntry>> {
 
 /// Where `--from` sends what it finds.
 ///
-/// With several roots and no configured destination there is no answer, and
-/// picking one silently is how a tool moves files somebody did not mean to move.
+/// With several roots and no configured destination this is an error rather
+/// than a guess.
 pub(crate) fn where_to(context: &AppContext, roots: &[PathBuf]) -> Result<PathBuf> {
     if let Some(destination) = context.resolved.resolved_organise_destination() {
         return Ok(destination);

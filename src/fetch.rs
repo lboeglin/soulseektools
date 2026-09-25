@@ -1,13 +1,5 @@
-//! Driving a batch: search for what is wanted, queue what was approved, check
-//! what arrived.
-//!
-//! Nothing downloads without a human choosing a candidate. That was true of the
-//! plugin this replaces and stays true here; the difference is that the choice
-//! is recorded in the review queue rather than typed into a spreadsheet column.
-//!
-//! Completed downloads are run through the spectral check in-process, rather
-//! than by shelling out to a script at a hardcoded path as the plugin did, and
-//! tagged from the review row they were fetched for (#11).
+//! Driving a batch: search for what is wanted, queue what was approved, then
+//! tag and verify what arrived. Nothing downloads until a candidate is approved.
 
 use std::collections::{HashMap, HashSet};
 
@@ -33,7 +25,7 @@ pub struct SearchOutcome {
     pub query: String,
     pub found: usize,
     pub error: String,
-    /// The peer the batch pass moved to the front for this track (#3).
+    /// The peer the batch pass moved to the front for this track.
     pub preferred_uploader: String,
 }
 
@@ -56,10 +48,10 @@ pub struct CollectOutcome {
     pub local_path: Option<PathBuf>,
     pub verdict: Option<VerifyResult>,
     /// What the file was tagged with from its review row; absent under the
-    /// `keep` policy, or when the file was never found (#11).
+    /// `keep` policy, or when the file was never found.
     pub tags: Option<Retagged>,
     pub error: String,
-    /// Set when a failure promoted the next candidate rather than giving up (#2).
+    /// Set when a failure promoted the next candidate rather than giving up.
     pub retried_with_rank: Option<i64>,
 }
 
@@ -72,19 +64,13 @@ pub fn search_pending(
 ) -> crate::errors::Result<Vec<SearchOutcome>> {
     let pending = store.tracks(&[TrackStatus::Pending], limit)?;
 
-    // The searches run concurrently and the results are written afterwards.
-    //
-    // Every search is a socket wait -- slskd polls the Soulseek network for the
-    // configured timeout, one whole second at a time -- so a serial run costs
-    // roughly `timeout x tracks`, which for a full wantlist is the difference
-    // between minutes and most of an hour. The store stays single-threaded:
-    // SQLite is not the slow part and does not need to be shared.
+    // Each search waits out the slskd timeout, so they run concurrently; the
+    // store is written afterwards, single-threaded.
     let searched: Vec<crate::errors::Result<Vec<crate::models::Candidate>>> =
         search_concurrently(&pending, client, settings);
 
-    // Scored first, and deeper than the review cap: truncating per track before
-    // anything looked across the batch is what made a peer holding most of it
-    // invisible on every track where they placed fourth (#3).
+    // Deeper than the review cap, so the batch pass can see a peer ranked
+    // fourth on every track.
     let pool = settings
         .uploader
         .pool_per_track
@@ -171,9 +157,7 @@ fn search_concurrently(
         return pending.iter().map(search).collect();
     }
 
-    // Its own pool rather than the global one: these threads are parked on a
-    // socket, not computing, so the right number has nothing to do with the
-    // number of cores rayon would otherwise pick.
+    // Its own pool: these threads wait on sockets, so core count is irrelevant.
     rayon::ThreadPoolBuilder::new()
         .num_threads(workers)
         .build()
@@ -192,11 +176,11 @@ pub struct StallOutcome {
     /// The rank promoted in its place, absent when the candidates ran out.
     pub retried_with_rank: Option<i64>,
     pub error: String,
-    /// The preferred peer whose whole group this track was moved with (#17).
+    /// The preferred peer whose whole group this track was moved with.
     pub peer_group: String,
 }
 
-/// A preferred peer that went down, and where the tracks steered to it went (#17).
+/// A preferred peer that went down, and where the tracks steered to it went.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PeerStall {
     pub username: String,
@@ -221,23 +205,12 @@ pub struct Stalled {
 /// Give up on transfers that have sat in the queue too long, and try the next
 /// candidate instead.
 ///
-/// `collect` only ever sees transfers slskd already considers finished, so a
-/// download sitting behind a peer that never uploads is invisible to it: this
-/// is what makes `queued_at` worth recording (#2). Soulseek queues stall
-/// constantly, and the candidate that would have worked was in the database all
-/// along.
+/// The stalled transfer is cancelled, or a peer waking up later would deliver
+/// a second copy.
 ///
-/// The stalled transfer is cancelled rather than left in place. A peer that
-/// wakes up hours later would otherwise deliver the file a second time, beside
-/// the copy the retry already fetched.
-///
-/// A stall on a candidate the batch pass steered to one peer is a stall of that
-/// peer, not of the file, once more than one of its tracks has stalled or slskd
-/// reports it offline. Retrying each track on its own would then scatter the
-/// batch over one peer per track -- the outcome the preference exists to avoid
-/// -- so the peer's whole group is cancelled and moved together (#17). A peer
-/// that stalls on one file and delivers the rest is not down, and a group
-/// member it is already uploading is left alone.
+/// When a preferred peer stalls on more than one track, or slskd reports it
+/// offline, its whole group is cancelled and moved together rather than
+/// scattered one track per peer. A peer stalling on one file is not down.
 pub fn retry_stalled(
     store: &mut ReviewStore,
     client: &dyn SoulseekClient,
@@ -329,8 +302,8 @@ fn preferred_peer(entry: &ReviewTrack) -> Option<&str> {
 
 /// Whether slskd has failed anything from this peer for being offline.
 ///
-/// Soulseek.NET raises "User X appears to be offline", which slskd passes on
-/// as the transfer's exception; nothing else in a transfer says so.
+/// slskd passes on Soulseek.NET's "User X appears to be offline" as the
+/// transfer's exception; nothing else says so.
 fn reported_offline(transfers: &[Transfer], username: &str) -> bool {
     transfers.iter().any(|transfer| {
         transfer.username == username && transfer.error.to_lowercase().contains("offline")
@@ -344,13 +317,11 @@ struct Group<'a> {
 }
 
 /// Cancel a stalled peer's whole group and send it on together where the
-/// remaining candidates allow (#17).
+/// remaining candidates allow.
 ///
-/// The preference is re-run over the group's untried candidates, so a second
-/// peer covering most of it takes the batch as a unit. Any peer covering two of
-/// its tracks qualifies, whatever `minimum_coverage` says: that floor is sized
-/// for a whole batch, and against a group of three it would scatter one a
-/// second peer covers two thirds of.
+/// The preference is re-run over the group's untried candidates. Any peer
+/// covering two tracks qualifies, since `minimum_coverage` is sized for a whole
+/// batch.
 fn move_group(
     store: &mut ReviewStore,
     client: &dyn SoulseekClient,
@@ -509,7 +480,7 @@ fn enqueue(
             continue;
         }
 
-        // `queued_at` is what makes a stall visible later (#2).
+        // `queued_at` is what makes a stall visible later.
         store.mark_queued(
             entry.id,
             now,
@@ -529,13 +500,9 @@ fn enqueue(
 /// Update queued tracks from the backend's transfer list, tagging and
 /// verifying what arrived.
 ///
-/// A failure promotes the next unused candidate rather than ending the track,
-/// which is the retry path #2 asked for: rank 2 was always sitting in the
-/// database, and nothing ever reached for it.
-///
-/// A completed file is tagged from its review row under `fetch.tags` before it
-/// is verified, and every tag written is logged against `index` under one
-/// `fetch download` run, so the whole collect can be undone at once (#11).
+/// A failure promotes the next unused candidate. A completed file is tagged
+/// from its review row under `fetch.tags`, then verified; the tag writes are
+/// logged as one run.
 pub fn collect(
     store: &mut ReviewStore,
     client: &dyn SoulseekClient,
@@ -653,7 +620,7 @@ pub struct Patience {
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Waited {
     pub stalled: Vec<StallOutcome>,
-    /// Preferred peers whose whole group was moved at once (#17).
+    /// Preferred peers whose whole group was moved at once.
     pub stalled_peers: Vec<PeerStall>,
     pub queued: Vec<EnqueueOutcome>,
     pub collected: Vec<CollectOutcome>,
@@ -663,14 +630,9 @@ pub struct Waited {
 }
 
 impl Waited {
-    /// Whether anything needs owning up to: a track that could not be queued,
-    /// one that failed with no candidate left to try, or a download `verify`
-    /// calls fake or upsampled. A failure the retry picked up is not one, and
-    /// neither is a timeout -- what is still on its way has not failed.
-    ///
-    /// An upsample counts here where a library sweep lets it pass: the peer
-    /// lied about what they were sending, and that is worth knowing before
-    /// taking anything else from them.
+    /// Whether the run failed: a track that couldn't be queued, one that failed
+    /// with nothing left to try, or a download `verify` calls fake or upsampled.
+    /// Retried failures and timeouts don't count.
     #[must_use]
     pub fn went_wrong(&self) -> bool {
         self.queued.iter().any(|outcome| !outcome.queued)
@@ -686,13 +648,9 @@ impl Waited {
 /// Queue the approved picks, then keep collecting until every one has arrived
 /// or failed, or `patience` runs out.
 ///
-/// `fetch download` queues and collects once, which leaves the waiting to
-/// whoever runs it again; this is that waiting (#14). Each round records what
-/// finished, retries what has stalled, and sends the candidate a failure or a
-/// stall promoted. `limit` caps the tracks newly sent, as it does for
-/// `fetch download`; a track already queued when the wait began is waited for
-/// too, since nothing else will collect it. A timeout abandons nothing: slskd
-/// keeps the transfers, and the next collect records them.
+/// Each round collects what finished, retries what stalled and sends what was
+/// promoted. `limit` caps tracks newly sent; tracks already queued are waited
+/// for too. On timeout slskd keeps the transfers for the next collect.
 #[allow(clippy::too_many_arguments)]
 pub fn wait_for_downloads(
     store: &mut ReviewStore,
@@ -726,8 +684,7 @@ pub fn wait_for_downloads(
 
     loop {
         let now = clock.now();
-        // Collected first: a transfer that finished while the wait slept is not
-        // stalled, however long ago it was queued.
+        // Collect first, so a transfer that just finished isn't taken as stalled.
         waited
             .collected
             .extend(collect(store, client, settings, index, roots, now, true)?);
@@ -757,10 +714,9 @@ pub fn wait_for_downloads(
 
 /// Where the finished file should be on disk.
 ///
-/// slskd reports the remote path, not the local one, so the destination is
-/// rebuilt from the configured download directory, the artist folder the batch
-/// was queued into, and the file's own name. `sanitize_folder_name` has to match
-/// what `enqueue_approved` used or the file stops being found.
+/// slskd reports only the remote path, so this rebuilds it from the download
+/// directory, the artist folder it was queued into, and the filename. Must use
+/// the same `sanitize_folder_name` as `enqueue_approved`.
 #[must_use]
 pub fn downloaded_path(settings: &Settings, artist: &str, transfer: &Transfer) -> Option<PathBuf> {
     let root = settings.slskd.download_directory.as_ref()?;
@@ -776,7 +732,7 @@ pub fn downloaded_path(settings: &Settings, artist: &str, transfer: &Transfer) -
 }
 
 /// Check whatever arrived that `verify` can judge, so a peer shipping
-/// upsampled MP3s is caught on the first one (#16).
+/// upsampled MP3s is caught on the first one.
 fn verify_downloaded(local_path: Option<&Path>, settings: &Settings) -> Option<VerifyResult> {
     let path = local_path?;
     if !path.is_file() {

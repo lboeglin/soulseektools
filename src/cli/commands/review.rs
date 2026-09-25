@@ -1,9 +1,4 @@
-//! `stk review` -- inspect and decide on the candidates found for each track.
-//!
-//! `list`, `approve` and `reject` are the scriptable form, and everything else
-//! is built on them: `albums` groups a folder one peer could supply several
-//! waiting tracks from, and `pick` walks the queue asking one question per
-//! track, so a decision costs a keystroke rather than a track id typed back in.
+//! `stk review`: inspect and decide on the candidates found for each track.
 
 use std::path::PathBuf;
 
@@ -159,7 +154,7 @@ fn list(
         .iter()
         .map(|entry| {
             // A title `get --album` read off a filename is marked, because it
-            // is the one thing in the queue nobody asked for by name (#13).
+            // is the one thing in the queue nobody asked for by name.
             let guessed = if entry.track.title_guessed {
                 " (guessed)"
             } else {
@@ -207,10 +202,7 @@ fn list(
 
 /// Walk the queue, asking one question per track.
 ///
-/// Refused under `--json`: `say` writes nothing there, so the prompt would be
-/// invisible and a pipeline would sit waiting for a keystroke nobody knew to
-/// give. Nothing here is gated behind `--apply` and nothing is written to the
-/// change log either -- a decision changes `review.db` and never a user's files.
+/// Refused under `--json`, where the prompt would be invisible.
 fn pick(context: &AppContext) -> Result<i32> {
     if context.as_json {
         eprintln!("error: stk review pick asks a question per track and cannot run with --json");
@@ -248,9 +240,8 @@ fn pick(context: &AppContext) -> Result<i32> {
 
 /// The album offers the queue currently supports.
 ///
-/// Only tracks awaiting review are grouped, so approving an album can never
-/// overrule a choice already made track by track. Both commands derive the list
-/// the same way, which is what makes an index from one usable in the other.
+/// Shared by `albums` and `approve-album`, so an index from one works in the
+/// other.
 fn album_offers(context: &AppContext, store: &ReviewStore) -> Result<Vec<AlbumOffer>> {
     let tracks = store.tracks(&[TrackStatus::AwaitingReview], None)?;
     Ok(albums::offers(

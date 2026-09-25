@@ -1,7 +1,4 @@
-//! `stk doctor` -- check that everything the CLI depends on is actually present.
-//!
-//! Since #9 that is configuration, the library and slskd: there is no audio
-//! tooling to look for, because the binary carries its own.
+//! `stk doctor`: check the configuration, the library roots and slskd.
 
 use serde_json::json;
 

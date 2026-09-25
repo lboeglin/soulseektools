@@ -1,12 +1,7 @@
 //! Reading an edited `stk tags dump` back, and working out what it changes.
 //!
-//! `tags dump` was a dead end: it showed every file's artist, album and title,
-//! and there was no writer for any of them, so you could see what was wrong and
-//! not fix it (#3). Mass-fixing untagged Soulseek downloads is close to the
-//! whole point of the tool, and a spreadsheet is the right interface for it.
-//!
-//! The sheet is keyed on its `path` column and read by header name, so a
-//! hand-written `path,genres` file is as valid an input as the dump itself.
+//! Keyed on the `path` column and read by header name, so a hand-written
+//! `path,genres` file works too.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -27,11 +22,7 @@ pub enum Cell {
 
 /// What an empty cell means for one run.
 ///
-/// Leaving the tag alone is the default because the commoner cause of an empty
-/// cell is a partly-filled sheet, or a spreadsheet that mangled the file, and
-/// not an intent to erase. Clearing has to be possible or the command cannot
-/// undo its own mistakes, so it is asked for per invocation -- a statement about
-/// *this* sheet rather than a setting anyone would remember having made.
+/// Leaving the tag alone is the default; clearing is asked for per run.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Blanks {
     #[default]
@@ -101,8 +92,7 @@ pub enum PlannedEdit {
 
 /// Read an edited dump, keyed by its header row.
 ///
-/// A column the header does not carry is left alone, whatever `blanks` says:
-/// that is what makes a two-column `path,genres` sheet safe to write by hand.
+/// A column absent from the header is never written, whatever `blanks` says.
 pub fn read_sheet(sheet: &Path, blanks: Blanks) -> Result<Vec<TagEdit>> {
     let bytes = std::fs::read(sheet)
         .map_err(|error| Error::Config(format!("cannot read {}: {error}", sheet.display())))?;
@@ -231,14 +221,9 @@ pub fn taggable(path: &Path) -> bool {
 
 /// Write one planned change, and report what the file carried before it.
 ///
-/// The plan was diffed against the index, which is a cache. What actually gets
-/// written is built from a fresh read, so a field the sheet never mentioned is
-/// not quietly reverted to whatever the cache remembered; and the value handed
-/// to the log is the one that was really there, or an undo restores a fiction.
-///
-/// A field this row means to write that has moved since the plan is refused
-/// rather than overwritten. Fields it is not writing are not its business: a
-/// bulk run must not abort because some unrelated column went stale.
+/// Built from a fresh read, not the index, so unmentioned fields are kept and
+/// the log records what was really there. A field being written that changed
+/// since the plan is refused.
 pub fn apply_change(change: &TagChange) -> Result<TrackTags> {
     let before = tags::read_tags(&change.edit.path)?;
     for field in &change.fields {

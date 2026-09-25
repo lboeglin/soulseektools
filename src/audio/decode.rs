@@ -1,18 +1,6 @@
-//! Reading audio out of a file.
-//!
-//! One open file rather than a function per job: every caller wants the stream
-//! properties and the samples from the same parse, and the check that samples a
-//! few windows of a long track wants several reads from one open. What this
-//! replaces spawned ffprobe once and ffmpeg once per window -- five processes
-//! for a single `verify` -- which is what made it the most expensive command in
-//! the tool.
-//!
-//! Nothing here resamples. `verify` analyses at the file's own rate, a loudness
-//! scan has to measure the channels as they were mastered, and chromaprint does
-//! its own resampling, so a resampler would have no caller.
-// Frame counts and window offsets are cast between `usize`, `u64` and `f64`
-// throughout. Every one of them is bounded by a track length rather than an
-// address space.
+//! Reading audio out of a file, at its own rate and channel layout: every
+//! caller either needs that or resamples for itself.
+// Casts between frame counts and offsets are bounded by a track length.
 #![allow(
     clippy::cast_precision_loss,
     clippy::cast_possible_truncation,
@@ -152,13 +140,9 @@ impl Audio {
 
     /// How many bits of its stated depth the samples `window` has read use.
     ///
-    /// A 16-bit master padded to 24 bits leaves the low 8 bits of every
-    /// sample zero, and no amount of reading the spectrum shows it. `None`
-    /// for a stream of 16 bits or fewer, and until a non-zero sample is read.
-    ///
-    /// Every decoder hands samples over as `f32` in `[-1, 1)`, whatever their
-    /// depth, and a 24-bit integer fits an `f32` mantissa exactly, so scaling
-    /// back by 2^31 recovers the sample left-aligned in 32 bits.
+    /// A 16-bit master padded to 24 bits leaves the low 8 bits zero, which the
+    /// spectrum can't show. `None` for 16 bits or fewer, and until a non-zero
+    /// sample is read. Samples arrive as `f32`, which holds 24 bits exactly.
     #[must_use]
     pub fn bits_used(&self) -> Option<u32> {
         let bits = self.sample_bits.filter(|bits| *bits != 0)?;
@@ -169,14 +153,8 @@ impl Audio {
     /// Hand every frame to `on_frames`, interleaved, at the file's own rate and
     /// channel layout.
     ///
-    /// Streamed rather than collected: a four-minute stereo track is 85 MB of
-    /// `f32`, and a whole record is scanned at once across the thread pool, so
-    /// returning a `Vec` would peak in the gigabytes on an ordinary album.
-    ///
-    /// The sample type is the caller's, because it decides what a figure means:
-    /// a loudness scan works in `f32`, and chromaprint is defined over the
-    /// `i16` samples a 16-bit rip already holds, where a detour through `f32`
-    /// would round.
+    /// Streamed, since a whole album decoded at once would run to gigabytes.
+    /// The sample type is the caller's: chromaprint wants exact `i16`.
     pub fn frames<S: ConvertibleSample>(
         &mut self,
         on_frames: &mut dyn FnMut(&[S]) -> Result<()>,
@@ -192,18 +170,9 @@ impl Audio {
 
     /// Mono samples from one window of the track, at the file's own rate.
     ///
-    /// The channels are summed and divided by the square root of their count,
-    /// which is `ffmpeg -ac 1`: swresample's stereo downmix is `1/sqrt(2)` per
-    /// channel, preserving power rather than amplitude. Averaging instead is
-    /// 3 dB quieter, and while a constant gain cannot move a spectrum
-    /// normalised to its own peak, `spectral.rs` floors magnitudes at an
-    /// absolute `1e-12` before taking their logarithm -- so above a brickwall,
-    /// where the content really is nothing, the two disagree by a tenth of a
-    /// dB/kHz. `oracle/verify.csv` was captured through ffmpeg.
-    ///
-    /// That it is a sum and not one channel picked matters for its own reason:
-    /// out-of-phase high frequencies cancel in a real downmix, and the spectrum
-    /// being judged has to be the one a listener would hear.
+    /// Channels are summed and scaled by `1/sqrt(count)`, preserving power as
+    /// `ffmpeg -ac 1` does; the thresholds were measured that way. Summing, not
+    /// picking one channel, lets out-of-phase highs cancel as they would heard.
     pub fn window(&mut self, start_seconds: f64, seconds: f64) -> Result<Vec<f32>> {
         let wanted = (seconds * f64::from(self.stream.sample_rate))
             .round()
@@ -260,17 +229,13 @@ impl Audio {
         self.decoder.reset();
         self.read = true;
 
-        // An accurate seek lands at or before the frame asked for and reports
-        // both, so the difference is what would otherwise be heard as a window
-        // starting early.
+        // An accurate seek may land early; skip the difference.
         Ok(usize::try_from(seeked.required_ts.get() - seeked.actual_ts.get()).unwrap_or(0))
     }
 
     /// Decode the next packet into `buffer`, or report the end of the stream.
     ///
-    /// A packet that will not decode is skipped rather than fatal, as it is for
-    /// ffmpeg: one corrupt frame in the middle of a track is not a reason to
-    /// have no verdict for it.
+    /// A packet that won't decode is skipped, not fatal.
     fn next_frames<S: ConvertibleSample>(&mut self, buffer: &mut Vec<S>) -> Result<Option<()>> {
         loop {
             let packet = match self.format.next_packet() {
@@ -302,9 +267,6 @@ impl Audio {
 }
 
 /// Windows spread across a track, rather than the whole of it.
-///
-/// A handful of samples is enough to characterise a spectrum, and decoding a
-/// few minutes of every file in a library is not.
 #[must_use]
 pub fn probe_windows(
     total_seconds: Option<f64>,
@@ -332,23 +294,14 @@ pub fn probe_windows(
         .collect()
 }
 
-/// Round an offset to the millisecond the report was always built from.
-///
-/// The offsets used to reach a decoder as `-ss {:.3}` on a command line, so
-/// that is the resolution every stored verdict and `oracle/verify.csv` were
-/// produced at. A third of a millisecond is fourteen samples, which is nothing
-/// to listen to and enough to move the averaged spectrum of a file whose
-/// content trails off gently across the noise floor: two of the reference
-/// library's 258 files change band without it.
+/// Round an offset to the millisecond, the resolution stored verdicts were
+/// made at. Without it, borderline files can change band between runs.
 fn to_milliseconds(seconds: f64) -> f64 {
     format!("{seconds:.3}").parse().unwrap_or(seconds)
 }
 
-/// ffprobe's spelling of a codec, which is what a report carries.
-///
-/// Deliberately not [`crate::library::tags`]'s mapping: that one answers what
-/// the index should call a container, where this one has to keep saying `alac`
-/// where ffprobe said `alac`, since an old report is diffed against a new one.
+/// ffprobe's spelling of a codec, as `verify` reports carry it. Not the same
+/// mapping as [`crate::library::tags`], which names containers.
 fn codec_name(codec: AudioCodecId) -> &'static str {
     match codec {
         CODEC_ID_FLAC => "flac",
@@ -374,22 +327,17 @@ fn codec_name(codec: AudioCodecId) -> &'static str {
 
 /// What a container this crate has no decoder for looks like to a caller.
 ///
-/// `.ape`, `.wv` and `.opus` reach this: they can be read as tags and cannot be
-/// read as audio, and saying so is the honest answer for a `verify` or a
-/// loudness scan pointed at one. So does 32-bit FLAC, which symphonia accepts
-/// and then decorrelates through an `i32` too narrow to hold `2*mid + side`:
-/// it panics on a debug build and returns noise on a release one, so it is
-/// refused rather than believed.
+/// `.ape`, `.wv` and `.opus` have tags but no decoder. 32-bit FLAC is refused
+/// too: symphonia decorrelates it through an `i32` too narrow for
+/// `2*mid + side`, and returns noise.
 fn unsupported(path: &Path) -> Error {
     Error::UnsupportedFormat(format!("{}: no decoder for this container", path.display()))
 }
 
 /// The depth an ALAC stream states in its own header.
 ///
-/// ALAC keeps it in the magic cookie rather than in the container, symphonia's
-/// decoder reads that cookie and does not copy the depth back onto the codec
-/// parameters, and `oracle/verify.csv` has a row carrying the number ffprobe
-/// read out of the same bytes.
+/// ALAC keeps it in the magic cookie, which symphonia reads without copying
+/// the depth onto the codec parameters.
 fn alac_bit_depth(parameters: &AudioCodecParameters) -> Option<u32> {
     if parameters.codec != CODEC_ID_ALAC {
         return None;

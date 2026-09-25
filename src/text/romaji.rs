@@ -1,14 +1,7 @@
-//! Romaji transliteration, used to compare Japanese titles with romanised filenames.
+//! Romaji transliteration, so `千本桜` can match `Senbonzakura.flac`.
 //!
-//! A streaming export lists `千本桜` while the file on disk is `Senbonzakura.flac`;
-//! no amount of string similarity relates those two without transliterating one of
-//! them first. Artist readings are less trustworthy than title readings -- aliases
-//! frequently use non-standard readings -- which is why callers weight an artist
-//! match lower than a title match.
-//!
-//! Words are read into kana with IPADIC, through lindera, and the kana spelled
-//! out by [`kana_to_romaji`]. The dictionary is embedded, which is most of the
-//! binary's size.
+//! Words are read into kana with IPADIC (through lindera, embedded in the
+//! binary) and spelled out by [`kana_to_romaji`].
 
 use std::borrow::Cow;
 use std::collections::HashMap;
@@ -58,7 +51,7 @@ pub fn to_romaji(text: &str) -> String {
 
 /// Romanise each whitespace-separated run on its own, keeping the spaces that
 /// were genuinely in the name and adding none at the word boundaries IPADIC
-/// finds: `化けの花` is `bakenohana`, as the oracle has it.
+/// finds: `化けの花` is `bakenohana`.
 fn transliterate(text: &str) -> String {
     text.split(is_space)
         .filter(|run| !run.is_empty())

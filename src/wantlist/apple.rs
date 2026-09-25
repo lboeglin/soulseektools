@@ -1,9 +1,5 @@
-//! Apple Music and iTunes `Library.xml`, the library export both write.
-//!
-//! A property list whose `Tracks` dictionary holds one dictionary per item,
-//! keyed by track ID and written in library order. Items that are not music --
-//! podcasts, films, TV, music videos, audiobooks -- share that dictionary and
-//! are skipped.
+//! Apple Music and iTunes `Library.xml`. Podcasts, films, TV, music videos and
+//! audiobooks are skipped.
 
 use std::path::Path;
 

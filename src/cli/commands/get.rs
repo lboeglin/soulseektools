@@ -1,14 +1,4 @@
-//! `stk get` -- fetch one track by name, without a CSV in sight.
-//!
-//! The batch flow exists for building a library from an export. This is the
-//! other half: you want one song, you know what it is called, and setting up a
-//! wantlist to get it would be absurd. Same search, same ranking, same
-//! verification -- just asked for directly and answered in one command.
-//!
-//! `--album` asks for a record the same way (#13). Soulseek's real unit is the
-//! folder, and `review albums` could only ever find one under tracks already in
-//! the queue; starting from an album name means there is no tracklist, so the
-//! folder itself is what is scored, shown and taken.
+//! `stk get`: fetch tracks, or with `--album` a whole folder, by name.
 
 use std::io::{BufRead as _, Read as _};
 use std::path::{Path, PathBuf};
@@ -30,9 +20,7 @@ use crate::soulseek::slskd::{HttpTransport, SlskdClient};
 use crate::text::normalize::{flatten, normalize};
 use crate::wantlist::split_query;
 
-// Four switches, which `clippy::pedantic` reads as a struct wanting a state
-// machine. This is a command line: each one is something someone types, and an
-// enum would decide for them which of them can be typed together.
+// Independent CLI flags, not a state machine.
 #[allow(clippy::struct_excessive_bools)]
 #[derive(Args, Debug)]
 pub struct GetArgs {
@@ -104,8 +92,7 @@ pub fn wanted_tracks(args: &GetArgs) -> Result<Vec<Track>> {
         .iter()
         .map(|line| {
             let (parsed_artist, title) = split_query(line);
-            // `--artist` names the artist for every line, which is what makes
-            // `stk get -a "DECO*27" Roki "Ghost Rule"` mean anything.
+            // `--artist` applies to every line.
             Track::new(args.artist.as_deref().unwrap_or(&parsed_artist), &title)
         })
         .filter(|track| !track.title.is_empty())
@@ -128,10 +115,7 @@ pub fn run(context: &AppContext, args: &GetArgs) -> Result<i32> {
         return Ok(1);
     }
 
-    // One track asked for by hand is the interactive flow the Python has: show
-    // the candidates, take a pick, download it. Several -- or a list -- is a
-    // batch, and stopping to prompt on each would defeat the point of passing
-    // them together.
+    // One track is interactive; several, or a list, are a batch.
     if tracks.len() > 1 || args.from.is_some() {
         return batch(context, args, &tracks);
     }
@@ -216,18 +200,11 @@ pub fn run(context: &AppContext, args: &GetArgs) -> Result<i32> {
     Ok(0)
 }
 
-/// Take a peer's folder as one decision (#13).
+/// Take a peer's folder as one decision.
 ///
-/// `stk get` asks for a track by name; this asks for a record by name, which is
-/// Soulseek's real unit. The search, the client and the reject/penalise scoring
-/// over the remote path are the same. What cannot come along is the per-file
-/// name match, because no tracklist says what the folder should hold -- so the
-/// folder is what is scored, shown and taken, and every audio file inside it
-/// becomes a review row of its own, approved with that peer's file.
-///
-/// One album, not a list: `--from` and a second query are refused rather than
-/// read as something nobody asked for. A batch of albums is a batch of
-/// interactive decisions, which is the one thing the batch path exists to avoid.
+/// With no tracklist, the folder is what is scored and taken; each audio file
+/// becomes an approved review row. Only one album at a time, since each is an
+/// interactive decision.
 fn album(context: &AppContext, args: &GetArgs) -> Result<i32> {
     if args.from.is_some() || args.query.len() != 1 {
         eprintln!("error: --album takes exactly one album name");
@@ -375,8 +352,7 @@ pub fn folder_warnings(offer: &FolderOffer) -> String {
 
 /// Show each folder as a row, then its full remote path and what is inside it.
 ///
-/// The files are named because the folder is taken whole: what the table says
-/// about it in six columns is not enough to decide on twelve transfers.
+/// The files are listed because the folder is taken whole.
 fn print_folders(context: &AppContext, offers: &[FolderOffer]) {
     context.say(&table(
         &["#", "Peer", "Album", "Files", "Quality", "Slot", "Queue"],
@@ -447,15 +423,9 @@ fn print_candidates(context: &AppContext, scored: &[ScoredCandidate]) {
 
 /// Ask which candidate to take, or none.
 ///
-/// The answer is read by the review picker's parser, so a number, an empty line
-/// and `n` cannot come to mean different things in the two prompts. Declining
-/// and quitting are one act here, where there is a single track to decline;
-/// `r` and `u` belong to a walk of a queue and mean nothing to one track, so
-/// they are refused rather than read as a decline nobody typed.
-///
-/// An exhausted stdin is *not* an empty line: reading it as one would take the
-/// top candidate and download it with nobody at the keyboard, and nothing
-/// downloads without a human choosing.
+/// Parsed like the review picker's answers; `r` and `u` are refused. An
+/// exhausted stdin declines rather than taking the default, so nothing
+/// downloads unattended.
 fn ask(count: usize) -> Option<usize> {
     println!("Take which? [1-{count}, or n for none] (1): ");
     let mut answer = String::new();
@@ -494,11 +464,9 @@ fn payload(track: &Track, scored: &[ScoredCandidate]) -> serde_json::Value {
 
 /// Queue several tracks at once.
 ///
-/// The batch flow the wantlist uses is "diff against the library, then queue the
-/// remainder". A plain list usually wants none of that: these are tracks someone
-/// has already decided they want, so they go straight into the review queue and
-/// are searched there. `--yes` takes the top pick for each and downloads it;
-/// without it they wait for `stk review pick`, which is where a human chooses.
+/// A list goes straight into the review queue, with no diff against the
+/// library. `--yes` takes the top pick for each; otherwise they wait for
+/// `stk review pick`.
 fn batch(context: &AppContext, args: &GetArgs, tracks: &[Track]) -> Result<i32> {
     let mut settings = context.settings().clone();
     settings.ranking.require_lossless = args.lossless || settings.ranking.require_lossless;
@@ -555,8 +523,6 @@ fn batch(context: &AppContext, args: &GetArgs, tracks: &[Track]) -> Result<i32> 
         return Ok(0);
     }
 
-    // `--yes` takes the top pick for each, which is the only place a batch ever
-    // chooses on someone's behalf, and only because they asked for it.
     let mut approved = 0;
     for outcome in &outcomes {
         if outcome.found > 0 && store.approve(outcome.track_id, 1).is_ok() {

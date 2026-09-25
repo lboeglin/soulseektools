@@ -1,10 +1,5 @@
-//! SQLite cache of the library, so commands stop rescanning everything.
-//!
-//! Reading tags, artwork size and duration for a few thousand files takes long
-//! enough that the original scripts each paid it again from scratch. Rows here
-//! are keyed by path and invalidated by `(size, mtime)`, so a rescan only
-//! touches files that actually changed, and the expensive derived values --
-//! normalised and romanised name forms -- are stored rather than recomputed.
+//! SQLite cache of the library, keyed by path and invalidated by `(size, mtime)`,
+//! so a rescan only re-reads files that changed.
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -24,13 +19,10 @@ use crate::matching::NameForms;
 use crate::models::{LibraryEntry, ReplayGainTags, TrackTags, Verdict};
 use crate::text::normalize::strip_artist_prefix;
 
-/// Bumped from 5 to 6 by the loudness tags behind `stk loudness` (#7).
+/// Bumped from 5 to 6 by the loudness tags behind `stk loudness`.
 pub const SCHEMA_VERSION: i64 = 6;
 
-/// The oldest version this opens rather than refusing.
-///
-/// Every version since is reached by adding columns in place, so a database
-/// written before any of that still opens where it stands.
+/// The oldest version this upgrades in place rather than refusing.
 pub const MINIMUM_SCHEMA_VERSION: i64 = 2;
 
 const SCHEMA: &str = "
@@ -101,12 +93,7 @@ const MIGRATED_INDEXES: &str = "
 CREATE INDEX IF NOT EXISTS changes_run ON changes (run_id);
 ";
 
-/// The six columns schema v3 adds to `files`, from #2.
-///
-/// Every one is nullable, so a build that predates them can still write a row:
-/// its `INSERT OR REPLACE` names its own columns and these fall to NULL. Added
-/// with `ALTER TABLE` rather than in [`SCHEMA`] so an existing database is
-/// upgraded where it stands.
+/// The columns schema v3 adds to `files`, all nullable and added in place.
 const V3_COLUMNS: &[(&str, &str)] = &[
     ("codec", "TEXT"),
     ("bitrate", "INTEGER"),
@@ -116,18 +103,10 @@ const V3_COLUMNS: &[(&str, &str)] = &[
     ("verdict_at", "REAL"),
 ];
 
-/// The column schema v4 adds to `changes`, so an undo can revert a whole
-/// `--apply` run and not only its last row.
-///
-/// In [`SCHEMA`] as well, for a database created from scratch; here for one the
-/// port already wrote a v3 `changes` table into.
+/// The column schema v4 adds to `changes`, so an undo can revert a whole run.
 const V4_CHANGE_COLUMNS: &[(&str, &str)] = &[("run_id", "INTEGER NOT NULL DEFAULT 0")];
 
-/// The six columns schema v6 adds to `files`, from #7.
-///
-/// The tags as the file spells them, so counting what nothing has level-matched
-/// is a query rather than a walk. `describe` reads them off the header parse it
-/// already performs, the same argument that put `codec` and `bitrate` here.
+/// The loudness tag columns schema v6 adds to `files`.
 const V6_COLUMNS: &[(&str, &str)] = &[
     ("replay_gain_track_gain", "TEXT"),
     ("replay_gain_track_peak", "TEXT"),
@@ -140,12 +119,8 @@ const V6_COLUMNS: &[(&str, &str)] = &[
 /// Set while the v6 columns still hold nothing for rows an older build wrote.
 const BACKFILL_PENDING: &str = "replay_gain_backfill_pending";
 
-/// The column schema v6 adds to `snapshots`.
-///
-/// Nullable rather than `NOT NULL DEFAULT 0`: a measurement taken before v6 did
-/// not count this, and saying so is not the same as saying it counted none.
-/// Zero would make the first scan after an upgrade read as a jump from nothing
-/// to the whole library.
+/// The column schema v6 adds to `snapshots`. Nullable, because an older
+/// measurement didn't count this, which isn't the same as counting zero.
 const V6_SNAPSHOT_COLUMNS: &[(&str, &str)] = &[("with_replay_gain", "INTEGER")];
 
 const COLUMNS: &[&str] = &[
@@ -199,8 +174,6 @@ const SNAPSHOT_COLUMNS: &str = concat!(
     "lossless, verified_clean, flagged, with_replay_gain"
 );
 
-/// SQLite counts in `i64` and the domain counts in `usize`; the conversion
-/// belongs at the boundary rather than in the type.
 fn row_to_snapshot(row: &rusqlite::Row<'_>) -> rusqlite::Result<LibrarySnapshot> {
     let count = |index: usize| -> rusqlite::Result<usize> {
         Ok(usize::try_from(row.get::<_, i64>(index)?).unwrap_or(0))
@@ -243,9 +216,7 @@ impl RefreshResult {
 
 /// Read everything the index stores about one file.
 ///
-/// Tags win over the directory layout, which wins over the filename: a large
-/// part of any Soulseek-sourced library arrives with no tags at all, and the
-/// folder it landed in is then the only artist information there is.
+/// Tags win over the directory layout, which wins over the filename.
 pub fn describe(path: &Path, root: &Path) -> Result<LibraryEntry> {
     let metadata = path
         .metadata()
@@ -403,12 +374,8 @@ impl LibraryIndex {
 
     /// Bring the index in line with the files under every configured root.
     ///
-    /// Only files whose size or modification time changed are re-read, unless
-    /// `full` forces every file to be reprocessed.
-    ///
-    /// Every root has to be walked in one call: what the walk did not see is
-    /// deleted at the end, so refreshing one root at a time would make each root
-    /// evict the others.
+    /// Only files whose size or mtime changed are re-read, unless `full`. All
+    /// roots go in one call, because rows the walk didn't see are deleted.
     pub fn refresh(
         &mut self,
         roots: &[PathBuf],
@@ -457,8 +424,7 @@ impl LibraryIndex {
                     continue;
                 }
 
-                // Nested roots offer the same file twice, and the deeper one is
-                // the one whose first component names the artist.
+                // With nested roots, the deeper one names the artist.
                 match describe(&path, owning_root(&path, roots).unwrap_or(root)) {
                     Ok(entry) => {
                         self.upsert(&entry)?;
@@ -484,17 +450,10 @@ impl LibraryIndex {
         Ok(result)
     }
 
-    /// Fill the v6 loudness columns for rows an older build wrote.
+    /// Fill the v6 loudness columns for rows an older build wrote, once.
     ///
-    /// A row is invalidated by its `(size, mtime)`, and adding a column moves
-    /// neither, so a library scanned before v6 would report every one of its
-    /// files un-level-matched until something happened to touch it -- and would
-    /// record a snapshot saying so. Re-describing the rows would fix it and
-    /// throw away every verdict `stk verify` had recorded, because `upsert`
-    /// replaces a row whole; these six columns are updated on their own instead.
-    ///
-    /// Runs once, at the first refresh after the upgrade. A file that has since
-    /// gone is left to the walk, which removes it.
+    /// Adding a column changes neither size nor mtime, so the rows would never be
+    /// re-read. Only these columns are updated: `upsert` would drop verdicts.
     fn backfill_replay_gain(&mut self) -> Result<()> {
         let pending: Option<String> = self
             .connection
@@ -590,9 +549,6 @@ impl LibraryIndex {
     }
 
     /// Re-read one file, after this tool has written to it.
-    ///
-    /// A command that edits tags and leaves the cache alone makes the next
-    /// command report what was true before the edit.
     pub fn reindex(&mut self, path: &Path, roots: &[PathBuf]) -> Result<Option<LibraryEntry>> {
         if !path.is_file() {
             return Ok(None);
@@ -603,13 +559,7 @@ impl LibraryIndex {
     }
 
     /// Record what `stk verify` concluded, so the next run can skip the file.
-    ///
-    /// New in schema v3 (#2): `verify` is the most expensive command in the tool
-    /// and redid every file each run, including ones whose `(size, mtime)` had
-    /// not moved.
-    ///
-    /// A verdict outlives only the file it was made about: `upsert` replaces the
-    /// whole row, so re-describing a changed file drops it.
+    /// Re-describing a changed file drops it, since `upsert` replaces the row.
     pub fn set_verdict(&mut self, path: &Path, verdict: Verdict, at: f64) -> Result<()> {
         self.connection
             .execute(
@@ -633,11 +583,8 @@ impl LibraryIndex {
         Ok(stored.flatten().and_then(|value| value.parse().ok()))
     }
 
-    /// The stored verdict, but only while it still describes the file on disk.
-    ///
-    /// The comparison is the index's own invalidation rule -- the `(size, mtime)`
-    /// the row was written from -- so a re-encoded or replaced file falls back to
-    /// being analysed rather than answering with a verdict about its predecessor.
+    /// The stored verdict, but only while the file's `(size, mtime)` still
+    /// matches the row.
     pub fn current_verdict(&self, path: &Path) -> Result<Option<Verdict>> {
         let stored: Option<(Option<String>, i64, f64)> = self
             .connection
@@ -680,9 +627,7 @@ impl LibraryIndex {
         let Some((kind, values, duration_seconds)) = row else {
             return Ok(None);
         };
-        // A row written by something else -- the `fpcalc` backend #9 replaced,
-        // or a future one -- is a miss rather than a value, so it is recomputed
-        // instead of compared against a fingerprint it does not agree with.
+        // A print from another algorithm is a miss, and gets recomputed.
         if kind != fingerprint::KIND {
             return Ok(None);
         }
@@ -694,10 +639,7 @@ impl LibraryIndex {
 
     /// A fingerprint for each entry, computed only where the cache has none.
     ///
-    /// The misses are decoded in parallel, the way `verify` fans out over its
-    /// files: a fingerprint reads two minutes of audio, and a library-wide run
-    /// is otherwise bounded by one core. What was computed is stored, so the
-    /// next command needing the same print pays nothing.
+    /// Misses are decoded in parallel and stored for next time.
     pub fn fingerprints(&mut self, entries: &[LibraryEntry]) -> Vec<Result<Fingerprint>> {
         let cached: Vec<Option<Fingerprint>> = entries
             .iter()
@@ -759,13 +701,8 @@ impl LibraryIndex {
 
     /// Follow a file this tool moved.
     ///
-    /// The fingerprint is carried across rather than dropped: it is keyed by
-    /// path, and the audio did not change because the file did. The rest of the
-    /// row is re-derived, since `folder_artist` and every name form come from
-    /// where the file sits.
-    ///
-    /// The verdict does not survive, for the same reason `upsert` does not name
-    /// it: a row is replaced wholesale, and a stale verdict is worse than none.
+    /// The fingerprint is carried across; the rest of the row is re-derived
+    /// from the new location, and the verdict is dropped.
     pub fn relocate(
         &mut self,
         from: &Path,
@@ -830,9 +767,7 @@ impl LibraryIndex {
 
     /// Record a measurement, unless it says exactly what the last one said.
     ///
-    /// Returns the row written, or `None` when nothing changed. Scanning four
-    /// times on a quiet afternoon should leave one point on the trend, not four:
-    /// a series of identical rows is not evidence of anything.
+    /// Returns the row written, or `None` when nothing changed.
     pub fn record_snapshot(&mut self, snapshot: &LibrarySnapshot) -> Result<Option<i64>> {
         if self
             .snapshots(Some(1))?
@@ -866,10 +801,7 @@ impl LibraryIndex {
     }
 
     /// Measure what the index holds now and record it, as [`Self::record_snapshot`].
-    ///
-    /// Taken at the end of a scan because that is the one moment the index is
-    /// known to agree with the disk, and taken without being asked because a
-    /// trend nobody remembers to collect is not a trend.
+    /// Called at the end of every scan, when the index matches the disk.
     pub fn record_measurement(&mut self, taken_at: f64) -> Result<Option<i64>> {
         let snapshot =
             crate::library::stats::measure(&self.entries()?, &self.verdict_counts()?, taken_at);

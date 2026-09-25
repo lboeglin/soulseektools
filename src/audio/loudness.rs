@@ -1,22 +1,8 @@
-//! Measuring how loud a file actually is, in LUFS.
+//! Measuring integrated loudness (EBU R 128 / BS.1770) and peak, with the
+//! `ebur128` crate.
 //!
-//! ReplayGain needs an absolute, K-weighted, twice-gated figure -- the one EBU
-//! R 128 and ITU-R BS.1770 define -- plus a peak, so a player applying positive
-//! gain has something to check itself against. `audio/fingerprint.rs` computes
-//! a loudness envelope and is no help at all: its last step subtracts the mean,
-//! throwing the absolute level away on purpose so two copies of one track match
-//! whatever they were mastered at.
-//!
-//! The measurement is the `ebur128` crate, a port of libebur128, rather than
-//! ffmpeg's filter of the same name: a scan built on a subprocess whose text
-//! output had to be parsed would have been a line-for-line rewrite when #9
-//! removed ffmpeg.
-//!
-//! Measuring a record is not averaging its tracks. The gate that decides which
-//! 400 ms blocks count is relative to the *programme* being measured, so an
-//! album's threshold is the album's, not each track's. `EbuR128` keeps the
-//! block energies that make the exact figure reachable, which is why an album
-//! is scanned as a unit here rather than combined arithmetically afterwards.
+//! An album is measured as one programme, not averaged from its tracks, because
+//! the relative gate depends on the whole programme.
 
 use std::path::{Path, PathBuf};
 
@@ -39,8 +25,7 @@ pub struct Loudness {
 
 /// One file's measurement, or why it has none.
 ///
-/// A failure is carried rather than returned, so one unreadable file cannot
-/// abort a library-wide scan -- the same shape `verify_files` uses.
+/// A failure is carried, not returned, so one file can't abort a scan.
 #[derive(Debug, Clone, PartialEq)]
 pub struct LoudnessResult {
     pub path: PathBuf,
@@ -54,10 +39,7 @@ pub struct AlbumScan {
     pub tracks: Vec<LoudnessResult>,
     /// The record's own figure.
     ///
-    /// Absent unless every track was measured. A gate is relative to the
-    /// programme it is applied to, so a figure taken from nine tracks of a
-    /// twelve-track record describes nine tracks -- and writing it to those
-    /// nine as their album gain would say otherwise.
+    /// Absent unless every track was measured.
     pub album: Option<Loudness>,
 }
 
@@ -76,10 +58,8 @@ pub fn measure_file(path: &Path, settings: &LoudnessSettings) -> LoudnessResult 
 
 /// Measure every file in one record, and the record itself.
 ///
-/// The tracks are measured in parallel -- each is a full decode -- and their
-/// analyser states are kept only as long as this call, which is what bounds the
-/// memory a library-wide scan holds: one album's worth at a time rather than
-/// every file's.
+/// Tracks are measured in parallel; analyser state lives only for this call,
+/// so memory is bounded by one album.
 #[must_use]
 pub fn measure_album(paths: &[PathBuf], settings: &LoudnessSettings) -> AlbumScan {
     let analysed: Vec<(PathBuf, Result<EbuR128>)> = paths
@@ -126,10 +106,7 @@ fn analyse(path: &Path, settings: &LoudnessSettings) -> Result<EbuR128> {
     let mut audio = Audio::open(path)?;
     let stream = audio.stream();
 
-    // Fed a block at a time as the file is decoded: the analyser only ever
-    // needs the last 400 ms, so holding a whole four-minute track -- 85 MB of
-    // `f32`, times every track of a record decoded at once -- would be memory
-    // spent on nothing.
+    // Fed as decoded; the analyser only needs the last 400 ms.
     let mut state = analyser(stream.sample_rate, stream.channels, settings.true_peak)?;
     audio.frames(&mut |frames| {
         state
@@ -152,9 +129,6 @@ pub fn analyser(sample_rate: u32, channels: u32, true_peak: bool) -> Result<EbuR
 }
 
 /// Measure interleaved samples that are already in memory.
-///
-/// The whole of the analysis with nothing to decode, so what a figure means is
-/// established directly.
 pub fn measure_samples(
     samples: &[f32],
     sample_rate: u32,
@@ -170,9 +144,7 @@ pub fn measure_samples(
 
 /// The figures a finished analyser holds, for one file.
 ///
-/// A file of digital silence gates away to nothing and reports `-inf`, which is
-/// not a loudness and would become a gain asking a player to raise silence
-/// infinitely. It is reported as unmeasurable instead.
+/// Digital silence reports `-inf`, which is treated as unmeasurable.
 fn finish(path: &Path, state: &EbuR128) -> LoudnessResult {
     let integrated = state
         .loudness_global()

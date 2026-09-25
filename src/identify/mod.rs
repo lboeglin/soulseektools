@@ -1,19 +1,6 @@
-//! Identifying a file from its audio, and deciding what to tag it with.
-//!
-//! `tags dump` can show a `01 track.flac` under `Unknown Artist` and nothing in
-//! the tool could say what it was: a download that arrived before the review
-//! row existed, a file copied in from elsewhere, a row that was wrong (#12).
-//! The fingerprint `dupes content` already computes is the expensive half of an
-//! AcoustID lookup; the other half is one request, answered with the
-//! MusicBrainz recordings the print is linked to.
-//!
-//! A recording is on many releases -- the album, a single, a decade of
-//! compilations -- and the answer has to pick one, because that is what the
-//! album and track-number tags say. The rules are in [`choose`], and the pick
-//! is reported with the rule that made it so a wrong one is explicable. Below
-//! the confidence threshold nothing is proposed at all: the asymmetry
-//! `wantlist::diff` uses, since an untagged file is a nuisance and a wrongly
-//! tagged one is a lie `organise` will then file under.
+//! Identifying a file from its fingerprint through AcoustID, and choosing which
+//! release to tag it with. Below the confidence threshold nothing is proposed:
+//! a wrongly tagged file is worse than an untagged one.
 
 pub mod acoustid;
 
@@ -62,9 +49,7 @@ pub struct Identification {
 
 /// Look every entry up, one request each.
 ///
-/// A print that could not be computed is reported against its file rather
-/// than aborting the run; so is a request that failed, since a library-wide
-/// pass must survive one 503.
+/// A failed print or request is reported against its file, not fatal.
 pub fn identify(
     http: &dyn ServiceHttp,
     client: &AcoustId,
@@ -134,10 +119,8 @@ pub fn choose(hits: &[Hit], entry: &LibraryEntry, settings: &IdentifySettings) -
         candidates.get(1).map(|runner_up| &runner_up.rank),
         &candidates,
     );
-    // Said out loud rather than refused: one print linked only to a cover is
-    // usually the cover, and the file's own tag is what was wrong. The plan is
-    // where that is decided. Only a tag is worth contradicting; the folder an
-    // untagged file sits in is what the lookup exists to replace.
+    // Flagged, not refused: the file's artist tag may be the wrong one. An
+    // untagged file's folder isn't worth contradicting.
     if chosen.rank.artist == Fit::Differs && !entry.tags.artist.is_empty() {
         let _ = write!(reason, "; not credited to {}", entry.tags.artist);
     }
@@ -295,9 +278,7 @@ fn folder_name(path: &Path) -> String {
 /// The matches as rows for [`crate::tagsheet::plan_changes`], so the plan, the
 /// stale check and the write are the ones `tags apply` has.
 ///
-/// A field the release cannot fill -- a track with no position, a solo album
-/// with no separate album artist -- is left as it is rather than blanked,
-/// the rule an edited sheet's empty cell follows too.
+/// A field the release can't fill is left as it is, not blanked.
 #[must_use]
 pub fn edits(identifications: &[Identification]) -> Vec<TagEdit> {
     identifications

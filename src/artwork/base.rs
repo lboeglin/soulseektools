@@ -1,10 +1,6 @@
-//! Cover-art providers, and the guard against embedding the wrong artist's art.
-//!
-//! The script this replaces embedded the first search result without checking
-//! who it belonged to, and pasted the wrong artist's cover onto files twice.
-//! Search match quality is inconsistent for anything outside the mainstream, so
-//! a result is only accepted here when the artist it names actually matches the
-//! artist asked for -- and a file keeps no artwork rather than the wrong artwork.
+//! Cover-art providers, and the guard against embedding the wrong artist's art:
+//! a result is accepted only when its artist matches, since no cover is better
+//! than the wrong one.
 
 use crate::errors::Result;
 use crate::matching::{similarity, NameForms};
@@ -67,9 +63,7 @@ pub trait ArtProvider {
 
 /// Pick the best candidate whose artist matches the one asked for.
 ///
-/// With `require_artist_match` disabled the first result wins, reproducing the
-/// original behaviour; it is on by default for the reason in the module
-/// docstring.
+/// With `require_artist_match` disabled the first result wins.
 #[must_use]
 pub fn select(
     candidates: &[ArtCandidate],
@@ -92,8 +86,7 @@ pub fn select(
         .iter()
         .map(|candidate| (candidate.artist_similarity(artist), candidate))
         .collect();
-    // A stable sort keeps provider order among equally good matches, which is
-    // what the Python's `sorted` on a negated key does.
+    // Stable, so equally good matches keep provider order.
     scored.sort_by(|left, right| {
         right
             .0

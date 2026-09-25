@@ -1,23 +1,9 @@
-//! Discogs collection exports, which list releases rather than songs (#20).
+//! Discogs collection exports: one row per release, each release's tracklist
+//! fetched from the API and cached, since it never changes.
 //!
-//! The CSV Discogs writes from a collection has one row per release, keyed by
-//! `release_id`. Each release's tracklist comes from the Discogs API, one
-//! request per release, and every track on it becomes a wanted track. The
-//! row's own columns ride along in `source_row`, except `Artist` and `Title`:
-//! those name the release, which the API names too and without Discogs'
-//! disambiguation, as `album artist` and `album`; kept, a lookup for the
-//! track's title would find the record's.
-//!
-//! A collection is read on every `stk sync`, and a release's tracklist does not
-//! change, so every one fetched is kept in a cache file and never asked for
-//! again. The cache is written after each fetch: a run that fails halfway
-//! resumes where it stopped.
-//!
-//! A tracklist holds three kinds of entry. A `heading` names a side or a disc
-//! and is not a song. An `index` groups the movements of one work, which are
-//! its `sub_tracks`; a movement's title alone is `Allegro`, so it is prefixed
-//! with the work's. Everything else is a track, credited to its own artists on
-//! a compilation and to the release's otherwise.
+//! The row's `Artist` and `Title` name the release, so they become `album
+//! artist` and `album`. In a tracklist a `heading` is not a song, and an
+//! `index`'s movements are prefixed with the work's title.
 
 use std::path::{Path, PathBuf};
 use std::sync::LazyLock;

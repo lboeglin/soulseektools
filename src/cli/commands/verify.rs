@@ -56,18 +56,8 @@ pub struct VerifyArgs {
 
 /// Analyse the frequency spectrum of every file in scope and report the verdicts.
 ///
-/// `--changed` is opt-in rather than the default because the report carries
-/// `detail`, the cutoff and the steepness, none of which the two stored columns
-/// can reproduce: skipping by default would quietly turn "the library" into
-/// "whatever moved since last time".
-///
-/// So is `--lossy` for the library: a sweep has always meant the lossless
-/// files, and `library stats` counts its verdicts against them. A file or
-/// folder named on the command line is checked whatever it holds.
-///
-/// Only FAKE fails the run. UPSAMPLED audio is intact -- the file is merely
-/// bigger than it needs to be -- and a library holding one has nothing to
-/// fix in a hurry.
+/// A library sweep covers lossless files unless `--lossy`; a named file or
+/// folder is checked whatever it holds. Only FAKE fails the run.
 pub fn run(context: &AppContext, args: &VerifyArgs) -> Result<i32> {
     let all = targets(context, args.target.as_deref(), args.lossy)?;
     if all.is_empty() && context.nothing_to_do("No files to check.") {
@@ -131,9 +121,7 @@ pub fn run(context: &AppContext, args: &VerifyArgs) -> Result<i32> {
 
 /// Whether `--changed` may skip a file.
 ///
-/// An `ERROR` verdict is not a judgement about the audio, it is a report that
-/// the audio could not be read -- usually a truncated download. Caching it
-/// would make the failure permanent, so it is retried.
+/// An `ERROR` verdict is always retried.
 fn already_judged(index: &LibraryIndex, path: &Path) -> Result<bool> {
     Ok(matches!(
         index.current_verdict(path)?,
@@ -190,8 +178,7 @@ fn render_spectrograms(context: &AppContext, results: &[VerifyResult]) {
 
 /// Write the CSV report.
 ///
-/// `utf-8-sig` in the Python, so the BOM is written here too: without it Excel
-/// mangles every non-ASCII path in the report.
+/// Written with a BOM, or Excel mangles every non-ASCII path.
 fn write_report(destination: &Path, results: &[VerifyResult]) -> Result<()> {
     if let Some(parent) = destination.parent() {
         if !parent.as_os_str().is_empty() {
@@ -236,7 +223,7 @@ fn row_cells(result: &VerifyResult) -> Vec<String> {
         cell(result.bit_depth),
         cell(result.cutoff_hz),
         cell(result.nyquist_hz),
-        // A float, so a whole number keeps its ".0" as Python's writer does.
+        // Always one decimal, so a whole number keeps its ".0".
         result
             .steepness_db_per_khz
             .map(|value| format!("{value:.1}"))

@@ -1,14 +1,5 @@
-//! Drawing a file's spectrum over time, for eyeballing a flagged file.
-//!
-//! `verify` reports a cutoff and a steepness, which is enough to act on and not
-//! enough to argue with. A picture is: a lossy encoder's low-pass is a straight
-//! horizontal edge with nothing above it, where a gradual roll-off fades. This
-//! is what `--spectrograms` produces for the files a run flags.
-//!
-//! It replaces ffmpeg's `showspectrumpic` and is deliberately not a copy of it.
-//! Nothing compares these images to anything; a person looks at one and decides
-//! whether to keep a file. What that needs is a frequency axis they can read a
-//! number off, which is why the labels are here at all.
+//! Drawing a file's spectrum over time, for `verify --spectrograms`: a lossy
+//! low-pass shows as a flat horizontal edge.
 // Bin indices, pixel coordinates and sample counts are cast between `usize`,
 // `u32` and `f64` throughout, all bounded by an image a thousand pixels wide.
 #![allow(
@@ -37,9 +28,7 @@ const MARGIN: usize = 6;
 const GLYPH_PITCH: usize = 4;
 /// How much quieter than the loudest bin is still drawn.
 ///
-/// Relative to the file's own peak rather than to full scale, so a quiet
-/// transfer is as legible as a loud master -- the shape of the edge is the
-/// subject, not the level it sits at.
+/// Relative to the file's own peak, so a quiet transfer is as legible.
 const RANGE_DB: f64 = 100.0;
 
 /// Write a spectrogram of `path` to `destination`.
@@ -116,7 +105,7 @@ fn columns(mono: &[f32]) -> Vec<Vec<f64>> {
     columns
 }
 
-/// numpy's `hanning`, the same symmetric window `spectral.rs` analyses with.
+/// The symmetric Hann window, as `spectral.rs` uses.
 fn hann(size: usize) -> Vec<f64> {
     let denominator = (size - 1) as f64;
     (0..size)
@@ -172,9 +161,6 @@ fn colour(level: f64) -> [u8; 3] {
 }
 
 /// Ticks every 2 kHz up the left edge.
-///
-/// The whole point of the image is reading a number off this axis: an unlabelled
-/// spectrogram shows that content stops, not where.
 fn label_frequencies(image: &mut image::RgbImage, sample_rate: u32) {
     let nyquist = f64::from(sample_rate) / 2.0;
     let mut khz = 0;

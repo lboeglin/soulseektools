@@ -61,8 +61,7 @@ impl AppContext {
 
     /// Print a line of human-readable output.
     ///
-    /// Nothing is written in `--json` mode: a progress line in the middle of a
-    /// document is exactly what makes `--json` unusable in a pipeline.
+    /// Nothing is written in `--json` mode.
     pub fn say(&self, line: &str) {
         if !self.as_json {
             println!("{line}");
@@ -71,9 +70,7 @@ impl AppContext {
 
     /// Tell a person there is nothing to do, and say whether to stop here.
     ///
-    /// Under `--json` the run carries on instead, so the command's document
-    /// comes out empty rather than not at all: a pipeline reading it can then
-    /// tell "no results" from "no output".
+    /// Under `--json` the run carries on, so an empty document is still printed.
     #[must_use]
     pub fn nothing_to_do(&self, line: &str) -> bool {
         if self.as_json {
@@ -99,7 +96,7 @@ pub fn unix_now() -> f64 {
         .map_or(0.0, |since| since.as_secs_f64())
 }
 
-/// Print an error the way the Python's `fail` does, and give the exit code.
+/// Print an error and give the exit code.
 #[must_use]
 pub fn fail(message: &str) -> i32 {
     eprintln!("error: {message}");
@@ -108,8 +105,8 @@ pub fn fail(message: &str) -> i32 {
 
 /// Split a hint off an error message, so both halves land on their own line.
 ///
-/// The Python passes `hint=` separately; carrying it in the message keeps the
-/// error type from growing a field only the CLI reads.
+/// Carrying the hint in the message keeps the error type free of a CLI-only
+/// field.
 #[must_use]
 pub fn report(error: &Error) -> i32 {
     let text = error.to_string();
@@ -124,9 +121,6 @@ pub fn report(error: &Error) -> i32 {
 }
 
 /// A size the two copies of a duplicate can actually be compared by.
-///
-/// File sizes are well inside an `f64`, so the cast cannot lose a digit anyone
-/// would see at one decimal place.
 #[must_use]
 #[allow(clippy::cast_precision_loss)]
 pub fn human_size(size: u64) -> String {
@@ -138,9 +132,6 @@ pub fn human_size(size: u64) -> String {
 }
 
 /// Render rows as a plain aligned table.
-///
-/// `rich` draws these; nothing here needs its styling, and keeping the columns
-/// aligned is the only part the output depends on.
 #[must_use]
 pub fn table(headers: &[&str], rows: &[Vec<String>]) -> String {
     let columns = headers
@@ -184,7 +175,7 @@ pub fn table(headers: &[&str], rows: &[Vec<String>]) -> String {
     lines.join("\n")
 }
 
-/// The path as the Python prints it.
+/// A path for display.
 #[must_use]
 pub fn show(path: &Path) -> String {
     path.display().to_string()

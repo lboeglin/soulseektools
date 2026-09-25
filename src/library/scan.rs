@@ -1,12 +1,4 @@
-//! Walking a music library on disk.
-//!
-//! The scripts this replaces used a two-level `listdir`, which silently ignored
-//! anything filed under `Artist/Album/track.flac`. The walk here is recursive
-//! and the extension set is configurable, so what counts as "in the library" is
-//! a setting rather than a literal repeated in a dozen places.
-//!
-//! The walk itself lands with the index in step 4; the extension sets are here
-//! because the ranker needs to know what is lossless.
+//! Walking a music library on disk, and the container extension sets.
 
 use std::path::{Path, PathBuf};
 
@@ -25,26 +17,19 @@ pub const AUDIO_EXTENSIONS: &[&str] = &[
 /// Containers that can hold lossless audio, and so are worth verifying.
 pub const LOSSLESS_EXTENSIONS: &[&str] = &[".flac", ".wav", ".aiff", ".aif", ".alac", ".m4a"];
 
-/// The lossy containers `stk verify` can hold to their bitrate (#16): the
+/// The lossy containers `stk verify` can hold to their bitrate: the
 /// cutoffs it knows are LAME's.
 pub const LOSSY_VERIFIED_EXTENSIONS: &[&str] = &[".mp3"];
 
 /// Containers a loudness scan can both decode and write its result to.
 ///
-/// [`TAGGABLE_EXTENSIONS`] less Opus, which is the one container this crate can
-/// tag and cannot decode: it keeps its gains in a header `library/tags.rs`
-/// reads and writes, and there is no pure-Rust Opus decoder to measure it with.
-/// Monkey's Audio and WavPack are neither taggable nor decodable, which is why
-/// they left the lists above -- #9 dropped them rather than keep an ffmpeg
-/// fallback for two formats the library holds none of.
+/// [`TAGGABLE_EXTENSIONS`] less Opus, which has no pure-Rust decoder.
 pub const MEASURABLE_EXTENSIONS: &[&str] = &[".flac", ".m4a", ".mp3", ".mp4", ".ogg"];
 
 /// Folders the scan leaves alone, as configured globs.
 ///
-/// A pattern is matched against the path *relative to its root*, with `/`
-/// separators whatever the platform, so one `stk.toml` reads the same on both.
-/// Matching is case-insensitive because half the libraries this walks are on
-/// Windows, where `Audiobooks` and `audiobooks` are the same folder.
+/// Matched case-insensitively against the path relative to its root, with `/`
+/// separators on every platform.
 #[derive(Debug, Default, Clone)]
 pub struct Excludes {
     set: Option<GlobSet>,
@@ -80,9 +65,7 @@ impl Excludes {
 
 /// The configured root a file belongs to: the longest one that prefixes it.
 ///
-/// Roots may nest -- pointing a second root inside the first is the obvious way
-/// to spell an exception -- and it is the deeper one whose first component names
-/// the artist.
+/// Roots may nest; the deeper one names the artist.
 #[must_use]
 pub fn owning_root<'a>(path: &Path, roots: &'a [PathBuf]) -> Option<&'a Path> {
     roots
@@ -92,10 +75,7 @@ pub fn owning_root<'a>(path: &Path, roots: &'a [PathBuf]) -> Option<&'a Path> {
         .map(PathBuf::as_path)
 }
 
-/// Every audio file under `root`, sorted for reproducible output.
-///
-/// The scripts this replaces used a two-level listing, which silently ignored
-/// anything filed under `Artist/Album/track.flac`.
+/// Every audio file under `root`, recursively, in a stable order.
 #[must_use]
 pub fn iter_audio_files(root: &Path, extensions: &[&str], exclude: &Excludes) -> Vec<PathBuf> {
     let wanted: Vec<String> = extensions
@@ -108,15 +88,8 @@ pub fn iter_audio_files(root: &Path, extensions: &[&str], exclude: &Excludes) ->
     found
 }
 
-/// How Python orders paths, which is what the captured report order reflects.
-///
-/// `PurePath` compares its *components*, each through `os.path.normcase`. Two
-/// differences from sorting the flat string, both visible in the real library:
-///
-/// - normcase lowercases on Windows, so `Ado` sorts before `ALICESOFT` rather
-///   than after it;
-/// - comparing component by component puts `S3RL` before `S3RL & Sara`, where
-///   the flat string compares the separator against a space and reverses them.
+/// Sort by component, lowercased on Windows: `Ado` before `ALICESOFT`, and
+/// `S3RL/` before `S3RL & Sara/`.
 fn sort_key(path: &Path) -> Vec<String> {
     path.components()
         .map(|component| {
@@ -160,9 +133,7 @@ fn walk(
 
 /// The artist implied by a file's position in the library.
 ///
-/// Libraries are laid out as `<root>/<artist>/...`, so the first component below
-/// the root names the artist. A file sitting directly in the root has no implied
-/// artist.
+/// The first component below the root, or empty for a file in the root itself.
 #[must_use]
 pub fn folder_artist(path: &Path, root: &Path) -> String {
     let Ok(relative) = path.strip_prefix(root) else {

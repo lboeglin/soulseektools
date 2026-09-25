@@ -21,12 +21,9 @@ pub struct TrackTags {
     pub track_number: Option<i64>,
 }
 
-/// The loudness figures a player applies at playback (#7).
+/// The loudness figures a player applies at playback.
 ///
-/// Held as the tags spell them rather than as numbers: an undo has to put back
-/// exactly what was there, and a round trip through `f64` would rewrite a
-/// foobar2000 `-7.29 dB` as `-7.290000 dB`. Nothing in this project reads these
-/// back to make a decision, so there is nothing to parse them for.
+/// Held as the tags spell them, so an undo puts back exactly what was there.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ReplayGainTags {
     pub track_gain: Option<String>,
@@ -35,19 +32,12 @@ pub struct ReplayGainTags {
     pub album_peak: Option<String>,
 
     /// The Opus spelling of the same two gains, against a fixed -23 LUFS.
-    /// Absent on every other container, and on an Opus file no scanner has
-    /// reached.
     pub r128_track_gain: Option<String>,
     pub r128_album_gain: Option<String>,
 }
 
 impl ReplayGainTags {
-    /// Whether the file is level-matched at all, which is the track gain.
-    ///
-    /// A peak without a gain says nothing a player can act on, and an album
-    /// gain belongs to a record rather than to a file. An Opus file scanned by
-    /// a tool that wrote only `R128_TRACK_GAIN` counts: it is level-matched
-    /// wherever it is played, and re-measuring it would overwrite a scan.
+    /// Whether the file carries a track gain, in either spelling.
     #[must_use]
     pub fn is_scanned(&self) -> bool {
         self.track_gain.is_some() || self.r128_track_gain.is_some()
@@ -80,9 +70,8 @@ impl Artwork {
 
 /// One audio file on disk, with everything needed to match it against another.
 ///
-/// `artist` and `title` are resolved once at index time: tags take priority,
-/// falling back to the directory layout and the filename, since a sizeable part
-/// of any Soulseek-sourced library arrives untagged.
+/// `artist` and `title` are resolved at index time: tags, then the directory
+/// layout, then the filename.
 #[derive(Debug, Clone, PartialEq)]
 pub struct LibraryEntry {
     pub path: PathBuf,
@@ -95,14 +84,10 @@ pub struct LibraryEntry {
     pub duration_seconds: Option<f64>,
     pub artwork_bytes: u64,
 
-    /// The loudness tags the file carries, new in `library.db` v6 (#7). Read
-    /// from the same header parse as everything else here, so counting the
-    /// files nothing has level-matched costs no extra I/O.
+    /// The loudness tags the file carries.
     pub replay_gain: ReplayGainTags,
 
-    /// Stream properties, new in `library.db` v3 (#2). They come off the same
-    /// header read `read_duration` already performs, so storing them costs no
-    /// extra I/O -- and without them "every file under 320 kbps" cannot be asked.
+    /// Stream properties from the container header.
     pub codec: String,
     pub bitrate: Option<u32>,
     pub sample_rate: Option<u32>,
@@ -120,8 +105,7 @@ impl LibraryEntry {
         self.replay_gain.is_scanned()
     }
 
-    /// Decided by the container, the same rule `stk verify` uses to choose
-    /// what to inspect.
+    /// Decided by the container, as `stk verify` decides.
     #[must_use]
     pub fn is_lossless(&self) -> bool {
         self.path
@@ -141,10 +125,8 @@ pub struct Track {
     pub album: String,
     pub duration_seconds: Option<f64>,
 
-    /// Whether `title` was read off a peer's filename rather than asked for by
-    /// name (#13). `stk get --album` has no tracklist and no choice; everything
-    /// else in the queue was typed or exported. A guess is weaker evidence than
-    /// a tag the peer wrote, and [`crate::retag::plan`] treats it as such.
+    /// Whether `title` was guessed from a peer's filename by `stk get --album`.
+    /// [`crate::retag::plan`] won't write a guess over the peer's own title.
     pub title_guessed: bool,
 
     pub source_row: Vec<(String, String)>,
@@ -207,8 +189,7 @@ impl Candidate {
         Self::split_path(&self.remote_path).0
     }
 
-    /// Split on the last separator, as the Python's `rsplit(sep, 1)` does: with
-    /// no separator present both halves are the whole path.
+    /// Split on the last separator. With none, both halves are the whole path.
     fn split_path(path: &str) -> (&str, &str) {
         match path.rfind(['\\', '/']) {
             Some(at) => (&path[..at], &path[at + 1..]),
@@ -218,8 +199,7 @@ impl Candidate {
 
     /// The filename's extension, lowercased.
     ///
-    /// A name with no dot in it yields the whole name, which is what Python's
-    /// `rpartition` returns and what the ranking's extension check then rejects.
+    /// A name with no dot yields the whole name, which the ranking then rejects.
     #[must_use]
     pub fn extension(&self) -> String {
         let filename = self.filename();
@@ -350,10 +330,8 @@ impl FromStr for TrackStatus {
 
 /// Outcome of the authenticity check.
 ///
-/// `Upsampled` is not a transcode: the audio is intact, but it was stretched
-/// into a bigger container than it needs -- a 128 kbps MP3 re-encoded at 320,
-/// or a 44.1 kHz/16-bit master padded out to 96 kHz/24-bit -- so the peer's
-/// claim about it was false (#16).
+/// `Upsampled` is not a transcode: nothing was lost, but the file claims more
+/// than it holds (a 128 kbps MP3 re-encoded at 320, CD audio padded to hi-res).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum Verdict {
     Ok,

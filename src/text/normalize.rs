@@ -1,11 +1,6 @@
-//! Text normalisation shared by every matcher in the project.
-//!
-//! The same track arrives spelled several different ways: a streaming export
-//! gives `DECO*27` and `弱虫モンブラン (sasakure.UK Remix)`, the ripped file on
-//! disk is `(06) [DECO-27] 弱虫モンブラン.flac`, and a Soulseek peer offers
-//! `06. DECO_27 - Yowamushi Montblanc.flac`. Normalising away featured-artist
-//! credits, bracketed suffixes, punctuation and case is what makes those three
-//! comparable at all.
+//! Text normalisation shared by every matcher: featured credits, bracketed
+//! suffixes, punctuation and case are folded away so `DECO*27`, `[DECO-27]` and
+//! `DECO_27` compare equal.
 
 use std::collections::HashMap;
 use std::sync::{Arc, LazyLock, Mutex, PoisonError};
@@ -13,23 +8,18 @@ use std::sync::{Arc, LazyLock, Mutex, PoisonError};
 use regex::Regex;
 use unicode_normalization::UnicodeNormalization;
 
-/// Python's `str.isalnum()`: categories L, Nd, Nl and No.
-///
-/// Neither `\w` nor `\p{Word}` can be used here. Rust's `\w` additionally
-/// matches `\p{M}` -- 10,549 combining marks that Python folds to a space
-/// instead -- and every comparison in the project runs through [`normalize`], so
-/// the difference would shift matching scores globally rather than fail visibly.
-/// `scripts/word_chars.py` generates the fixture holding this to Python's answer.
+/// Word characters: categories L, Nd, Nl and No. Not `\w`, which also takes
+/// combining marks (`\p{M}`); those count as punctuation here.
 const ALNUM: &str = r"\p{L}\p{Nd}\p{Nl}\p{No}";
 
-/// Python's `\s`, which matches U+001C to U+001F. Rust's does not: those four
-/// are not `White_Space`.
+/// Whitespace, including the separator controls U+001C to U+001F that `\s`
+/// leaves out.
 const SPACE: &str = r"\s\x1C-\x1F";
 
 /// The fallback [`sanitize_folder_name`] uses when nothing survives.
 pub const UNKNOWN_ARTIST: &str = "Unknown Artist";
 
-/// Whether `c` is whitespace to Python. See [`SPACE`].
+/// Whether `c` is whitespace. See [`SPACE`].
 pub(crate) fn is_space(c: char) -> bool {
     c.is_whitespace() || ('\u{1c}'..='\u{1f}').contains(&c)
 }
@@ -39,12 +29,8 @@ static FEATURED_CREDIT: LazyLock<Regex> =
 static BRACKETED_SUFFIX: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"[\(\[][^\)\]]*[\)\]]").unwrap());
 
-/// Punctuation, which is `[^\w\s]|_` in the Python.
-///
-/// Underscore is a word character to a regex engine but stands in for a stripped
-/// symbol in filenames, so `DECO_27` has to fold to the same form as `DECO*27`.
-/// Leaving it out of [`ALNUM`] rather than alternating on it gives the same set:
-/// `_` is in none of L, Nd, Nl, No or whitespace.
+/// Punctuation, including underscore, which stands in for a stripped symbol in
+/// filenames (`DECO_27` for `DECO*27`).
 static PUNCTUATION: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(&format!("[^{ALNUM}{SPACE}]")).unwrap());
 static WHITESPACE: LazyLock<Regex> = LazyLock::new(|| Regex::new(&format!("[{SPACE}]+")).unwrap());
@@ -57,9 +43,7 @@ static LEADING_TRACK_NUMBER: LazyLock<Regex> = LazyLock::new(|| {
 });
 /// The characters a directory name may not contain on Windows.
 ///
-/// The backslash is in the set deliberately: it is the path separator this
-/// function exists to neutralise, and leaving it out let an artist name create a
-/// nested directory that `fetch::downloaded_path` would then never find (#5).
+/// Includes the backslash, or an artist name could create a nested directory.
 static INVALID_FILENAME_CHARS: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#"[<>:"/\\|?*\x00-\x1F]"#).unwrap());
 
@@ -73,10 +57,8 @@ fn nfkc(text: &str) -> String {
 
 /// Reduce a name to the lowercase, punctuation-free form used for comparison.
 ///
-/// Lowercased before punctuation is stripped, not after as the Python did:
-/// `İ` lowercases to `i` and a combining dot, which is punctuation here, so
-/// lowercasing last left a mark that a second pass would strip -- and a form
-/// that normalises to something else is not a normal form.
+/// Lowercased before punctuation is stripped: `İ` lowercases to `i` plus a
+/// combining dot, which must then be stripped for the result to be stable.
 #[must_use]
 pub fn normalize(text: &str) -> String {
     let folded = nfkc(text).to_lowercase();
@@ -91,10 +73,8 @@ pub fn normalize(text: &str) -> String {
 
 /// Lowercase `text` with punctuation turned to spaces, keeping every word.
 ///
-/// Unlike [`normalize`], this preserves bracketed content and featured credits.
-/// Those are noise when comparing two titles but are exactly the signal when
-/// scanning a path for warnings: "Roki (Live).flac" says what it is only inside
-/// the brackets.
+/// Unlike [`normalize`], keeps bracketed content and featured credits, which
+/// is where a path says "(Live)".
 #[must_use]
 pub fn flatten(text: &str) -> String {
     let folded = nfkc(text);
@@ -119,10 +99,7 @@ pub fn strip_track_number(name: &str) -> String {
 
 /// The track number a leading `01 -`, `(06)`, `15.` or `1-05` names.
 ///
-/// The second group wins where there is one: `1-05` is track five of disc one,
-/// and the disc is not what a tag calls the track number. This is not
-/// [`crate::library::tags::leading_number`], which reads a tag value such as
-/// `3/12` and refuses anything a filename is made of.
+/// `1-05` is track five of disc one.
 #[must_use]
 pub fn track_number(name: &str) -> Option<i64> {
     let numbered = LEADING_TRACK_NUMBER.captures(name)?;
@@ -134,10 +111,7 @@ pub fn track_number(name: &str) -> Option<i64> {
 
 /// Remove a leading artist name from a filename stem, if present.
 ///
-/// Matching on the artist's tokens rather than on the literal folder name lets a
-/// `DECO_27` folder strip the prefix from `DECO*27 - Roki`: the two spellings
-/// differ only in punctuation, and a literal-length slice would cut the title in
-/// the wrong place whenever the two spellings differ in length.
+/// Matched on the artist's tokens, so a `DECO_27` folder strips `DECO*27 - `.
 #[must_use]
 pub fn strip_artist_prefix(stem: &str, artist: &str) -> String {
     let name = strip_track_number(&nfkc(stem));
@@ -158,21 +132,16 @@ pub fn strip_artist_prefix(stem: &str, artist: &str) -> String {
 }
 
 /// Where the artist prefix ends in `name`, as a byte offset, if it is there.
-///
-/// The Python compares `match.end()` against `len(name)` in characters; both
-/// sides here are bytes, and the two agree on whether the match spans the whole
-/// string, which is all the comparison is asking.
 fn prefix_end(name: &str, tokens: &[&str]) -> Option<usize> {
-    // `[\W_]` in the Python: anything outside L, Nd, Nl and No.
+    // Anything outside L, Nd, Nl and No.
     let joined = tokens
         .iter()
         .map(|token| fancy_regex::escape(token).into_owned())
         .collect::<Vec<_>>()
         .join(&format!("[^{ALNUM}]*"));
     let separator = separator();
-    // A trailing bracket belongs to the artist ("ryo (supercell)"), not the
-    // title. The negative lookahead is the one thing here the `regex` crate
-    // cannot express, which is why this pattern goes through fancy-regex.
+    // A trailing bracket belongs to the artist ("ryo (supercell)"). fancy-regex
+    // for the negative lookahead.
     let pattern = format!(r"(?i)^{separator}{joined}[\)\]\}}]*(?![{ALNUM}_]){separator}");
 
     prefix_pattern(&pattern)
@@ -187,8 +156,7 @@ fn prefix_pattern(pattern: &str) -> Arc<fancy_regex::Regex> {
     static CACHE: LazyLock<Mutex<HashMap<String, Arc<fancy_regex::Regex>>>> =
         LazyLock::new(|| Mutex::new(HashMap::new()));
 
-    // A cache cannot be left inconsistent by a panic elsewhere, so poisoning is
-    // recovered from rather than propagated.
+    // A cache can't be left inconsistent, so poisoning is ignored.
     let mut cache = CACHE.lock().unwrap_or_else(PoisonError::into_inner);
     cache
         .entry(pattern.to_owned())

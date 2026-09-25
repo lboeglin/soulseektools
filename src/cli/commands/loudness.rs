@@ -34,10 +34,7 @@ pub struct LoudnessArgs {
 
 /// Measure every target and show what its loudness tags would become.
 ///
-/// A file that already carries a gain is left alone unless `--force` says
-/// otherwise: a library scanned in foobar2000, `rsgain` or `loudgain` carries
-/// figures somebody chose, and replacing them with a differently configured
-/// measurement is a silent regression for whoever owns it.
+/// A file that already carries a gain is left alone unless `--force`.
 pub fn run(context: &AppContext, args: &LoudnessArgs) -> Result<i32> {
     let paths = targets(context, args.target.as_deref())?;
     if paths.is_empty() && context.nothing_to_do("No taggable files to scan.") {
@@ -93,9 +90,7 @@ struct Outcome {
 
 /// Read what each file says it is and what it already carries.
 ///
-/// One header parse apiece -- nothing next to the full decode a measurement
-/// costs -- and it is read from the file rather than the index so a folder the
-/// library has never seen still scans.
+/// Read from the file, not the index, so an unindexed folder still scans.
 fn inspect(paths: &[PathBuf]) -> (Vec<Target>, Vec<(String, String)>) {
     let mut targets = Vec::new();
     let mut failed = Vec::new();
@@ -115,10 +110,7 @@ fn inspect(paths: &[PathBuf]) -> (Vec<Target>, Vec<(String, String)>) {
 
 /// Measure one record at a time.
 ///
-/// A record is one programme to EBU R 128, so its tracks are scanned together;
-/// the analyser states that makes the exact album figure from never outlive the
-/// group they belong to, which is what keeps a library-wide run's memory to one
-/// album rather than every file.
+/// A record's tracks are scanned together, one record at a time.
 fn scan(
     context: &AppContext,
     selection: &Selection,

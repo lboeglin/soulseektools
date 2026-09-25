@@ -1,14 +1,5 @@
-//! A Last.fm user's loved and most played tracks, read by username (#20).
-//!
-//! Loved tracks are the wantlist: a profile's own list of songs its owner
-//! wants to keep. `--min-plays N` adds every track played at least N times,
-//! the stand-in for what `--min-plays` does to a scrobble log, read from the
-//! user's all-time top tracks. Those come back most played first, so paging
-//! stops at the first track below N rather than walking a whole history.
-//!
-//! Last.fm refuses any request without an API key, a public profile's
-//! included, so the key comes from `LASTFM_API_KEY` and a read without one is
-//! refused before anything is sent.
+//! A Last.fm user's loved tracks, plus with `--min-plays N` their top tracks
+//! played at least N times (paging stops below N). Needs `LASTFM_API_KEY`.
 
 use std::collections::HashMap;
 

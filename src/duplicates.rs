@@ -1,21 +1,6 @@
-//! Finding the same track twice in a library.
-//!
-//! Two independent passes, because they fail in different directions:
-//!
-//! - **by title**, which catches the same song filed under two spellings of the
-//!   artist (`Inabakumori` and `稲葉曇`) but is blind to untagged files with
-//!   meaningless names;
-//! - **by audio**, which catches those but needs decoding, so a cheap duration
-//!   prefilter narrows the field before any fingerprint is computed.
-//!
-//! The title pass compares only entries sharing an n-gram (see
-//! [`crate::matching::blocking_keys`]) rather than every pair against every
-//! other, which is what makes it usable on a library of any size.
-//!
-//! Resolving is the step past the report (#15): pairs are merged into groups,
-//! one copy per group is kept by a policy, and the rest are moved into a
-//! quarantine beside the index rather than deleted, each move logged so
-//! `changes undo` can put it back.
+//! Finding the same track twice: by title (catches two spellings of an artist)
+//! and by audio fingerprint (catches untagged files). Resolving keeps one copy
+//! per group and quarantines the rest.
 
 use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
@@ -102,17 +87,12 @@ pub fn find_by_title(entries: &[LibraryEntry], thresholds: &MatchThresholds) -> 
     pairs
 }
 
-/// How a fingerprint is obtained, so the cache can be supplied by the caller.
-///
-/// The index owns the cache table; keeping the lookup behind a closure means
-/// this module never has to know about SQLite.
+/// How a fingerprint is obtained, so the caller supplies the cache.
 pub type FingerprintSource<'a> = dyn FnMut(&LibraryEntry) -> Option<Fingerprint> + 'a;
 
 /// Pairs whose audio matches, whatever they are named or tagged.
 ///
-/// Duration is only a prefilter here. Treating a duration and size match as
-/// proof, which the original script did, produces coincidental hits between
-/// unrelated tracks of similar length; the fingerprint is what decides.
+/// Duration is only a prefilter; the fingerprint decides.
 pub fn find_by_audio(
     entries: &[LibraryEntry],
     threshold: f64,
@@ -166,12 +146,7 @@ pub fn find_by_audio(
     pairs
 }
 
-/// Best score first, then by path.
-///
-/// The Python sorts on the score alone, over pairs yielded in the iteration
-/// order of a `frozenset` of blocking keys -- which Python's per-process hash
-/// randomisation makes different on every run. Equal scores therefore come back
-/// in an arbitrary order there, and in a stable one here.
+/// Best score first, then by path, so equal scores come back in a stable order.
 fn sort_by_score(pairs: &mut [DuplicatePair]) {
     pairs.sort_by(|left, right| {
         right
@@ -211,10 +186,6 @@ fn pairs_within_duration(entries: &[&LibraryEntry], tolerance_seconds: f64) -> V
 
 /// A [`FingerprintSource`] that consults the index before computing, and stores
 /// what it computed.
-///
-/// The Python passes the index itself into `find_by_audio`; keeping the lookup
-/// behind a closure means `duplicates` never has to know about SQLite, and the
-/// tests can substitute a table without patching a module.
 pub fn cached_fingerprints(
     index: &mut LibraryIndex,
 ) -> impl FnMut(&LibraryEntry) -> Option<Fingerprint> + '_ {
@@ -234,8 +205,7 @@ pub enum Keep {
     Largest,
     /// A lossless container, then the largest.
     ///
-    /// The default because the pair `dupes content` exists to find -- a FLAC
-    /// and its own MP3 -- is the one where the lossy copy can still be larger.
+    /// The default, because the MP3 of a FLAC can be the larger file.
     #[default]
     Lossless,
     /// The copy in the library first, as far as its `mtime` says.
@@ -364,9 +334,9 @@ impl DuplicateGroup {
 
 /// Merge pairs into groups of copies of one track.
 ///
-/// Three copies come back from a finder as three pairs, and resolving those
-/// pair by pair could keep a file in one and move it out in the next. A pair
-/// both finders report is kept once, on the stronger of the two scores.
+/// Three copies arrive as three pairs; resolving pair by pair could keep and
+/// move the same file. A pair both finders report counts once, at its stronger
+/// score.
 #[must_use]
 pub fn group(pairs: impl IntoIterator<Item = DuplicatePair>) -> Vec<DuplicateGroup> {
     let mut strongest: HashMap<(PathBuf, PathBuf), DuplicatePair> = HashMap::new();
@@ -495,9 +465,7 @@ pub const RESOLVE_COMMAND: &str = "dupes resolve";
 
 /// Where one run's losers go: beside the index, a directory per run.
 ///
-/// Beside the index rather than inside a library root, or the next `library
-/// scan` would index the quarantine and `dupes` would find every file in it
-/// again.
+/// Outside every library root, so a scan never indexes it.
 #[must_use]
 pub fn quarantine_directory(index: &LibraryIndex, run_id: i64) -> PathBuf {
     index
@@ -510,8 +478,7 @@ pub fn quarantine_directory(index: &LibraryIndex, run_id: i64) -> PathBuf {
 
 /// Where each loser would go, keeping its path below its root.
 ///
-/// Nothing is ever overwritten: two roots can hold the same relative path, and
-/// a rename would silently replace the first loser with the second.
+/// Never overwrites: two roots can hold the same relative path.
 #[must_use]
 pub fn plan_quarantine(
     resolutions: &[Resolution],
@@ -557,10 +524,7 @@ pub fn plan_quarantine(
 
 /// Move the losers that are ready into quarantine, logging each under `log`.
 ///
-/// The index forgets each one as it goes, or `stats` would keep counting a
-/// file the library no longer holds. The quarantine sits outside every root,
-/// so there is nothing to re-index it as; `changes undo` re-indexes the file
-/// once it is back.
+/// The index forgets each file; `changes undo` re-indexes it.
 pub fn quarantine(
     index: &mut LibraryIndex,
     log: &ChangeLog,
@@ -571,8 +535,7 @@ pub fn quarantine(
     let mut applied = Applied::default();
     for planned in ready {
         let from = &planned.entry.path;
-        // Logged before the move, as `organise` logs: a row for a move that
-        // never happened is refused by undo as gone, a move with no row is lost.
+        // Logged before the move; see `ChangeLog::moved`.
         log.moved(index, from, &planned.destination)?;
         match organise::move_file(from, &planned.destination) {
             Ok(()) => {

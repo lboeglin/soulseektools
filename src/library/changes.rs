@@ -1,20 +1,8 @@
 //! The write log: what `--apply` changed, and how to put it back.
 //!
-//! The project's headline invariant is that nothing is written without
-//! `--apply`. That said nothing about what happened once you did pass it: a
-//! `genre apply` over two hundred files with a bad map entry, or an `art fetch`
-//! that embedded the wrong artist's cover, left no record and no way back (#2).
-//!
-//! Every mutation path writes a row here, and `stk changes undo` reads it back.
-//! A half-covered log would be worse than none, since it implies a completeness
-//! it does not have, so the rule is that a command which writes to a user's
-//! files logs what it wrote.
-//!
-//! Text values are stored inline. Artwork is not: a library-wide `art fetch`
-//! replaces covers of 100 KB to 1 MB each, so the row keeps a SHA-256 and the
-//! bytes go to `<index dir>/changes/<sha256>.bin`. Content addressing is what
-//! makes that affordable -- an album's twelve tracks usually share one replaced
-//! cover, and therefore one sidecar.
+//! Every command that writes to a user's files logs each write here. Replaced
+//! covers are stored by SHA-256 under `<index dir>/changes/`, so an album's
+//! tracks sharing one cover share one file.
 
 use std::fmt;
 use std::path::{Path, PathBuf};
@@ -29,23 +17,13 @@ use crate::models::{Artwork, ReplayGainTags, TrackTags};
 
 /// What a logged row changed about a file.
 ///
-/// One variant per field rather than a single "tags" row carrying all of them.
-/// [`plan_undo`] decides whether a file moved since it was written by comparing
-/// that field's current value against what was logged, and a row covering every
-/// field would read a genre edited yesterday as a reason to refuse to put a
-/// title back -- then, under `--force`, revert the genre as well. An undo must
-/// never write wider than the row it is undoing.
+/// One variant per field, so undoing a title never checks or reverts a genre
+/// edited since.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ChangeField {
     Genre,
     Artwork,
-    /// Every loudness figure at once, unlike the tag fields below.
-    ///
-    /// The four ReplayGain values are one measurement, not four decisions. A
-    /// row apiece would let an undo put a gain back without the peak that
-    /// bounds it, leaving a player applying positive gain nothing to check
-    /// itself against -- the opposite of what splitting genre from title
-    /// protects (#7).
+    /// Every loudness figure at once: a gain is never restored without its peak.
     ReplayGain,
     Artist,
     AlbumArtist,
@@ -54,11 +32,7 @@ pub enum ChangeField {
     TrackNumber,
     /// Where the file is, rather than what it says.
     Move,
-    /// Every tag item outside the fields above, as one set (#11).
-    ///
-    /// A fetched file's comment, URL and lyrics are dropped together, and an
-    /// undo puts the whole set back: there is no field among them anyone edits
-    /// on its own, so nothing is gained by a row apiece.
+    /// Every tag item outside the fields above, as one set.
     Extras,
 }
 
@@ -199,9 +173,6 @@ impl ChangeLog {
     }
 
     /// Log one tag field of one file, as `tags apply` writes them.
-    ///
-    /// Genres keep their own encoding whichever command wrote them, so a row
-    /// logged by `genre apply` and one logged here read back the same way.
     pub fn tag(
         &self,
         index: &mut LibraryIndex,
@@ -219,8 +190,7 @@ impl ChangeLog {
             command: self.command.clone(),
             path: path.to_path_buf(),
             field: ChangeField::of(field),
-            // Always present, empty meaning the file carried nothing there, so
-            // the comparison `plan_undo` makes stays total.
+            // Always present (empty for nothing), so `plan_undo` can compare.
             old_value: Some(field.value(old)),
             new_value: Some(field.value(new)),
         })
@@ -228,16 +198,9 @@ impl ChangeLog {
 
     /// Log a file move, keyed on where the file has ended up.
     ///
-    /// `path` is the destination, not the source. [`plan_undo`] opens by asking
-    /// whether the file it is about to put back is still where the log left it,
-    /// and a row keyed on the source would be blocked as gone the moment the
-    /// move succeeded. It is also the column `stk changes list` prints, which
-    /// should say where the file actually is.
-    ///
-    /// Written *before* the rename, not after. A row for a rename that then
-    /// failed is refused by `plan_undo` as a file that is gone -- detectable and
-    /// inert. A rename with no row is the gap in the record the log exists to
-    /// close.
+    /// `path` is the destination, where [`plan_undo`] will look for the file.
+    /// Logged before the rename: a row for a failed rename is harmless, a rename
+    /// with no row is not.
     pub fn moved(&self, index: &mut LibraryIndex, from: &Path, to: &Path) -> Result<i64> {
         index.record_change(&NewChange {
             run_id: self.run_id,
@@ -264,8 +227,7 @@ impl ChangeLog {
             command: self.command.clone(),
             path: path.to_path_buf(),
             field: ChangeField::ReplayGain,
-            // Always present, an empty set meaning the file had never been
-            // scanned, so the comparison `plan_undo` makes stays total.
+            // Always present (empty if never scanned), so `plan_undo` can compare.
             old_value: Some(encode_replay_gain(old)),
             new_value: Some(encode_replay_gain(new)),
         })
@@ -323,17 +285,12 @@ pub enum Blocked {
     FileChanged,
     SidecarGone(PathBuf),
     UnknownField(String),
-    /// Something else now sits where a moved file came from (#3).
+    /// Something else now sits where a moved file came from.
     SourceOccupied(PathBuf),
 }
 
 impl Blocked {
-    /// Whether `--force` may go ahead anyway.
-    ///
-    /// A file edited since the row was written is a judgement call, and the
-    /// user's to make. The rest are missing pieces no flag can conjure back --
-    /// and `SourceOccupied` risks destroying a *different* file, which is not
-    /// something a flag should buy.
+    /// Whether `--force` may go ahead anyway: only for a file edited since.
     #[must_use]
     pub fn forceable(&self) -> bool {
         matches!(self, Self::FileChanged)
@@ -382,9 +339,7 @@ impl UndoPlan {
 
 /// Work out what putting one change back would mean.
 ///
-/// A file edited since the row was written is reported rather than overwritten:
-/// restoring a two-month-old genre over a tag someone has since fixed by hand is
-/// exactly the kind of surprise an undo exists to prevent.
+/// A file edited since the row was written is blocked rather than overwritten.
 pub fn plan_undo(index: &LibraryIndex, change: Change) -> Result<UndoPlan> {
     let Ok(field) = change.field.parse::<ChangeField>() else {
         let field = change.field.clone();
@@ -466,9 +421,7 @@ pub fn plan_undo(index: &LibraryIndex, change: Change) -> Result<UndoPlan> {
     };
 
     let blocked = if current == change.new_value {
-        // A move's current value is its own location, so the comparison above
-        // can never catch anything: the hazard is that the place it came from
-        // is no longer free.
+        // For a move, the hazard is that the original location is taken.
         match field {
             ChangeField::Move => source_occupied(&change),
             _ => missing_sidecar(index, field, change.old_value.as_deref()),
@@ -485,10 +438,6 @@ pub fn plan_undo(index: &LibraryIndex, change: Change) -> Result<UndoPlan> {
 }
 
 /// Put one change back, and log the undo as a change of its own.
-///
-/// The log stays a complete account of what this tool wrote, which is the whole
-/// reason to keep one -- an undo that left no trace would be the same gap in the
-/// record that #2 opened this against.
 pub fn apply_undo(
     index: &mut LibraryIndex,
     plan: &UndoPlan,
@@ -538,10 +487,8 @@ pub fn apply_undo(
             let back = PathBuf::from(change.old_value.clone().unwrap_or_default());
             crate::organise::move_file(&change.path, &back)?;
             log.moved(index, &change.path, &back)?;
-            // Keyed on the spelling the filesystem used, not the one the log
-            // asked for: `create_dir_all("zun")` reuses an existing `ZUN` on
-            // Windows, so the index row may be filed under a different case and
-            // a delete on the requested path would miss it.
+            // Keyed on the filesystem's spelling: on Windows `create_dir_all("zun")`
+            // reuses an existing `ZUN`.
             index.relocate(
                 &crate::organise::spelled_on_disk(&change.path),
                 &back,

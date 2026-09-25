@@ -1,16 +1,8 @@
 //! Scoring Soulseek search results.
 //!
-//! The scorer this replaces looked only at a result's *filename*, and that was
-//! the root cause of most wrong downloads: a file named exactly right is still,
-//! often enough, a live recording, an orchestral cover, or a medley track, and
-//! none of that is visible from the filename. Only the folder says so --
-//! `@@user\Symphony Concert 2019\03 Roki.flac` is unmistakable and was
-//! previously invisible.
-//!
-//! So the whole remote path is scored. Terms are matched against folder and
-//! filename together, and a term is ignored when the wanted track's own name
-//! contains it: someone asking for "Live and Learn" is not asking to reject
-//! every result containing "live".
+//! Terms are matched against the whole remote path, because a live recording
+//! or a cover is often only named in its folder. A term the wanted track's own
+//! name contains is ignored.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::LazyLock;
@@ -37,19 +29,12 @@ fn audio_extensions() -> &'static HashSet<&'static str> {
 }
 
 /// Whether a result is audio at all, by its container.
-///
-/// The extension check [`score`] opens with, on its own: a folder holds a
-/// `.cue`, a `.log` and a scan alongside the music, and grouping one has to
-/// tell them apart before it counts what is in it.
 #[must_use]
 pub fn is_audio(candidate: &Candidate) -> bool {
     audio_extensions().contains(candidate.extension().as_str())
 }
 
 /// The gap between quality tiers, which every other weight sits inside.
-///
-/// Public so `config` can bound the uploader window against it rather than
-/// repeating the number.
 pub const TIER_WEIGHT: i64 = 10_000_000;
 const QUALITY_WEIGHT: i64 = 10;
 const TITLE_WEIGHT: f64 = 500.0;
@@ -79,8 +64,7 @@ pub fn rank(
         .filter_map(|candidate| score(candidate, track, &artist, &title, &wanted, settings))
         .collect();
 
-    // A stable sort keeps candidates the scorer could not separate in the order
-    // the peer returned them, which is what the Python's `list.sort` does.
+    // Stable, so ties keep the order the peer returned them in.
     scored.sort_by_key(|scored| std::cmp::Reverse(scored.score));
     if let Some(limit) = limit {
         scored.truncate(limit);
@@ -138,8 +122,7 @@ pub fn score(
         0
     };
     total -= i64::from(candidate.queue_length.min(MAX_QUEUE_PENALTY));
-    // `title_ratio` is in [0, 1], so the product is in [0, 500]; the cast is
-    // Python's `int()`, truncating toward zero.
+    // `title_ratio` is in [0, 1], so the product is in [0, 500].
     #[allow(clippy::cast_possible_truncation)]
     {
         total += (title_ratio * TITLE_WEIGHT) as i64;
@@ -163,8 +146,7 @@ pub fn score(
 
 /// Terms appearing in the remote path but not in the track's own name.
 ///
-/// A term the caller actually asked for is not evidence against a result: a
-/// wantlist entry for "Live and Learn" must not reject every path saying "live".
+/// A term in the wanted name ("Live and Learn") is not held against a result.
 #[must_use]
 pub fn terms_in(path_text: &str, terms: &[String], wanted: &str) -> Vec<String> {
     terms
@@ -195,8 +177,7 @@ pub fn meets_quality_floor(candidate: &Candidate, options: &RankingSettings) -> 
     if options.require_lossless {
         return false;
     }
-    // A result with no bitrate reported has not failed the floor -- nothing is
-    // known about it, and dropping it would hide the only copy of a rare track.
+    // An unknown bitrate passes: it may be the only copy of a rare track.
     match (options.min_bitrate, candidate.bitrate) {
         (Some(floor), Some(bitrate)) if floor != 0 && bitrate != 0 => bitrate >= floor,
         _ => true,
@@ -242,20 +223,10 @@ pub struct FolderScore {
 
 /// Score a peer's folder the way [`score`] scores a file, minus the name match.
 ///
-/// An album search knows no tracklist, so there is no title to hold a filename
-/// against -- the one half of the scoring that cannot make the move. What does
-/// survive is the half that reads the whole remote path, which is the half that
-/// catches a live set or a karaoke rip, and here it is read across every file
-/// at once: a folder is taken whole or not at all, so one `Karaoke` track
-/// inside it is evidence about all of them.
-///
-/// Quality is the mean of what the files are worth rather than the sum, or a
-/// folder padded with bonus tracks would outrank a better rip of the record.
-///
-/// `None` means nothing in the folder clears the quality floor. A folder where
-/// only some files fail keeps its place and carries a warning instead: dropping
-/// the files that fail would offer a folder that is not the one on the peer's
-/// disk, and the one on the peer's disk is what would arrive.
+/// Terms are read across every file, since one karaoke track says something
+/// about the whole folder. Quality is the mean, so bonus tracks don't inflate a
+/// folder. `None` when nothing clears the quality floor; a folder that only
+/// partly fails is kept with a warning.
 #[must_use]
 pub fn score_folder(
     files: &[Candidate],
@@ -298,8 +269,7 @@ pub fn score_folder(
         .sum::<i64>()
         / i64::try_from(audio.len()).unwrap_or(1);
 
-    // Availability belongs to the peer rather than to the file: slskd spreads
-    // one response's free slot and queue length across every file in it.
+    // Availability is per peer: slskd reports it once per response.
     total += if first.free_upload_slots {
         FREE_SLOT_BONUS
     } else {
@@ -319,8 +289,7 @@ pub fn score_folder(
 
 /// Whether the offered file is a different length from the track wanted.
 ///
-/// Catches an edit, an extended mix or an entirely different song sharing a
-/// title, which no amount of name matching can distinguish.
+/// Catches an edit, an extended mix or a different song sharing a title.
 fn duration_differs(candidate: &Candidate, track: &Track, tolerance_seconds: f64) -> bool {
     let (Some(offered), Some(wanted)) = (candidate.duration_seconds, track.duration_seconds) else {
         return false;
@@ -346,28 +315,17 @@ pub const PREFERRED_FLAG: &str = "preferred-uploader";
 
 /// Prefer one peer across a whole batch, where doing so costs almost nothing.
 ///
-/// Soulseek's cost is per queue position, not per file: eight tracks from one
-/// peer is one wait, one rip and one tagging convention, where eight peers is
-/// eight of each, any of which can stall on its own.
+/// One peer for many tracks is one queue position and one consistent rip. The
+/// score window only spans availability and name match, so this never trades
+/// away quality or takes a live version.
 ///
-/// The trade is only made where that peer's own candidate is already close. The
-/// window is narrower than every structural gap in the score -- a quality tier,
-/// a content penalty, a sample rate -- and wider than the availability band, so
-/// a preference can reorder candidates differing in free slots, queue length
-/// and name match, and can never swap a lossless file for a lossy one, take a
-/// live version, or accept a worse master.
-///
-/// Each list is reordered in place, best first. This must run *before* the
-/// ranks are written: `set_candidates` numbers them densely from the order it
-/// is handed, and reordering a stored list would repoint an existing approval
-/// at a different file. The one exception is a stalled peer's group, whose
-/// approvals are discarded anyway: see `ReviewStore::reorder_untried` (#17).
+/// Reorders each list in place, and must run before ranks are written: moving
+/// a stored rank would repoint an existing approval.
 pub fn prefer_one_uploader(
     batch: &mut [Vec<ScoredCandidate>],
     settings: &UploaderSettings,
 ) -> Option<PreferredUploader> {
-    // Counted against the un-reordered lists, so the outcome cannot depend on
-    // the order the tracks happen to arrive in.
+    // Counted before reordering, so track order can't change the outcome.
     let mut coverage: HashMap<&str, (usize, i64)> = HashMap::new();
     for list in batch.iter() {
         for (username, sacrifice) in within_window(list, settings) {
@@ -380,8 +338,7 @@ pub fn prefer_one_uploader(
     let (username, covered, sacrificed) = coverage
         .into_iter()
         .map(|(username, (covered, sacrificed))| (username, covered, sacrificed))
-        // Most tracks first; then the cheapest; then by name, so one batch
-        // always settles on the same peer.
+        // Most tracks, then cheapest, then name, for a deterministic pick.
         .max_by(|left, right| {
             left.1
                 .cmp(&right.1)

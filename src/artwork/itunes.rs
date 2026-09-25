@@ -1,9 +1,5 @@
-//! Cover art from the iTunes Search API.
-//!
-//! No authentication, direct image URLs and good coverage of commercial
-//! releases, which makes it the first provider tried. Its match quality outside
-//! the mainstream is poor, which is why every result goes through the artist
-//! check in [`crate::artwork::base::select`].
+//! Cover art from the iTunes Search API: no authentication, good coverage of
+//! commercial releases.
 
 use serde_json::Value;
 

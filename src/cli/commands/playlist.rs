@@ -84,9 +84,6 @@ pub fn run(context: &AppContext, command: PlaylistCommand) -> Result<i32> {
 }
 
 /// One file's line, described by the file rather than by whatever asked for it.
-///
-/// A fuzzy match against an export can land on a file whose tags spell the
-/// artist differently; the playlist says what will actually play.
 fn line(entry: &LibraryEntry) -> PlaylistEntry {
     PlaylistEntry {
         path: entry.path.clone(),
@@ -98,8 +95,7 @@ fn line(entry: &LibraryEntry) -> PlaylistEntry {
 
 /// The export's own rows, in its own order, for the ones the library holds.
 ///
-/// `wantlist::diff` preserves the export order in `owned`, which is the whole
-/// point: the order was in the export and nowhere else.
+/// `wantlist::diff` preserves the export order in `owned`.
 fn exported(context: &AppContext, export: &ExportArgs) -> Result<Option<Vec<PlaylistEntry>>> {
     let tracks = match export.read(context.settings()) {
         Ok(tracks) => tracks,

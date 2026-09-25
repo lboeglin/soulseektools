@@ -1,8 +1,5 @@
-//! Cover art from MusicBrainz and the Cover Art Archive.
-//!
-//! The fallback when iTunes has nothing, which is common for doujin, Vocaloid
-//! and game-soundtrack releases. MusicBrainz answers which release a recording
-//! belongs to; the Cover Art Archive serves that release's front cover.
+//! Cover art from MusicBrainz (which release a recording is on) and the Cover
+//! Art Archive (that release's front cover).
 
 use serde_json::Value;
 

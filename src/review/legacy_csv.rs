@@ -1,9 +1,5 @@
-//! Importing the review CSV the Nicotine+ plugin used.
-//!
-//! A migration path, so a session interrupted mid-batch under the old plugin can
-//! be picked up here rather than re-searched from scratch. The CSV held three
-//! candidates per row in columns named `cand1_user`, `cand2_path` and so on,
-//! plus an `approve` column holding `1`, `2` or `3`.
+//! Importing the old Nicotine+ plugin's review CSV: `cand1_user`, `cand2_path`
+//! and so on, plus an `approve` column holding `1`, `2` or `3`.
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -122,15 +118,12 @@ fn candidates(row: &HashMap<String, String>) -> Vec<ScoredCandidate> {
         .collect()
 }
 
-/// The plugin wrote some numbers as floats, so `int(float(text))` is what the
-/// Python parses them with.
+/// A number the old plugin may have written as a float, truncated.
 fn number(row: &HashMap<String, String>, key: &str) -> Option<i64> {
     let text = field(row, key);
     if text.is_empty() {
         return None;
     }
-    // The plugin wrote whole numbers as floats, so the cast is Python's
-    // `int(float(text))`, truncating toward zero.
     #[allow(clippy::cast_possible_truncation)]
     text.parse::<f64>().ok().map(|value| value as i64)
 }

@@ -1,9 +1,5 @@
 //! `stk`: build a music library from a streaming export via Soulseek, and keep
 //! it clean afterwards.
-//!
-//! Ported from Python one module at a time, each diffed against `oracle/` --
-//! output captured from that build against a real library -- before the next was
-//! started. See <https://github.com/lboeglin/soulseektools/issues/1>.
 
 pub mod artwork;
 pub mod audio;

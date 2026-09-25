@@ -285,7 +285,7 @@ fn write_owned(destination: &Path, result: &WantlistDiff) -> Result<()> {
     )
 }
 
-/// Written as `utf-8-sig`, matching the Python's CSV writers.
+/// Written with a BOM, for Excel.
 fn write_csv(destination: &Path, headers: &[String], rows: &[Vec<String>]) -> Result<()> {
     if let Some(parent) = destination.parent() {
         if !parent.as_os_str().is_empty() {
@@ -316,7 +316,7 @@ fn write_csv(destination: &Path, headers: &[String], rows: &[Vec<String>]) -> Re
         .map_err(|error| Error::Config(format!("{}: {error}", destination.display())))
 }
 
-/// Python's `round(value, 3)`, which breaks ties to even.
+/// Round to `digits` places, ties to even.
 fn round(value: f64, digits: usize) -> f64 {
     format!("{value:.digits$}").parse().unwrap_or(value)
 }

@@ -262,8 +262,7 @@ fn as_row(snapshot: &LibrarySnapshot) -> serde_json::Value {
 
 /// A count a measurement may not have taken at all.
 ///
-/// A scan recorded before the loudness column existed did not count this, and
-/// printing a zero would read as a library nothing had level-matched.
+/// Printed as `-` rather than zero when the measurement predates the column.
 fn optional(now: Option<usize>, before: Option<usize>) -> String {
     now.map_or_else(|| "-".to_owned(), |now| against(now, before))
 }

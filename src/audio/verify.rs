@@ -13,9 +13,8 @@ use crate::models::{Verdict, VerifyResult};
 
 /// Decide whether a file really holds what its container claims.
 ///
-/// An MP3 is judged against its header bitrate; every other file against the
-/// claim of being lossless, as it always was. Decoding failures are reported as [`Verdict::Error`] rather than returned as
-/// an error, so one unreadable file cannot abort a library-wide run.
+/// An MP3 is judged against its header bitrate, anything else as lossless.
+/// Decoding failures become [`Verdict::Error`], so one file can't abort a run.
 #[must_use]
 pub fn verify_file(path: &Path, settings: &VerifySettings) -> VerifyResult {
     let sampled = sample(path, settings).and_then(|(stream, chunks, bits_used)| {
@@ -130,13 +129,8 @@ fn sample(
     Ok((stream, chunks, audio.bits_used()))
 }
 
-/// Python's `round()`, which breaks ties to even where Rust's rounds away from
-/// zero.
-///
-/// The report carries `round(cutoff_hz)` and `round(steepness, 1)`, so a tie
-/// rounded the other way is a row that differs from `oracle/verify.csv`.
-/// Formatting and reparsing gets there exactly: both languages format floats
-/// with correct decimal rounding, ties to even.
+/// Round half to even, which float formatting does and `f64::round` doesn't,
+/// so reports stay comparable with those written before.
 fn round_half_even(value: f64) -> i64 {
     format!("{value:.0}").parse().unwrap_or(0)
 }
@@ -147,14 +141,7 @@ fn round_half_even_to(value: f64, digits: usize) -> f64 {
 
 /// Verify many files, in parallel.
 ///
-/// `verify` is the most expensive command in the tool: every file is opened,
-/// seeked to four places and decoded there, and the transform over what comes
-/// back is the work. The Python runs the files one after another; fanning out
-/// over them is the single largest win available here, and it is deliberate
-/// work rather than something the language gives for free.
-///
-/// Results come back in the order the paths were given, so a report is
-/// reproducible.
+/// Results come back in the order the paths were given.
 #[must_use]
 pub fn verify_files(paths: &[PathBuf], settings: &VerifySettings) -> Vec<VerifyResult> {
     paths

@@ -1,33 +1,13 @@
-//! Detecting files whose audio is less than their container claims.
+//! Detecting files whose audio is less than their container claims: lossless
+//! transcoded from lossy ([`Verdict::Fake`]), an MP3 re-encoded at a higher
+//! bitrate, or a hi-res file resampled up ([`Verdict::Upsampled`]).
 //!
-//! Two claims are checked. A lossless file claims its source was lossless: an
-//! MP3 re-encoded as FLAC is a transcode, [`Verdict::Fake`]. An MP3 claims its
-//! header bitrate: a 128 kbps file re-encoded at 320 is an upsample,
-//! [`Verdict::Upsampled`]. Either lie leaves the first encoder's low-pass
-//! behind, and that edge is what this module finds. So does a 44.1 kHz master
-//! resampled to 96 kHz: nothing was lost, but its content stops dead at the
-//! Nyquist of the rate it really has.
-//!
-//! A genuine CD-sourced lossless file carries content out to near the Nyquist
-//! frequency. An MP3 or AAC re-encoded as FLAC keeps the lossy encoder's low-pass
-//! baked in, and the *shape* of that edge is what gives it away:
-//!
-//! - a lossy encoder's cutoff is a brickwall -- tens of dB lost over a few
-//!   hundred hertz, landing at one of a handful of bitrate-specific frequencies
-//! - a loud modern master rolls off gradually over several kilohertz
-//!
-//! This distinction is the whole point. "Is there content above 16 kHz" is not a
-//! usable test on its own: heavily limited masters roll off early and would be
-//! flagged wholesale. Steepness is measured by scanning for the sharpest slope
-//! across a narrow window straddling the cutoff, because averaging one wide span
-//! dilutes a real, narrow cliff until it looks gradual.
-//!
-//! Everything here operates on sample slices, so the classifier is testable
-//! against synthesised signals with known cutoffs and needs no decoder.
-// Sample counts, band indices and frame offsets are cast between `usize`, `f64`
-// and the integer widths throughout. Every one of them is bounded by an FFT size
-// or a track length -- thousands, not billions -- so the pedantic cast lints
-// only ask for `try_from` unwraps around values that cannot overflow.
+//! Each leaves a low-pass edge behind. What gives it away is the edge's shape:
+//! a lossy encoder cuts off like a brickwall at a bitrate-specific frequency,
+//! while a loud master rolls off gradually over several kilohertz. Steepness is
+//! the sharpest slope in a narrow window, since a wide average dilutes a cliff.
+// Casts between sample counts, band indices and floats are bounded by an FFT
+// size or a track length, so they cannot overflow.
 #![allow(
     clippy::cast_precision_loss,
     clippy::cast_possible_truncation,
@@ -45,29 +25,19 @@ pub const DEFAULT_STEEP_DB_PER_KHZ: f64 = 25.0;
 pub const DEFAULT_NEAR_NYQUIST_MARGIN_HZ: u32 = 1500;
 const STEEPNESS_WINDOW_HZ: usize = 800;
 
-/// Below this averaged magnitude there is no signal to characterise.
-///
-/// Without the guard, normalising a silent spectrum to its own peak makes every
-/// band read as 0 dB, and a silent file is confidently reported as genuinely
-/// lossless.
+/// Below this averaged magnitude there is no signal. Without it, a silent
+/// spectrum normalised to its peak reads 0 dB everywhere and passes as lossless.
 const SILENCE_MAGNITUDE: f64 = 1e-9;
 
-/// Below this, there is no cutoff to judge.
-///
-/// Every lossy encoder's low-pass sits well above this, so content stopping
-/// lower means the file is not ordinary music -- a tone, a field recording, an
-/// early transfer -- and saying it looks genuinely lossless would be claiming
-/// more than the spectrum supports.
+/// Below this there is no cutoff to judge: every lossy encoder's low-pass sits
+/// well above it.
 pub const MIN_ANALYSABLE_CUTOFF_HZ: u32 = 8000;
 
 /// Frequency bands where common encoders place their low-pass, what they imply,
 /// and the lowest bitrate each band's encodes are made at.
 ///
-/// Measured from LAME stereo transcodes, which land at roughly 16.6, 18.8 and
-/// 20.1 kHz. The bands are wider than those nominal values and deliberately
-/// contiguous: encoders differ, and band averaging quantises the measured cutoff.
-/// A gap between them would only downgrade a real transcode to SUSPECT for being
-/// 150 Hz off.
+/// Measured from LAME stereo transcodes (about 16.6, 18.8 and 20.1 kHz). The
+/// bands are contiguous so a transcode a little off-nominal isn't only SUSPECT.
 pub const KNOWN_LOSSY_CUTOFFS: &[(u32, u32, &str, u32)] = &[
     (15000, 16800, "~128kbps source", 128),
     (16800, 19000, "~160-192kbps source", 160),
@@ -89,29 +59,17 @@ pub const HI_RES_ABOVE_HZ: u32 = 48000;
 pub const RESAMPLER_MARGIN_HZ: u32 = 2000;
 
 /// How far above a lower rate's Nyquist a soft resampler's tail can run.
-///
-/// ffmpeg's default resampler trades stopband for speed: resampling 44.1 kHz
-/// to 96 kHz, it is only 15 dB down at 22.05 kHz and passes the noise floor
-/// at 23 kHz on a slope no brickwall test calls sharp. The steep drop to
-/// digital silence comes after, 3 kHz or so past the Nyquist, and that is
-/// the edge [`RESAMPLER_FLOOR_DB`] finds.
+/// ffmpeg's default is only 15 dB down at 22.05 kHz and drops to silence about
+/// 3 kHz later; [`RESAMPLER_FLOOR_DB`] finds that drop.
 pub const RESAMPLER_OVERSHOOT_HZ: u32 = 3500;
 
-/// The floor below which a resampler's stopband counts as silence.
-///
-/// Far below where a master's content fades -- the ordinary noise floor
-/// judges that -- but above the dither and noise a resampled file carries
-/// past its edge, which in the reference library sits anywhere from -92 to
-/// -164 dB. A genuine hi-res recording carries its converter's noise to
-/// Nyquist and never gets this quiet.
+/// The floor below which a resampler's stopband counts as silence. Resampled
+/// files measured -92 to -164 dB past their edge; genuine hi-res recordings
+/// carry converter noise to Nyquist and never get this quiet.
 pub const RESAMPLER_FLOOR_DB: f64 = -85.0;
 
-/// How much of a VBR file's average bitrate counts as its claim.
-///
-/// A CBR header is a setting; a VBR one is an average of what the content
-/// needed, which runs above the quality's nominal rate on dense material and
-/// below it on sparse. Discounting it keeps a V0 encode that averaged 260 kbps
-/// from being held to a 320 kbps low-pass it never promised.
+/// How much of a VBR file's average bitrate counts as its claim, so a V0 encode
+/// averaging 260 kbps isn't held to a 320 kbps low-pass.
 pub const VBR_BITRATE_CREDIT: f64 = 0.75;
 
 /// An averaged spectrum, in fixed-width frequency bands relative to the peak.
@@ -169,10 +127,7 @@ impl Default for Tuning {
     }
 }
 
-/// numpy's `hanning`, which is the symmetric window.
-///
-/// Most DSP libraries default to the periodic one, `cos(2*pi*n/M)`. Using it
-/// here would shift every band slightly against the oracle.
+/// The symmetric Hann window, which the thresholds were measured with.
 fn hann(size: usize) -> Vec<f64> {
     if size == 1 {
         return vec![1.0];
@@ -185,11 +140,8 @@ fn hann(size: usize) -> Vec<f64> {
 
 /// Average the magnitude spectrum over every frame, normalised to its peak.
 ///
-/// Returns `None` when the input holds no complete frame or no audible signal,
-/// which is the honest answer for a file too short or too quiet to characterise.
-///
-/// Samples are widened to `f64` before the transform: numpy's `rfft` promotes a
-/// float32 array to double, and staying in single precision drifts the spectrum.
+/// `None` when the input holds no complete frame or no audible signal. The
+/// transform runs in `f64`; single precision drifts the spectrum.
 #[must_use]
 pub fn average_spectrum_db(
     chunks: &[Vec<f32>],
@@ -264,7 +216,7 @@ pub fn band_average(frequencies: &[f64], db: &[f64], band_width_hz: usize) -> Ba
     let mut sums = vec![0.0; edges.len()];
     let mut counts = vec![0_usize; edges.len()];
     for (frequency, value) in frequencies.iter().zip(db) {
-        // `np.digitize(x, edges) - 1`: the number of edges at or below x, less one.
+        // The number of edges at or below the frequency, less one.
         let band = edges.partition_point(|edge| *edge <= *frequency);
         if band >= 1 && band - 1 < edges.len() {
             sums[band - 1] += value;
@@ -301,10 +253,6 @@ pub fn find_cutoff(bands: &Bands, noise_floor_db: f64) -> f64 {
 }
 
 /// Steepest local slope, in dB per kHz, across the region around the cutoff.
-///
-/// Scanning for the sharpest narrow slope rather than measuring one wide span is
-/// what separates a brickwall from a roll-off: averaged over several kilohertz,
-/// both look similar.
 #[must_use]
 pub fn cliff_steepness(bands: &Bands, cutoff_hz: f64, window_hz: usize) -> f64 {
     let window = window_hz as f64;
@@ -429,9 +377,7 @@ pub fn classify(
 #[derive(Debug, Clone, PartialEq)]
 pub struct Resampled {
     /// Every rate whose resampling could have left this edge, lowest first.
-    /// Usually one; an edge near 23 kHz is as far past 44.1 kHz's Nyquist as a
-    /// soft resampler reaches and as far short of 48 kHz's as a sharp one
-    /// stops, and nothing in the spectrum says which.
+    /// An edge near 23 kHz fits both 44.1 and 48 kHz.
     pub from_hz: Vec<u32>,
     pub edge_hz: f64,
     pub steepness_db_per_khz: f64,
@@ -439,19 +385,12 @@ pub struct Resampled {
 
 /// Find the edge a resampler leaves in a file claiming a higher rate.
 ///
-/// Two resamplers leave two shapes, so two floors. A sharp one walls the
-/// content off just below the old Nyquist, which the ordinary noise floor
-/// finds. A soft one lets it fade past the old Nyquist on a gentle slope and
-/// only then drops it to silence, which [`RESAMPLER_FLOOR_DB`] finds; so does
-/// a sharp one under a master whose highs are already quiet. Either way the
-/// edge has to be steep: a master that rolls off near 22 kHz on its own is
-/// not an upsample, and neither is content that carries on to the
-/// container's own Nyquist.
+/// A sharp resampler walls content off just below the old Nyquist (found at
+/// the ordinary noise floor); a soft one fades past it, then drops to silence
+/// (found at [`RESAMPLER_FLOOR_DB`]). Either way the edge must be steep.
 ///
-/// Only a hi-res claim is judged, above [`HI_RES_ABOVE_HZ`]. A 48 kHz file
-/// shows 2 kHz of spectrum past 44.1 kHz's Nyquist, too little to tell a
-/// resampler's edge from the 20 kHz low-pass a mastering chain often ends
-/// on -- and 48 kHz is a rate records are made at, not an inflated claim.
+/// Only rates above [`HI_RES_ABOVE_HZ`] are judged: a 48 kHz file has too little
+/// spectrum past 22.05 kHz to tell a resampler from a mastering low-pass.
 #[must_use]
 pub fn resampled_from(bands: &Bands, sample_rate: u32, tuning: &Tuning) -> Option<Resampled> {
     if sample_rate <= HI_RES_ABOVE_HZ {
@@ -489,11 +428,9 @@ pub fn resampled_from(bands: &Bands, sample_rate: u32, tuning: &Tuning) -> Optio
 
 /// Judge a lossy file's cutoff against the bitrate its header claims.
 ///
-/// Only a brickwall is evidence: a gradual roll-off is the master's, and an
-/// encoder at any bitrate passes it through. A wall is an upsample when it
-/// sits in a lower band than the header's bitrate would put it -- a tier or
-/// more, with a VBR average discounted by [`VBR_BITRATE_CREDIT`] first. A
-/// header below the lowest band promises nothing to fall short of.
+/// Only a brickwall counts; a gradual roll-off is the master's. A wall a band or
+/// more below where the header bitrate puts it is an upsample, after
+/// discounting a VBR average by [`VBR_BITRATE_CREDIT`].
 #[must_use]
 pub fn classify_lossy(
     cutoff_hz: f64,

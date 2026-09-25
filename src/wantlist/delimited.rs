@@ -1,14 +1,9 @@
-//! Delimited exports: Exportify, TuneMyMusic, Last.fm, YouTube Takeout, a
-//! hand-written file.
+//! Delimited exports (Exportify, TuneMyMusic, Last.fm, YouTube Takeout, hand
+//! written), accepting the common spellings of each column.
 //!
-//! Column names vary between exporters, so the reader accepts the common
-//! spellings rather than requiring one exact header. Two shapes have no usable
-//! header at all:
-//!
-//! - `lastfm-to-csv` writes `artist,album,title,date` rows with no header, and
-//!   is recognised by the date in its fourth column.
-//! - A list of video titles has a title column and no artist column; each
-//!   title is split the way `stk get` splits a query, and marked as a guess.
+//! A headerless `lastfm-to-csv` log is recognised by the date in its fourth
+//! column. A list with titles but no artist column is split like a `stk get`
+//! query, as a guess.
 
 use std::fs::File;
 use std::path::Path;

@@ -1,10 +1,6 @@
-//! The three hot paths behind the slow commands, timed on synthesised audio.
-//!
-//! `verify` spends its time in `spectral::analyse`, `dupes content` and
-//! `tags identify` in `fingerprint::fingerprint`, and every name comparison in
-//! `matching::score_track`. Run `cargo bench` before and after a change to any
-//! of them, so a regression shows up as a number rather than a feeling. CI does
-//! not run these; it only builds them.
+//! The hot paths behind the slow commands, timed on synthesised audio:
+//! `spectral::analyse` (verify), `fingerprint::fingerprint` (dupes content,
+//! tags identify) and `matching::score_track` (every name comparison).
 
 #[path = "../tests/support/mod.rs"]
 mod support;
