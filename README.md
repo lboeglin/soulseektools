@@ -72,7 +72,9 @@ stk doctor               # check everything is reachable
 anything required is unavailable.
 
 `cargo install --path .` builds from the clone, not from a registry.
-Re-run it after pulling changes; `cargo uninstall stk` removes it.
+Re-run it after pulling changes; `cargo uninstall stk` removes it. The first
+build downloads the Japanese dictionary romaji is read with, and embeds it:
+it is most of the binary's 66 MB.
 
 ### Shell completions
 
@@ -965,7 +967,8 @@ See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 MIT. See [LICENSE](LICENSE).
 
-The source is MIT, but a built `stk` links
-[kakasi](https://github.com/Theta-Dev/kakasi), which is GPL-3.0, so a
-distributed binary is GPL-3.0 as a whole. Replacing it is
-[#21](https://github.com/lboeglin/soulseektools/issues/21).
+A built `stk` embeds two sets of data under their own terms, both of which
+allow redistribution: IPADIC, the dictionary romaji is read with, under the
+NAIST and ICOT notice that must accompany it, and the kanji readings in
+`src/text/kanji_readings.tsv`, from Unihan, under the
+[Unicode licence](https://www.unicode.org/license.txt).

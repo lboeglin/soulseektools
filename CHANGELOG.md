@@ -425,6 +425,18 @@ a set of ad-hoc scripts and a Nicotine+ plugin, and was then rewritten in Rust.
 
 ### Changed
 
+- **A built `stk` is MIT.** Romaji came from `kakasi`, which is GPL-3.0 and
+  made a distributed binary GPL-3.0 with it (#21). Japanese is now read with
+  IPADIC through `lindera`, embedded in the binary, and the kana spelled out
+  by a Hepburn table of the project's own that spells long vowels and `っ`
+  the way the oracle was captured with. A kanji IPADIC has no entry for takes
+  its first reading from Unihan rather than being left as it is. IPADIC reads
+  names better, so 17 rows of the romaji oracle move to the right reading:
+  稲葉曇 is `inabakumori` rather than `inabadon`, 白上フブキ `shirakamifubuki`,
+  25時 `25ji`, 優曇華院 `udongein`. Names it misreads are still given their
+  reading, and 重音テト is now `kasaneteto` rather than `juuonteto`. The
+  dictionary makes the binary about 66 MB where it was about 19, and a
+  first build downloads it from `lindera.dev`.
 - The crate moved from `rs/crates/stk` to the repository root. `rs/` existed
   to sit beside `py/` while both builds shared the tree; with the Python gone
   the extra level only made every `cargo` command need a `--manifest-path`,

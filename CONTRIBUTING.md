@@ -7,7 +7,10 @@ cargo build
 cargo run -- --help
 ```
 
-Nothing else needs installing, for the build or for the tests.
+Nothing else needs installing, for the build or for the tests. The first build
+downloads IPADIC, the dictionary romaji is read with, from `lindera.dev` and
+embeds it; pointing `LINDERA_BUILD_DICTIONARY_CACHE_DIR` at a directory keeps the
+download across `cargo clean`, which is what CI does.
 
 ## Checks
 
@@ -31,8 +34,8 @@ cargo deny check
 ```
 
 A new dependency whose licence is not on the list needs a decision, not just a
-line added to it. `kakasi` is the one exception: it is GPL-3.0, which makes a
-distributed `stk` binary GPL-3.0 as well, until #21 replaces it.
+line added to it. Data a crate embeds is not on the list at all: IPADIC is
+under its own NAIST/IPA licence, which permits redistribution with its notice.
 
 The tests that diff against `oracle/` -- reference output from the original
 Python build, captured against a real library -- skip when it is absent, which is
@@ -91,6 +94,10 @@ No change lands without tests for its behaviour.
   surface as shifted matching scores rather than a failing test. The dump is
   committed under `tests/data`, so no build or test run needs Python. Only
   regenerating it does, which happens approximately never.
+- **`scripts/unihan_readings.py` generates `src/text/kanji_readings.tsv`**, the
+  reading a kanji IPADIC does not know falls back on, from Unihan's
+  `kJapanese`. It is committed for the same reason, and regenerating it needs
+  only a newer `Unihan_Readings.txt`.
 - **Properties, not only examples, where the input is open-ended.**
   `tests/properties.rs` holds what must be true of *any* input: an export is
   read or refused as a configuration error and never panics, a rendered layout

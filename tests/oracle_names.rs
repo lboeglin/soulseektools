@@ -3,7 +3,9 @@
 //! `oracle/romaji.csv` holds 434 rows of `raw`, `normalized` and `romaji`,
 //! dumped from the index the Python build wrote. `normalized` is `normalize(raw)`
 //! and `romaji` is `to_romaji(normalize(raw))`, so both columns are reproducible
-//! from `raw` alone -- no index, no library, no ffmpeg.
+//! from `raw` alone -- no index, no library, no ffmpeg. Seventeen `romaji` cells
+//! have since been corrected to the reading IPADIC gets right; `oracle/README.md`
+//! lists them.
 //!
 //! Nothing here needs the library the capture came from, so these run
 //! everywhere, CI included.

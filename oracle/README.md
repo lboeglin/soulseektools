@@ -38,8 +38,8 @@ Without it, every command below crashes when redirected.
 ### `romaji.csv`
 
 Not produced by a CLI command — dumped directly from the index, because it is
-the reference for the single highest-risk part of the port (`text/romaji.py` →
-the `kakasi` crate):
+the reference for the single highest-risk part of the port (`text/romaji.py`,
+which used pykakasi):
 
 ```python
 from soulseektools.config import load_settings
@@ -90,6 +90,28 @@ them OK; since #16 they are `UPSAMPLED`.
 The captured rows are left as the Python wrote them, and the gates in
 `oracle_verify.rs` and `oracle_cli.rs` name these five and expect the new
 verdict and detail, with every other field unchanged.
+
+**17 `romaji.csv` rows are corrected on purpose.** Romaji is read with IPADIC
+since #21, not with a kakasi, and where the two disagreed each row was checked
+by hand. The `romaji` cell was rewritten where the new reading is the right
+one, and nowhere else; a reading that came out wrong was fixed in
+`KNOWN_READINGS` instead. The `raw` and `normalized` cells are untouched.
+
+| Reading | Was | Now |
+| --- | --- | --- |
+| 25時 (2 rows) | `25toki` | `25ji` |
+| 重音テト (3 rows) | `juuonteto` | `kasaneteto` |
+| 稲葉曇 (2 rows) | `inabadon` | `inabakumori` |
+| 藤咲かりん | `fujisakarin` | `fujisakikarin` |
+| 優曇華院 | `udonhanain` | `udongein` |
+| 山本 椛 | `kaba` | `momiji` |
+| 鳴花ミコト | `meihanamikoto` | `meikamikoto` |
+| 君はできない子 | `kunhadekinaiko` | `kimihadekinaiko` |
+| 愛して 愛して 愛して | `itoshite` | `aishite` |
+| 荒療治 | `araryouchi` | `araryouji` |
+| 雨路少女 | `amemichishoujo` | `amejishoujo` |
+| 宵崎奏 | `shousakisou` | `yoisakikanade` |
+| 白上フブキ | `shirouefubuki` | `shirakamifubuki` |
 
 **`verify.csv` has been reviewed, but not exhaustively.** The 9 FAKE verdicts
 are specific and physically plausible — see the summary below — but the

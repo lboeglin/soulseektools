@@ -5,3 +5,4 @@ genres.toml
 .DS_Store
 
 target/
+.lindera-cache/

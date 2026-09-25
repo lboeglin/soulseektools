@@ -142,25 +142,25 @@ fn the_title_is_weighted_above_the_artist() {
     assert!((thresholds.title_weight() + thresholds.artist_weight - 1.0).abs() < 1e-9);
 }
 
-/// The artist reading 稲葉曇 romanises to the on-yomi "inabadon", while the
-/// producer romanises the same name as "Inabakumori". Transliteration cannot
-/// know that, which is why the artist half of a match is only ever required to
-/// clear `artist_weak`. Ported from `test_romaji.py`.
+/// The artist 須田景凪 romanises to "sudakeinagi", while the producer romanises
+/// the same name as "Suda Keina". Transliteration cannot know that, which is
+/// why the artist half of a match is only ever required to clear `artist_weak`.
+/// Ported from `test_romaji.py`.
 #[test]
 fn artist_readings_can_diverge_but_a_strong_title_still_matches() {
-    let kanji = forms("\u{7a32}\u{8449}\u{66c7}");
-    let romaji_alias = forms("Inabakumori");
+    let kanji = forms("\u{9808}\u{7530}\u{666f}\u{51ea}");
+    let romaji_alias = forms("Suda Keina");
     let thresholds = thresholds();
 
     assert!(similarity(&kanji, &romaji_alias) < 1.0);
     assert!(similarity(&kanji, &romaji_alias) >= thresholds.artist_weak);
 
-    let title = forms("\u{30e9}\u{30b0}\u{30c8}\u{30ec}\u{30a4}\u{30f3}");
+    let title = forms("\u{30b7}\u{30e3}\u{30eb}\u{30eb}");
     let matched = score_track(
         &kanji,
         &title,
         &romaji_alias,
-        &forms("Ragutorein"),
+        &forms("Sharuru"),
         &thresholds,
     )
     .expect("a match");

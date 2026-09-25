@@ -1,9 +1,13 @@
-//! Ported from `py/tests/unit/test_romaji.py`.
-//!
-//! The test there that scores a diverging artist reading against a strong title
-//! needs `matching`, and is ported with it in step 2.
+//! Ported from `py/tests/unit/test_romaji.py`, with the readings IPADIC gets
+//! right where pykakasi did not.
 
 use stk::text::romaji::{contains_japanese, to_romaji};
+
+fn assert_romanises(cases: &[(&str, &str)]) {
+    for (japanese, romanised) in cases {
+        assert_eq!(to_romaji(japanese), *romanised, "to_romaji({japanese:?})");
+    }
+}
 
 #[test]
 fn contains_japanese_detects_the_scripts_worth_transliterating() {
@@ -53,26 +57,53 @@ fn to_romaji_is_idempotent() {
     assert_eq!(to_romaji(&once), once);
 }
 
-/// The `kakasi` crate reads these character by character; pykakasi, and the
-/// oracle, carry the name reading. See `KNOWN_READINGS`.
+/// Spaces in the name survive; IPADIC's word boundaries add none.
 #[test]
-fn compound_name_readings_survive_transliteration() {
-    for (japanese, romanised) in [
+fn only_the_spaces_in_the_name_survive() {
+    assert_romanises(&[
+        ("\u{5316}\u{3051}\u{306e}\u{82b1}", "bakenohana"),
+        ("\u{5c71}\u{672c} \u{691b}", "yamamoto momiji"),
+    ]);
+}
+
+/// IPADIC reads these as the ordinary words they are spelled like. See
+/// `KNOWN_READINGS`.
+#[test]
+fn name_readings_survive_transliteration() {
+    assert_romanises(&[
         ("\u{521d}\u{97f3}\u{30df}\u{30af}", "hatsunemiku"),
         ("\u{93e1}\u{97f3}\u{30ea}\u{30f3}", "kagaminerin"),
         ("\u{93e1}\u{97f3}\u{30ec}\u{30f3}", "kagamineren"),
-    ] {
-        assert_eq!(to_romaji(japanese), romanised, "to_romaji({japanese:?})");
-    }
+        ("\u{91cd}\u{97f3}\u{30c6}\u{30c8}", "kasaneteto"),
+        (
+            "\u{661f}\u{8857}\u{3059}\u{3044}\u{305b}\u{3044}",
+            "hoshimachisuisei",
+        ),
+    ]);
 }
 
-/// The compound table must not disturb a reading the crate already gets right.
+/// The name table must not disturb a reading of the same kanji elsewhere.
 #[test]
-fn readings_the_transliterator_already_agrees_on_are_untouched() {
-    for (japanese, romanised) in [
-        ("\u{91cd}\u{97f3}\u{30c6}\u{30c8}", "juuonteto"),
+fn readings_outside_the_name_table_are_untouched() {
+    assert_romanises(&[
         ("\u{97f3}\u{697d}", "ongaku"),
-    ] {
-        assert_eq!(to_romaji(japanese), romanised, "to_romaji({japanese:?})");
-    }
+        ("\u{91cd}\u{529b}", "juuryoku"),
+    ]);
+}
+
+/// IPADIC has no entry for these kanji, so each takes its Unihan reading rather
+/// than being left as it is.
+#[test]
+fn kanji_ipadic_cannot_read_take_their_unihan_reading() {
+    assert_romanises(&[("\u{53f7}\u{54ed}", "goukoku"), ("\u{6a02}", "gaku")]);
+}
+
+#[test]
+fn latin_and_digits_in_a_japanese_run_keep_their_spelling() {
+    assert_romanises(&[("25\u{6642}", "25ji"), ("miku\u{306e}cd", "mikunocd")]);
+}
+
+#[test]
+fn half_width_katakana_reads_as_full_width() {
+    assert_romanises(&[("\u{ff76}\u{ff9e}\u{ff77}\u{ff9e}", "gagi")]);
 }

@@ -16,11 +16,6 @@ allow = [
     "Zlib",
 ]
 confidence-threshold = 0.9
-exceptions = [
-    # The romaji transliterator. A binary that links it is GPL-3.0; replacing it
-    # with an MIT transliterator is #21.
-    { crate = "kakasi", allow = ["GPL-3.0"] },
-]
 
 [bans]
 multiple-versions = "warn"
