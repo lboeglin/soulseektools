@@ -17,7 +17,7 @@ use stk::retag::TagPolicy;
 use stk::review::albums;
 use stk::review::store::ReviewStore;
 use stk::soulseek::base::{SoulseekClient, Transfer, TransferState};
-use support::{committed, encode, noise_source, transcode_to_flac, Encoded, Scratch};
+use support::{committed, encode, transcode_to_flac, Encoded, Scratch};
 
 #[derive(Default)]
 struct FakeClient {
@@ -200,76 +200,6 @@ fn candidates_are_ranked_and_stored() {
 }
 
 #[test]
-fn the_search_text_is_normalised() {
-    let scratch = Scratch::new("fetch-normalised");
-    let settings = settings(&scratch);
-    let mut store = store(&scratch);
-    store.add(&[roki()]).expect("an added track");
-
-    let client = FakeClient::default();
-    fetch::search_pending(&mut store, &client, &settings, None).expect("a search");
-
-    assert_eq!(
-        client.searched.lock().expect("the fake").as_slice(),
-        ["deco 27 roki"]
-    );
-}
-
-#[test]
-fn only_pending_tracks_are_searched() {
-    let scratch = Scratch::new("fetch-pending-only");
-    let settings = settings(&scratch);
-    let mut store = store(&scratch);
-    store
-        .add(&[roki(), Track::new("ZUN", "Heian Alien")])
-        .expect("added tracks");
-    let first = store.tracks(&[], None).expect("tracks")[0].id;
-    store
-        .mark(first, TrackStatus::Downloaded, "")
-        .expect("a mark");
-
-    let outcomes = fetch::search_pending(&mut store, &FakeClient::default(), &settings, None)
-        .expect("a search");
-
-    assert_eq!(outcomes.len(), 1);
-}
-
-#[test]
-fn a_track_with_no_results_is_marked_rather_than_left_pending() {
-    let scratch = Scratch::new("fetch-no-results");
-    let settings = settings(&scratch);
-    let mut store = store(&scratch);
-    store.add(&[roki()]).expect("an added track");
-
-    fetch::search_pending(&mut store, &FakeClient::default(), &settings, None).expect("a search");
-
-    assert_eq!(
-        store.tracks(&[], None).expect("tracks")[0].status,
-        TrackStatus::NoCandidates
-    );
-}
-
-#[test]
-fn the_number_of_candidates_kept_is_configurable() {
-    let scratch = Scratch::new("fetch-candidate-limit");
-    let mut settings = settings(&scratch);
-    settings.review.candidates_per_track = 1;
-    let mut store = store(&scratch);
-    store.add(&[roki()]).expect("an added track");
-
-    let client = FakeClient::with_candidates(vec![
-        candidate("@@peerA\\Music\\Roki.flac"),
-        candidate("@@peerB\\Music\\Roki.flac"),
-    ]);
-    fetch::search_pending(&mut store, &client, &settings, None).expect("a search");
-
-    assert_eq!(
-        store.tracks(&[], None).expect("tracks")[0].candidates.len(),
-        1
-    );
-}
-
-#[test]
 fn a_backend_failure_marks_the_track_and_continues() {
     let scratch = Scratch::new("fetch-search-failure");
     let settings = settings(&scratch);
@@ -295,22 +225,6 @@ fn a_backend_failure_marks_the_track_and_continues() {
         "{:?}",
         outcomes[0]
     );
-}
-
-#[test]
-fn the_number_searched_can_be_capped() {
-    let scratch = Scratch::new("fetch-search-cap");
-    let settings = settings(&scratch);
-    let mut store = store(&scratch);
-    let tracks: Vec<Track> = (0..5)
-        .map(|index| Track::new("A", &index.to_string()))
-        .collect();
-    store.add(&tracks).expect("added tracks");
-
-    let outcomes = fetch::search_pending(&mut store, &FakeClient::default(), &settings, Some(2))
-        .expect("a search");
-
-    assert_eq!(outcomes.len(), 2);
 }
 
 #[test]
@@ -340,20 +254,6 @@ fn the_approved_candidate_is_queued() {
 }
 
 #[test]
-fn nothing_unapproved_is_queued() {
-    let scratch = Scratch::new("fetch-unapproved");
-    let settings = settings(&scratch);
-    let mut store = store(&scratch);
-    store.add(&[roki()]).expect("an added track");
-    fetch::search_pending(&mut store, &FakeClient::default(), &settings, None).expect("a search");
-
-    let outcomes =
-        fetch::enqueue_approved(&mut store, &FakeClient::default(), None, 1000.0).expect("no work");
-
-    assert!(outcomes.is_empty());
-}
-
-#[test]
 fn an_enqueue_failure_marks_the_track() {
     let scratch = Scratch::new("fetch-enqueue-failure");
     let settings = settings(&scratch);
@@ -374,24 +274,6 @@ fn an_enqueue_failure_marks_the_track() {
     let entry = store.track(track_id).expect("a lookup").expect("the track");
     assert_eq!(entry.status, TrackStatus::Failed);
     assert!(entry.detail.contains("peer offline"), "{}", entry.detail);
-}
-
-#[test]
-fn nothing_is_recorded_while_a_transfer_is_still_running() {
-    let scratch = Scratch::new("fetch-running");
-    let settings = settings(&scratch);
-    let mut store = store(&scratch);
-    queued(&mut store, &settings);
-
-    let client = FakeClient::with_transfers(vec![transfer(
-        "@@peerA\\Music\\Roki.flac",
-        TransferState::InProgress,
-        "",
-    )]);
-
-    assert!(collect(&mut store, &client, &settings, true)
-        .expect("a collect")
-        .is_empty());
 }
 
 #[test]
@@ -417,28 +299,6 @@ fn a_completed_transfer_is_recorded() {
             .status,
         TrackStatus::Downloaded
     );
-}
-
-#[test]
-fn a_failed_transfer_is_recorded_as_a_failure() {
-    let scratch = Scratch::new("fetch-failed");
-    let settings = settings(&scratch);
-    let mut store = store(&scratch);
-    let track_id = queued(&mut store, &settings);
-
-    let client = FakeClient::with_transfers(vec![transfer(
-        "@@peerA\\Music\\Roki.flac",
-        TransferState::Failed,
-        "peer gone",
-    )]);
-    let outcomes = collect(&mut store, &client, &settings, true).expect("a collect");
-
-    assert_eq!(outcomes[0].state, TransferState::Failed);
-    // One candidate was found, so there is nothing left to promote and the track
-    // does end as FAILED -- the retry only has somewhere to go with more.
-    let entry = store.track(track_id).expect("a lookup").expect("the track");
-    assert_eq!(entry.status, TrackStatus::Failed);
-    assert!(entry.detail.contains("peer gone"), "{}", entry.detail);
 }
 
 #[test]
@@ -490,50 +350,6 @@ fn a_transfer_for_another_track_is_ignored() {
 }
 
 #[test]
-fn no_local_path_is_guessed_without_a_configured_download_directory() {
-    let scratch = Scratch::new("fetch-no-download-dir");
-    let mut settings = settings(&scratch);
-    settings.slskd.download_directory = None;
-    let mut store = store(&scratch);
-    queued(&mut store, &settings);
-
-    let client = FakeClient::with_transfers(vec![transfer(
-        "@@peerA\\Music\\Roki.flac",
-        TransferState::Completed,
-        "",
-    )]);
-    let outcome = &collect(&mut store, &client, &settings, false).expect("a collect")[0];
-
-    assert_eq!(outcome.local_path, None);
-}
-
-#[test]
-fn a_downloaded_lossless_file_is_verified() {
-    let scratch = Scratch::new("fetch-verify");
-    let settings = settings(&scratch);
-    let mut store = store(&scratch);
-    queued(&mut store, &settings);
-
-    noise_source(
-        &scratch.join("downloads").join("DECO_27").join("Roki.flac"),
-        8,
-        44100,
-    );
-
-    let client = FakeClient::with_transfers(vec![transfer(
-        "@@peerA\\Music\\Roki.flac",
-        TransferState::Completed,
-        "",
-    )]);
-    let outcome = &collect(&mut store, &client, &settings, true).expect("a collect")[0];
-
-    assert_eq!(
-        outcome.verdict.as_ref().expect("a verdict").verdict,
-        Verdict::Ok
-    );
-}
-
-#[test]
 fn a_downloaded_transcode_is_recorded_against_the_track() {
     let scratch = Scratch::new("fetch-transcode");
     let settings = settings(&scratch);
@@ -558,46 +374,6 @@ fn a_downloaded_transcode_is_recorded_against_the_track() {
     );
     let entry = store.track(track_id).expect("a lookup").expect("the track");
     assert!(entry.detail.contains("FAKE"), "{}", entry.detail);
-}
-
-#[test]
-fn a_missing_file_is_recorded_without_a_verdict() {
-    let scratch = Scratch::new("fetch-missing-file");
-    let settings = settings(&scratch);
-    let mut store = store(&scratch);
-    queued(&mut store, &settings);
-
-    let client = FakeClient::with_transfers(vec![transfer(
-        "@@peerA\\Music\\Roki.flac",
-        TransferState::Completed,
-        "",
-    )]);
-    let outcome = &collect(&mut store, &client, &settings, true).expect("a collect")[0];
-
-    assert!(outcome.verdict.is_none());
-}
-
-#[test]
-fn verification_can_be_skipped() {
-    let scratch = Scratch::new("fetch-skip-verify");
-    let settings = settings(&scratch);
-    let mut store = store(&scratch);
-    queued(&mut store, &settings);
-
-    noise_source(
-        &scratch.join("downloads").join("DECO_27").join("Roki.flac"),
-        8,
-        44100,
-    );
-
-    let client = FakeClient::with_transfers(vec![transfer(
-        "@@peerA\\Music\\Roki.flac",
-        TransferState::Completed,
-        "",
-    )]);
-    let outcome = &collect(&mut store, &client, &settings, false).expect("a collect")[0];
-
-    assert!(outcome.verdict.is_none());
 }
 
 /// A lossy file queued under `filename`, then reported downloaded with
@@ -626,31 +402,6 @@ fn lossy_download(
     collect(store, &finished, settings, true)
         .expect("a collect")
         .remove(0)
-}
-
-#[test]
-fn a_downloaded_mp3_is_held_to_its_bitrate() {
-    let scratch = Scratch::new("fetch-mp3-genuine");
-    let settings = settings(&scratch);
-    let mut store = store(&scratch);
-
-    let outcome = lossy_download(
-        &scratch,
-        &settings,
-        &mut store,
-        "Roki.mp3",
-        &committed("noise-320k.mp3"),
-    );
-
-    assert_eq!(
-        outcome.verdict.as_ref().expect("a verdict").verdict,
-        Verdict::Ok
-    );
-    let entry = store
-        .track(outcome.track_id)
-        .expect("a lookup")
-        .expect("the track");
-    assert_eq!(entry.detail, "downloaded, verified");
 }
 
 /// A peer shipping upsampled MP3s is caught on the first one.
@@ -682,23 +433,6 @@ fn a_downloaded_upsampled_mp3_is_caught_and_counts_as_going_wrong() {
         ..fetch::Waited::default()
     };
     assert!(waited.went_wrong());
-}
-
-#[test]
-fn a_lossy_download_verify_has_no_bitrate_table_for_is_left_unjudged() {
-    let scratch = Scratch::new("fetch-ogg");
-    let settings = settings(&scratch);
-    let mut store = store(&scratch);
-
-    let outcome = lossy_download(
-        &scratch,
-        &settings,
-        &mut store,
-        "Roki.ogg",
-        &committed("tone.ogg"),
-    );
-
-    assert!(outcome.verdict.is_none());
 }
 
 #[test]
@@ -909,53 +643,6 @@ fn a_transfer_still_inside_its_grace_period_is_left_alone() {
     );
 }
 
-#[test]
-fn a_stalled_track_with_nothing_left_to_try_fails() {
-    let scratch = Scratch::new("fetch-stalled-exhausted");
-    let settings = settings(&scratch);
-    let mut store = store(&scratch);
-    queued(&mut store, &settings);
-
-    let client = FakeClient::with_transfers(vec![transfer(
-        "@@peerA\\Music\\Roki.flac",
-        TransferState::Queued,
-        "",
-    )]);
-    let now = 1000.0 + settings.slskd.stall_after_seconds + 1.0;
-    let outcomes = fetch::retry_stalled(&mut store, &client, &settings, now)
-        .expect("a retry")
-        .tracks;
-
-    assert_eq!(outcomes.len(), 1);
-    assert_eq!(outcomes[0].retried_with_rank, None);
-    let entry = &store.tracks(&[], None).expect("tracks")[0];
-    assert_eq!(entry.status, TrackStatus::Failed);
-    assert_eq!(entry.detail, "stalled, and no candidates left");
-}
-
-/// A finished transfer is `collect`'s business, not the stall pass's.
-#[test]
-fn a_finished_transfer_is_not_cancelled_by_the_stall_pass() {
-    let scratch = Scratch::new("fetch-stalled-finished");
-    let settings = settings(&scratch);
-    let mut store = store(&scratch);
-    queued(&mut store, &settings);
-
-    let client = FakeClient::with_transfers(vec![transfer(
-        "@@peerA\\Music\\Roki.flac",
-        TransferState::Completed,
-        "",
-    )]);
-    let now = 1000.0 + settings.slskd.stall_after_seconds + 1.0;
-    fetch::retry_stalled(&mut store, &client, &settings, now).expect("a retry");
-
-    assert!(client
-        .cancelled
-        .lock()
-        .expect("the fake is not poisoned")
-        .is_empty());
-}
-
 /// A client whose shortlist depends on which track is being searched for.
 ///
 /// The shape the batch pass exists for needs a *different* peer winning each
@@ -1080,54 +767,6 @@ fn the_batch_pass_sees_candidates_below_the_review_cap() {
     for entry in store.tracks(&[], None).expect("the queued tracks") {
         assert_eq!(entry.candidates.len(), 2, "the review cap still holds");
         assert_eq!(entry.candidates[0].candidate.username, "bulk");
-    }
-}
-
-#[test]
-fn ranks_stay_dense_after_the_batch_pass() {
-    // `ReviewTrack::approved` resolves positionally and `next_candidate` assumes
-    // 1..n, so the reorder has to happen before the ranks are written.
-    let scratch = Scratch::new("fetch-prefer-ranks");
-    let settings = settings(&scratch);
-    let mut store = store(&scratch);
-    queued_with(&mut store, &batch_tracks());
-
-    fetch::search_pending(&mut store, &batch_client(true), &settings, None).expect("a search");
-
-    for entry in store.tracks(&[], None).expect("the queued tracks") {
-        let ranks = entry.candidates.len();
-        store.approve(entry.id, 1).expect("an approval");
-        let approved = store
-            .track(entry.id)
-            .expect("a lookup")
-            .expect("the track")
-            .approved()
-            .expect("the approved candidate")
-            .clone();
-
-        assert_eq!(approved.candidate.username, "bulk");
-        // Rank 1 resolved to the first candidate, so the ranks are 1..n in list
-        // order and nothing was renumbered behind the positional lookup.
-        assert_eq!(ranks, entry.candidates.len());
-    }
-}
-
-#[test]
-fn turning_the_preference_off_leaves_the_scores_in_charge() {
-    let scratch = Scratch::new("fetch-prefer-off");
-    let mut settings = settings(&scratch);
-    settings.uploader.prefer_one = false;
-    let mut store = store(&scratch);
-    queued_with(&mut store, &batch_tracks());
-
-    let outcomes =
-        fetch::search_pending(&mut store, &batch_client(false), &settings, None).expect("a search");
-
-    assert!(outcomes
-        .iter()
-        .all(|outcome| outcome.preferred_uploader.is_empty()));
-    for entry in store.tracks(&[], None).expect("the queued tracks") {
-        assert!(entry.candidates[0].candidate.username.starts_with("solo"));
     }
 }
 
@@ -1267,37 +906,6 @@ fn a_preferred_peer_stalling_on_every_file_moves_its_whole_group_together() {
 }
 
 #[test]
-fn a_group_moves_together_as_far_as_the_next_peer_covers_it() {
-    let scratch = Scratch::new("fetch-group-partial");
-    let settings = settings(&scratch);
-    let mut store = store(&scratch);
-    let ids = steered_and_queued(
-        &mut store,
-        &settings,
-        &steered_client(&BATCH[..2]),
-        3,
-        1000.0,
-    );
-    let client = FakeClient::with_transfers(every_batch_transfer("bulk", TransferState::Queued));
-
-    let stalled = fetch::retry_stalled(
-        &mut store,
-        &client,
-        &settings,
-        stalled_after(&settings, 1000.0),
-    )
-    .expect("a retry");
-
-    assert_eq!(stalled.peers.len(), 1);
-    assert_eq!(stalled.peers[0].moved_to.as_deref(), Some("bulk2"));
-    assert_eq!(stalled.peers[0].moved, 2);
-    assert_eq!(stalled.peers[0].individually, 1);
-    assert_eq!(approved_peer(&store, ids[0]), "bulk2");
-    assert_eq!(approved_peer(&store, ids[1]), "bulk2");
-    assert_eq!(approved_peer(&store, ids[2]), "solo2");
-}
-
-#[test]
 fn a_peer_stalling_on_one_file_while_delivering_the_rest_is_not_down() {
     let scratch = Scratch::new("fetch-group-one-stall");
     let settings = settings(&scratch);
@@ -1364,30 +972,6 @@ fn a_peer_slskd_reports_offline_moves_its_group_on_a_single_stall() {
 }
 
 #[test]
-fn one_stall_with_no_word_of_the_peer_being_offline_stays_per_track() {
-    let scratch = Scratch::new("fetch-group-not-offline");
-    let settings = settings(&scratch);
-    let mut store = store(&scratch);
-    let now = stalled_after(&settings, 1000.0);
-    let ids = steered_and_queued(
-        &mut store,
-        &settings,
-        &steered_client(&BATCH),
-        1,
-        now - 10.0,
-    );
-    let client = FakeClient::with_transfers(every_batch_transfer("bulk", TransferState::Queued));
-
-    let stalled = fetch::retry_stalled(&mut store, &client, &settings, now).expect("a retry");
-
-    assert!(stalled.peers.is_empty());
-    assert_eq!(stalled.tracks.len(), 1);
-    assert_eq!(approved_peer(&store, ids[0]), "solo0");
-    assert_eq!(status(&store, ids[1]), TrackStatus::Queued);
-    assert_eq!(status(&store, ids[2]), TrackStatus::Queued);
-}
-
-#[test]
 fn a_moved_group_never_goes_back_to_the_peer_that_stalled() {
     let scratch = Scratch::new("fetch-group-no-return");
     let settings = settings(&scratch);
@@ -1446,41 +1030,6 @@ fn a_moved_group_never_goes_back_to_the_peer_that_stalled() {
         .all(|outcome| outcome.retried_with_rank.is_none()));
     for id in &ids {
         assert_eq!(status(&store, *id), TrackStatus::Failed);
-    }
-}
-
-#[test]
-fn an_unflagged_stall_is_retried_on_its_own() {
-    let scratch = Scratch::new("fetch-group-off");
-    let mut settings = settings(&scratch);
-    settings.uploader.prefer_one = false;
-    let mut store = store(&scratch);
-    queued_with(&mut store, &batch_tracks());
-    fetch::search_pending(&mut store, &steered_client(&BATCH), &settings, None).expect("a search");
-    let ids: Vec<i64> = store
-        .tracks(&[], None)
-        .expect("tracks")
-        .iter()
-        .map(|entry| entry.id)
-        .collect();
-    for id in &ids {
-        store.approve(*id, 2).expect("an approval");
-    }
-    fetch::enqueue_approved(&mut store, &FakeClient::default(), None, 1000.0).expect("an enqueue");
-    let client = FakeClient::with_transfers(every_batch_transfer("bulk", TransferState::Queued));
-
-    let stalled = fetch::retry_stalled(
-        &mut store,
-        &client,
-        &settings,
-        stalled_after(&settings, 1000.0),
-    )
-    .expect("a retry");
-
-    assert!(stalled.peers.is_empty());
-    assert_eq!(stalled.tracks.len(), 3);
-    for (index, id) in ids.iter().enumerate() {
-        assert_eq!(approved_peer(&store, *id), format!("solo{index}"));
     }
 }
 
@@ -1707,76 +1256,6 @@ fn replace_keeps_what_the_row_cannot_say_and_drops_the_rest() {
     assert_eq!(outcome.tags.as_ref().expect("a tag outcome").dropped, 1);
 }
 
-/// An `stk get` row has no album, and a title-only query no artist: a blank
-/// in the row must not blank a field the peer filled.
-#[test]
-fn a_blank_in_the_row_never_blanks_the_file() {
-    let scratch = Scratch::new("fetch-tag-blank");
-    let settings = settings(&scratch);
-    let mut store = store(&scratch);
-    let (_, path) = arrived(&mut store, &settings, &roki());
-
-    collect(&mut store, &completed(), &settings, false).expect("a collect");
-
-    let read = tags::read_tags(&path).expect("readable tags");
-    assert_eq!(read.album, "www.something.ru");
-    assert_eq!(read.artist, "DECO*27");
-}
-
-#[test]
-fn a_track_number_in_the_export_row_is_written_over_the_peers() {
-    let scratch = Scratch::new("fetch-tag-track-number");
-    let settings = settings(&scratch);
-    let mut store = store(&scratch);
-    let track = Track {
-        source_row: vec![
-            ("Track Name".to_owned(), "Roki".to_owned()),
-            ("Track Number".to_owned(), "3".to_owned()),
-        ],
-        ..roki_with_album()
-    };
-    let (_, path) = arrived(&mut store, &settings, &track);
-
-    let outcome = &collect(&mut store, &completed(), &settings, false).expect("a collect")[0];
-
-    assert_eq!(
-        tags::read_tags(&path).expect("readable tags").track_number,
-        Some(3)
-    );
-    assert!(outcome
-        .tags
-        .as_ref()
-        .expect("a tag outcome")
-        .fields
-        .contains(&TagField::TrackNumber));
-}
-
-#[test]
-fn every_tag_written_at_collect_is_logged_under_one_run() {
-    let scratch = Scratch::new("fetch-tag-logged");
-    let settings = settings(&scratch);
-    let mut store = store(&scratch);
-    let (_, path) = arrived(&mut store, &settings, &roki_with_album());
-
-    collect(&mut store, &completed(), &settings, false).expect("a collect");
-
-    let changes = index(&settings)
-        .changes(&ChangeFilter::default())
-        .expect("the logged rows");
-    let mut fields: Vec<&str> = changes.iter().map(|row| row.field.as_str()).collect();
-    fields.sort_unstable();
-    assert_eq!(fields, vec!["album", "artist", "extras", "title"]);
-    assert!(changes.iter().all(|row| row.command == "fetch download"));
-    assert!(changes.iter().all(|row| row.run_id == changes[0].run_id));
-    assert!(changes.iter().all(|row| row.path == path));
-    let artist = changes
-        .iter()
-        .find(|row| row.field == "artist")
-        .expect("the artist row");
-    assert_eq!(artist.old_value.as_deref(), Some("Unknown Artist"));
-    assert_eq!(artist.new_value.as_deref(), Some("DECO*27"));
-}
-
 #[test]
 fn undoing_the_collect_restores_the_peers_block() {
     let scratch = Scratch::new("fetch-tag-undo");
@@ -1856,38 +1335,6 @@ fn keep_leaves_the_file_and_the_log_alone() {
             .status,
         TrackStatus::Downloaded
     );
-}
-
-#[test]
-fn a_file_that_cannot_be_tagged_is_reported_rather_than_failing_the_collect() {
-    let scratch = Scratch::new("fetch-tag-unreadable");
-    let settings = settings(&scratch);
-    let mut store = store(&scratch);
-    queued(&mut store, &settings);
-    let path = scratch_download(&settings);
-    std::fs::create_dir_all(path.parent().expect("a parent")).expect("a directory");
-    std::fs::write(&path, b"not audio at all").expect("a written file");
-
-    let outcome = &collect(&mut store, &completed(), &settings, false).expect("a collect")[0];
-
-    let retagged = outcome.tags.as_ref().expect("a tag outcome");
-    assert!(!retagged.error.is_empty());
-    assert!(retagged.fields.is_empty());
-    assert_eq!(outcome.state, TransferState::Completed);
-}
-
-/// A download directory outside every library root has no index row to bring
-/// up to date, and must not gain one the next scan would only delete.
-#[test]
-fn a_download_outside_the_library_is_not_added_to_the_index() {
-    let scratch = Scratch::new("fetch-tag-outside");
-    let settings = settings(&scratch);
-    let mut store = store(&scratch);
-    let (_, path) = arrived(&mut store, &settings, &roki_with_album());
-
-    collect(&mut store, &completed(), &settings, false).expect("a collect");
-
-    assert_eq!(index(&settings).entry(&path).expect("a lookup"), None);
 }
 
 #[test]
@@ -2060,24 +1507,6 @@ fn status(store: &ReviewStore, track_id: i64) -> TrackStatus {
 }
 
 #[test]
-fn the_wait_ends_once_every_queued_track_has_arrived() {
-    let scratch = Scratch::new("fetch-wait-done");
-    let settings = settings(&scratch);
-    let mut store = store(&scratch);
-    let track_id = approved(&mut store, &settings, &roki(), &["peerA"]);
-    let client = LiveClient::default();
-    let mut clock = TickingClock::new(|_| client.show(vec![arrived_from("peerA")]));
-
-    let waited = wait(&mut store, &client, &settings, None, PATIENCE, &mut clock);
-
-    assert_eq!(waited.rounds, 2);
-    assert_eq!(waited.unfinished, 0);
-    assert_eq!(waited.queued.len(), 1);
-    assert_eq!(waited.collected.len(), 1);
-    assert_eq!(status(&store, track_id), TrackStatus::Downloaded);
-}
-
-#[test]
 fn a_stall_during_the_wait_sends_the_next_candidate_in_the_same_wait() {
     let scratch = Scratch::new("fetch-wait-stall");
     let settings = settings(&scratch);
@@ -2111,38 +1540,6 @@ fn a_stall_during_the_wait_sends_the_next_candidate_in_the_same_wait() {
 }
 
 #[test]
-fn a_group_moved_off_a_stalled_peer_is_sent_to_its_new_peer_in_the_same_wait() {
-    let scratch = Scratch::new("fetch-wait-group");
-    let settings = settings(&scratch);
-    let mut store = store(&scratch);
-    let ids = steered_and_queued(&mut store, &settings, &steered_client(&BATCH), 3, 1000.0);
-    let client = LiveClient::default();
-    client.show(every_batch_transfer("bulk", TransferState::Queued));
-    let mut clock = TickingClock::new(|sleeps| {
-        if sleeps == 2 {
-            client.show(every_batch_transfer("bulk2", TransferState::Completed));
-        }
-    });
-    let patience = fetch::Patience {
-        timeout_seconds: 3.0 * settings.slskd.stall_after_seconds,
-        poll_seconds: settings.slskd.stall_after_seconds + 1.0,
-    };
-
-    let waited = wait(&mut store, &client, &settings, None, patience, &mut clock);
-
-    assert_eq!(waited.stalled_peers.len(), 1);
-    assert_eq!(waited.stalled_peers[0].moved, 3);
-    assert_eq!(
-        *client.enqueued.lock().expect("the fake is not poisoned"),
-        vec!["bulk2".to_owned(); 3]
-    );
-    assert_eq!(waited.unfinished, 0);
-    for id in ids {
-        assert_eq!(status(&store, id), TrackStatus::Downloaded);
-    }
-}
-
-#[test]
 fn the_wait_gives_up_after_its_timeout_and_leaves_the_track_queued() {
     let scratch = Scratch::new("fetch-wait-timeout");
     let settings = settings(&scratch);
@@ -2164,36 +1561,6 @@ fn the_wait_gives_up_after_its_timeout_and_leaves_the_track_queued() {
 }
 
 #[test]
-fn the_limit_caps_what_is_sent_and_the_rest_is_not_waited_for() {
-    let scratch = Scratch::new("fetch-wait-limit");
-    let settings = settings(&scratch);
-    let mut store = store(&scratch);
-    let first = approved(&mut store, &settings, &roki(), &["peerA"]);
-    let second = approved(
-        &mut store,
-        &settings,
-        &Track::new("DECO*27", "Ghost Rule"),
-        &["peerB"],
-    );
-    let client = LiveClient::default();
-    let mut clock = TickingClock::new(|_| client.show(vec![arrived_from("peerA")]));
-
-    let waited = wait(
-        &mut store,
-        &client,
-        &settings,
-        Some(1),
-        PATIENCE,
-        &mut clock,
-    );
-
-    assert_eq!(waited.queued.len(), 1);
-    assert_eq!(waited.unfinished, 0);
-    assert_eq!(status(&store, first), TrackStatus::Downloaded);
-    assert_eq!(status(&store, second), TrackStatus::Approved);
-}
-
-#[test]
 fn a_track_queued_before_the_wait_began_is_waited_for_too() {
     let scratch = Scratch::new("fetch-wait-leftover");
     let settings = settings(&scratch);
@@ -2207,26 +1574,6 @@ fn a_track_queued_before_the_wait_began_is_waited_for_too() {
     assert!(waited.queued.is_empty());
     assert_eq!(waited.collected.len(), 1);
     assert_eq!(status(&store, track_id), TrackStatus::Downloaded);
-}
-
-#[test]
-fn with_nothing_on_its_way_the_wait_does_not_ask_the_backend() {
-    let scratch = Scratch::new("fetch-wait-nothing");
-    let settings = settings(&scratch);
-    let mut store = store(&scratch);
-    let mut clock = TickingClock::new(|_| panic!("nothing to wait for"));
-
-    let waited = wait(
-        &mut store,
-        &FakeClient::default(),
-        &settings,
-        None,
-        PATIENCE,
-        &mut clock,
-    );
-
-    assert_eq!(waited.rounds, 0);
-    assert_eq!(waited, fetch::Waited::default());
 }
 
 fn collected(

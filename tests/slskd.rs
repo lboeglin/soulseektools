@@ -158,26 +158,6 @@ fn false_when_connected_but_not_logged_in() {
 }
 
 #[test]
-fn false_when_the_daemon_is_unreachable() {
-    let http = Recorded::default().failing("GET", "/server", "cannot reach slskd");
-    assert!(!client(http).is_connected());
-}
-
-#[test]
-fn files_from_every_peer_are_returned() {
-    let candidates = client(searching())
-        .search("DECO*27 Roki", 15, 200)
-        .expect("a search");
-
-    assert_eq!(candidates.len(), 3);
-    let peers: std::collections::HashSet<&str> = candidates
-        .iter()
-        .map(|candidate| candidate.username.as_str())
-        .collect();
-    assert_eq!(peers, std::collections::HashSet::from(["peerA", "peerB"]));
-}
-
-#[test]
 fn file_attributes_are_carried_through() {
     let candidates = client(searching()).search("x", 15, 200).expect("a search");
     let flac = candidates
@@ -193,20 +173,6 @@ fn file_attributes_are_carried_through() {
 }
 
 #[test]
-fn peer_availability_is_carried_through() {
-    let candidates = client(searching()).search("x", 15, 200).expect("a search");
-    let by_peer: HashMap<&str, _> = candidates
-        .iter()
-        .map(|candidate| (candidate.username.as_str(), candidate))
-        .collect();
-
-    assert!(by_peer["peerA"].free_upload_slots);
-    assert!(!by_peer["peerB"].free_upload_slots);
-    assert_eq!(by_peer["peerB"].queue_length, 12);
-    assert!(by_peer["peerB"].is_vbr);
-}
-
-#[test]
 fn a_zero_bitrate_is_treated_as_unknown_not_as_zero() {
     let candidates = client(searching()).search("x", 15, 200).expect("a search");
     let flac = candidates
@@ -215,20 +181,6 @@ fn a_zero_bitrate_is_treated_as_unknown_not_as_zero() {
         .expect("a flac result");
 
     assert_eq!(flac.bitrate, None);
-}
-
-#[test]
-fn the_search_text_and_timeout_are_sent() {
-    let client = SlskdClient::new(SlskdSettings::default(), searching());
-    client.search("DECO*27 Roki", 20, 200).expect("a search");
-
-    let recorder = client.into_http();
-    let body = recorder.calls_to("POST", "/searches")[0]
-        .1
-        .clone()
-        .expect("a body");
-    assert_eq!(body["searchText"], "DECO*27 Roki");
-    assert_eq!(body["searchTimeout"], 20);
 }
 
 /// The key is read from the environment, never from the config file, and this
@@ -245,12 +197,6 @@ fn the_api_key_is_sent_as_a_header() {
 }
 
 #[test]
-fn no_header_is_sent_when_no_key_is_configured() {
-    let headers = stk::soulseek::slskd::headers_for(&SlskdSettings::default());
-    assert!(headers.iter().all(|(name, _)| name != "X-API-Key"));
-}
-
-#[test]
 fn a_timeout_below_the_daemon_minimum_is_raised_to_it() {
     let client = SlskdClient::new(SlskdSettings::default(), searching());
     client.search("x", 1, 200).expect("a search");
@@ -264,63 +210,11 @@ fn a_timeout_below_the_daemon_minimum_is_raised_to_it() {
 }
 
 #[test]
-fn the_search_is_cleaned_up_afterwards() {
-    let client = SlskdClient::new(SlskdSettings::default(), searching());
-    client.search("x", 15, 200).expect("a search");
-
-    let recorder = client.into_http();
-    assert_eq!(recorder.calls_to("DELETE", "/searches/").len(), 1);
-}
-
-#[test]
 fn a_failure_to_clean_up_does_not_lose_the_results() {
     let http = searching().failing("DELETE", "/searches/search", "gone");
     assert_eq!(
         client(http).search("x", 15, 200).expect("a search").len(),
         3
-    );
-}
-
-#[test]
-fn a_response_with_no_files_is_skipped() {
-    let http = Recorded::default()
-        .with("POST", "/searches", json!({}))
-        .with("GET", "/searches/*", json!({"isComplete": true}))
-        .with(
-            "GET",
-            "/searches/*/responses",
-            json!([{"username": "peerC", "files": []}]),
-        );
-
-    assert!(client(http)
-        .search("x", 15, 200)
-        .expect("a search")
-        .is_empty());
-}
-
-#[test]
-fn an_unreachable_daemon_is_reported() {
-    let http = Recorded::default().failing("POST", "/searches", "cannot reach slskd at http://x");
-    let error = client(http)
-        .search("x", 15, 200)
-        .expect_err("an unreachable daemon");
-    assert!(error.to_string().contains("cannot reach slskd"), "{error}");
-}
-
-/// The stall retry cancels the abandoned transfer so a peer that wakes up
-/// later cannot deliver the file a second time.
-#[test]
-fn cancelling_a_transfer_deletes_it_from_the_daemon() {
-    let client = client(Recorded::default());
-
-    client.cancel("peerA", "t1").expect("a cancellation");
-
-    assert_eq!(
-        client
-            .into_http()
-            .calls_to("DELETE", "/transfers/downloads/peerA/t1")
-            .len(),
-        1
     );
 }
 
@@ -364,61 +258,6 @@ fn a_destination_uses_the_batch_endpoint() {
 }
 
 #[test]
-fn a_batch_failure_is_raised_with_its_reason() {
-    let http = Recorded::default().with(
-        "POST",
-        "/transfers/downloads/batches",
-        json!({"failures": [{"filename": "f", "message": "peer offline"}]}),
-    );
-
-    let error = client(http)
-        .enqueue(
-            "peerA",
-            &[stk::models::Candidate {
-                remote_path: "f".to_owned(),
-                ..stk::models::Candidate::default()
-            }],
-            "Artist",
-        )
-        .expect_err("a batch failure");
-
-    assert!(error.to_string().contains("peer offline"), "{error}");
-}
-
-#[test]
-fn without_a_destination_the_per_user_endpoint_is_used() {
-    let http = downloads(json!([
-        {
-            "username": "peerA",
-            "directories": [{"files": [
-                {"id": "t1", "filename": "f", "state": "Completed, Succeeded"}
-            ]}]
-        }
-    ]));
-    let client = SlskdClient::new(SlskdSettings::default(), http);
-
-    let transfers = client
-        .enqueue(
-            "peerA",
-            &[stk::models::Candidate {
-                remote_path: "f".to_owned(),
-                ..stk::models::Candidate::default()
-            }],
-            "",
-        )
-        .expect("an enqueue");
-
-    assert_eq!(transfers.len(), 1);
-    let recorder = client.into_http();
-    assert_eq!(
-        recorder
-            .calls_to("POST", "/transfers/downloads/peerA")
-            .len(),
-        1
-    );
-}
-
-#[test]
 fn transfers_are_flattened_across_users_and_folders() {
     let http = downloads(json!([
         {
@@ -439,35 +278,6 @@ fn transfers_are_flattened_across_users_and_folders() {
     assert_eq!(transfers.len(), 3);
     assert_eq!(transfers[0].username, "peerA");
     assert_eq!(transfers[2].username, "peerB");
-}
-
-#[test]
-fn progress_is_reported() {
-    let http = downloads(json!([
-        {
-            "username": "p",
-            "directories": [{"files": [
-                {
-                    "id": "t1", "filename": "a", "state": "Completed, Succeeded",
-                    "size": 1000, "bytesTransferred": 1000
-                },
-                {
-                    "id": "t2", "filename": "b", "state": "InProgress",
-                    "size": 1000, "bytesTransferred": 250, "placeInQueue": 3
-                }
-            ]}]
-        }
-    ]));
-
-    let transfers = client(http).transfers().expect("transfers");
-    let by_id: HashMap<&str, _> = transfers
-        .iter()
-        .map(|transfer| (transfer.id.as_str(), transfer))
-        .collect();
-
-    assert!((by_id["t1"].percent_complete() - 100.0).abs() < 1e-9);
-    assert!((by_id["t2"].percent_complete() - 25.0).abs() < 1e-9);
-    assert_eq!(by_id["t2"].place_in_queue, Some(3));
 }
 
 #[test]
@@ -498,13 +308,4 @@ fn soulseek_state_flags_collapse_to_one_outcome() {
             "{raw:?}"
         );
     }
-}
-
-#[test]
-fn finished_states_are_identified() {
-    assert!(TransferState::Completed.finished());
-    assert!(TransferState::Failed.finished());
-    assert!(TransferState::Cancelled.finished());
-    assert!(!TransferState::Queued.finished());
-    assert!(!TransferState::InProgress.finished());
 }

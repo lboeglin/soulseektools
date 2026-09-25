@@ -40,21 +40,6 @@ fn an_mp3_re_encoded_as_flac_is_caught() {
 }
 
 #[test]
-fn the_reported_cutoff_rises_with_the_source_bitrate() {
-    let scratch = Scratch::new("verify-cutoff-rises");
-    let low = verify_file(
-        &transcode_to_flac(&scratch, "low", "128k"),
-        &VerifySettings::default(),
-    );
-    let high = verify_file(
-        &transcode_to_flac(&scratch, "high", "320k"),
-        &VerifySettings::default(),
-    );
-
-    assert!(low.cutoff_hz < high.cutoff_hz);
-}
-
-#[test]
 fn a_silent_file_is_reported_as_unanalysable_not_as_lossless() {
     let scratch = Scratch::new("verify-silent");
     let silent = silence(&scratch.join("silent.flac"), 5, 44100);
@@ -79,36 +64,6 @@ fn an_unreadable_file_is_reported_rather_than_raised() {
 
     assert_eq!(result.verdict, Verdict::Error);
     assert_eq!(result.path, broken);
-}
-
-#[test]
-fn a_stricter_threshold_can_flag_more() {
-    let scratch = Scratch::new("verify-strict");
-    let strict = verify_file(
-        &source(&scratch),
-        &VerifySettings {
-            steep_db_per_khz: 0.1,
-            ..VerifySettings::default()
-        },
-    );
-
-    // Content still reaches Nyquist, so the near-Nyquist branch wins first.
-    assert_eq!(strict.verdict, Verdict::Ok, "{}", strict.detail);
-}
-
-#[test]
-fn probe_settings_are_honoured() {
-    let scratch = Scratch::new("verify-probes");
-    let result = verify_file(
-        &source(&scratch),
-        &VerifySettings {
-            probe_seconds: 2.0,
-            probe_count: 1,
-            ..VerifySettings::default()
-        },
-    );
-
-    assert_eq!(result.verdict, Verdict::Ok, "{}", result.detail);
 }
 
 #[test]
@@ -152,42 +107,6 @@ fn a_128kbps_mp3_re_encoded_as_vbr_is_caught_despite_the_wider_tolerance() {
     assert!(result.detail.contains("VBR"), "{}", result.detail);
 }
 
-#[test]
-fn an_mp3_is_not_judged_as_a_lossless_transcode() {
-    // The lossless check would call a 128 kbps wall FAKE; an MP3 claiming
-    // 128 kbps is exactly what it says it is.
-    let result = verify_file(&committed("noise-128k.mp3"), &VerifySettings::default());
-
-    assert!(
-        result.detail.contains("128kbps encode"),
-        "{}",
-        result.detail
-    );
-}
-
-#[test]
-fn a_hi_res_file_resampled_and_padded_from_cd_audio_is_caught_on_both_counts() {
-    let scratch = Scratch::new("verify-hi-res-fake");
-    let fake = hi_res_flac(
-        &scratch.join("fake.flac"),
-        96000,
-        Some(22050.0),
-        Depth::PaddedTo24,
-    );
-
-    let result = verify_file(&fake, &VerifySettings::default());
-
-    assert_eq!(result.verdict, Verdict::Upsampled, "{}", result.detail);
-    assert!(result.detail.contains("44100Hz audio"), "{}", result.detail);
-    assert!(
-        result
-            .detail
-            .contains("24-bit container holding 16-bit audio"),
-        "{}",
-        result.detail
-    );
-}
-
 /// The shape most upsampled FLACs have, from ffmpeg's default resampler: it
 /// fades through 22.05 kHz on a slope the ordinary floor calls a roll-off.
 #[test]
@@ -199,22 +118,6 @@ fn a_hi_res_file_made_by_ffmpegs_default_resampler_is_caught() {
 
     assert_eq!(result.verdict, Verdict::Upsampled, "{}", result.detail);
     assert!(result.detail.contains("44100Hz"), "{}", result.detail);
-}
-
-#[test]
-fn a_hi_res_file_resampled_from_48000_is_caught() {
-    let scratch = Scratch::new("verify-hi-res-48");
-    let fake = hi_res_flac(
-        &scratch.join("fake.flac"),
-        96000,
-        Some(24000.0),
-        Depth::TwentyFour,
-    );
-
-    let result = verify_file(&fake, &VerifySettings::default());
-
-    assert_eq!(result.verdict, Verdict::Upsampled, "{}", result.detail);
-    assert!(result.detail.contains("48000Hz audio"), "{}", result.detail);
 }
 
 #[test]

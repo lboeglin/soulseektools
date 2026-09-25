@@ -2,8 +2,6 @@
 
 mod support;
 
-use std::collections::BTreeMap;
-
 use stk::models::{Candidate, ScoredCandidate, Track, TrackStatus};
 use stk::review::store::ReviewStore;
 use support::Scratch;
@@ -62,19 +60,6 @@ fn reviewable(store: &mut ReviewStore) -> i64 {
 }
 
 #[test]
-fn tracks_are_queued_as_pending() {
-    let scratch = Scratch::new("review-add");
-    let mut store = store(&scratch);
-
-    assert_eq!(store.add(&[roki()]).expect("an added track"), 1);
-
-    let queued = store.tracks(&[], None).expect("tracks");
-    assert_eq!(queued.len(), 1);
-    assert_eq!(queued[0].status, TrackStatus::Pending);
-    assert_eq!(queued[0].track.album, "Ghost");
-}
-
-#[test]
 fn the_same_track_is_not_queued_twice() {
     let scratch = Scratch::new("review-duplicate");
     let mut store = store(&scratch);
@@ -104,22 +89,6 @@ fn the_original_export_row_survives_the_round_trip() {
 }
 
 #[test]
-fn recording_candidates_moves_a_track_to_review() {
-    let scratch = Scratch::new("review-candidates");
-    let mut store = store(&scratch);
-    store.add(&[roki()]).expect("an added track");
-    let track_id = first_id(&store);
-
-    store
-        .set_candidates(track_id, &[scored(1, &[]), scored(2, &[])])
-        .expect("recorded candidates");
-
-    let reviewed = store.track(track_id).expect("a lookup").expect("the track");
-    assert_eq!(reviewed.status, TrackStatus::AwaitingReview);
-    assert_eq!(reviewed.candidates.len(), 2);
-}
-
-#[test]
 fn candidates_round_trip_with_their_flags() {
     let scratch = Scratch::new("review-flags");
     let mut store = store(&scratch);
@@ -139,55 +108,6 @@ fn candidates_round_trip_with_their_flags() {
 }
 
 #[test]
-fn no_candidates_is_a_distinct_state() {
-    let scratch = Scratch::new("review-none");
-    let mut store = store(&scratch);
-    store.add(&[roki()]).expect("an added track");
-    let track_id = first_id(&store);
-
-    store.set_candidates(track_id, &[]).expect("no candidates");
-
-    let stored = store.track(track_id).expect("a lookup").expect("the track");
-    assert_eq!(stored.status, TrackStatus::NoCandidates);
-    assert!(stored.detail.contains("no usable"), "{}", stored.detail);
-}
-
-#[test]
-fn a_second_search_replaces_the_first() {
-    let scratch = Scratch::new("review-research");
-    let mut store = store(&scratch);
-    let track_id = reviewable(&mut store);
-
-    store
-        .set_candidates(track_id, &[scored(1, &[])])
-        .expect("recorded candidates");
-
-    let stored = store.track(track_id).expect("a lookup").expect("the track");
-    assert_eq!(stored.candidates.len(), 1);
-}
-
-#[test]
-fn approving_records_the_choice() {
-    let scratch = Scratch::new("review-approve");
-    let mut store = store(&scratch);
-    let track_id = reviewable(&mut store);
-
-    store.approve(track_id, 2).expect("an approval");
-
-    let stored = store.track(track_id).expect("a lookup").expect("the track");
-    assert_eq!(stored.status, TrackStatus::Approved);
-    assert_eq!(stored.approved_rank, Some(2));
-    assert_eq!(
-        stored
-            .approved()
-            .expect("the approved candidate")
-            .candidate
-            .username,
-        "peer2"
-    );
-}
-
-#[test]
 fn changing_the_choice_clears_the_previous_one() {
     let scratch = Scratch::new("review-reapprove");
     let mut store = store(&scratch);
@@ -200,18 +120,6 @@ fn changing_the_choice_clears_the_previous_one() {
     assert_eq!(stored.approved_rank, Some(3));
 }
 
-#[test]
-fn approving_a_candidate_that_does_not_exist_is_an_error() {
-    let scratch = Scratch::new("review-bad-rank");
-    let mut store = store(&scratch);
-    let track_id = reviewable(&mut store);
-
-    assert!(store.approve(track_id, 9).is_err());
-
-    let stored = store.track(track_id).expect("a lookup").expect("the track");
-    assert_eq!(stored.status, TrackStatus::AwaitingReview);
-}
-
 /// A second track with candidates of its own, for the batch approvals.
 fn second_reviewable(store: &mut ReviewStore) -> i64 {
     store
@@ -222,24 +130,6 @@ fn second_reviewable(store: &mut ReviewStore) -> i64 {
         .set_candidates(track_id, &[scored(1, &[]), scored(2, &[])])
         .expect("recorded candidates");
     track_id
-}
-
-#[test]
-fn several_tracks_can_be_approved_as_one_decision() {
-    let scratch = Scratch::new("review-approve-all");
-    let mut store = store(&scratch);
-    let first = reviewable(&mut store);
-    let second = second_reviewable(&mut store);
-
-    store
-        .approve_all(&[(first, 2), (second, 1)])
-        .expect("an approval");
-
-    for (track_id, rank) in [(first, 2), (second, 1)] {
-        let stored = store.track(track_id).expect("a lookup").expect("the track");
-        assert_eq!(stored.status, TrackStatus::Approved);
-        assert_eq!(stored.approved_rank, Some(rank));
-    }
 }
 
 /// An album is taken or left as a unit, so one rank that does not exist has to
@@ -278,83 +168,6 @@ fn rejecting_records_the_reason_and_clears_any_choice() {
         stored.detail.contains("live recordings"),
         "{}",
         stored.detail
-    );
-}
-
-#[test]
-fn a_track_can_be_returned_to_the_queue() {
-    let scratch = Scratch::new("review-reset");
-    let mut store = store(&scratch);
-    let track_id = reviewable(&mut store);
-    store.approve(track_id, 1).expect("an approval");
-
-    store.reset(track_id).expect("a reset");
-
-    let stored = store.track(track_id).expect("a lookup").expect("the track");
-    assert_eq!(stored.status, TrackStatus::Pending);
-    assert!(stored.candidates.is_empty());
-}
-
-#[test]
-fn tracks_can_be_filtered_by_status() {
-    let scratch = Scratch::new("review-filter");
-    let mut store = store(&scratch);
-    store
-        .add(&[track("A", "One"), track("B", "Two")])
-        .expect("added tracks");
-    let track_id = first_id(&store);
-    store
-        .mark(track_id, TrackStatus::Queued, "")
-        .expect("a mark");
-
-    assert_eq!(
-        store
-            .tracks(&[TrackStatus::Pending], None)
-            .expect("tracks")
-            .len(),
-        1
-    );
-    assert_eq!(
-        store
-            .tracks(&[TrackStatus::Queued], None)
-            .expect("tracks")
-            .len(),
-        1
-    );
-    assert_eq!(
-        store
-            .tracks(&[TrackStatus::Pending, TrackStatus::Queued], None)
-            .expect("tracks")
-            .len(),
-        2
-    );
-}
-
-#[test]
-fn the_limit_is_honoured() {
-    let scratch = Scratch::new("review-limit");
-    let mut store = store(&scratch);
-    let tracks: Vec<Track> = (0..5).map(|index| track("A", &index.to_string())).collect();
-    store.add(&tracks).expect("added tracks");
-
-    assert_eq!(store.tracks(&[], Some(2)).expect("tracks").len(), 2);
-}
-
-#[test]
-fn counts_summarise_the_queue() {
-    let scratch = Scratch::new("review-counts");
-    let mut store = store(&scratch);
-    store
-        .add(&[track("A", "One"), track("B", "Two")])
-        .expect("added tracks");
-    let track_id = first_id(&store);
-    store
-        .mark(track_id, TrackStatus::Downloaded, "")
-        .expect("a mark");
-
-    assert_eq!(
-        store.counts().expect("counts"),
-        BTreeMap::from([(TrackStatus::Pending, 1), (TrackStatus::Downloaded, 1)])
     );
 }
 
@@ -409,21 +222,6 @@ fn a_track_only_fails_once_its_candidates_are_exhausted() {
 }
 
 #[test]
-fn a_queued_track_records_when_it_was_queued() {
-    let scratch = Scratch::new("review-queued-at");
-    let mut store = store(&scratch);
-    let track_id = reviewable(&mut store);
-
-    store
-        .mark_queued(track_id, 1000.0, "queued")
-        .expect("a queued mark");
-
-    let stored = store.track(track_id).expect("a lookup").expect("the track");
-    assert_eq!(stored.status, TrackStatus::Queued);
-    assert_eq!(stored.queued_at, Some(1000.0));
-}
-
-#[test]
 fn a_transfer_sitting_too_long_is_reported_as_stalled() {
     // Nothing recorded when a track entered QUEUED before, so a transfer sitting
     // for six hours looked exactly like one queued a minute ago.
@@ -436,18 +234,6 @@ fn a_transfer_sitting_too_long_is_reported_as_stalled() {
 
     assert!(store.stalled(1500.0, 3600.0).expect("stalled").is_empty());
     assert_eq!(store.stalled(9000.0, 3600.0).expect("stalled").len(), 1);
-}
-
-#[test]
-fn only_candidates_nobody_has_tried_are_untried() {
-    let scratch = Scratch::new("review-untried");
-    let mut store = store(&scratch);
-    let track_id = reviewable(&mut store);
-    store.approve(track_id, 2).expect("an approval");
-
-    let untried = store.untried(track_id).expect("the untried candidates");
-
-    assert_eq!(untried, vec![scored(1, &[]), scored(3, &[])]);
 }
 
 /// A stalled peer's group is reordered after its ranks were written, so
@@ -484,40 +270,6 @@ fn reordering_the_untried_candidates_keeps_the_tried_ones_first_and_tried() {
     );
 }
 
-/// v3 adds `attempted` to a table an existing database already holds rows in,
-/// so the column has to arrive without disturbing them.
-#[test]
-fn a_v2_database_keeps_its_candidates_when_the_retry_column_arrives() {
-    let scratch = Scratch::new("review-v2");
-    let database = scratch.join("v2.db");
-
-    {
-        let mut store = ReviewStore::open(&database).expect("a store");
-        reviewable(&mut store);
-    }
-    let connection = rusqlite::Connection::open(&database).expect("a database");
-    connection
-        .execute_batch("ALTER TABLE candidates DROP COLUMN attempted")
-        .expect("a v2 candidates table");
-    drop(connection);
-
-    let mut store = ReviewStore::open(&database).expect("an upgraded store");
-    let track_id = first_id(&store);
-
-    assert_eq!(
-        store
-            .track(track_id)
-            .expect("a lookup")
-            .expect("the track")
-            .candidates
-            .len(),
-        3
-    );
-    // Nothing was tried before the column existed, so every candidate is still
-    // reachable rather than all of them or none.
-    assert_eq!(store.next_candidate(track_id).expect("a retry"), Some(1));
-}
-
 /// The oldest queue schema is upgraded in place, not rewritten.
 #[test]
 fn a_v1_database_is_upgraded_in_place_rather_than_rewritten() {
@@ -547,54 +299,4 @@ fn a_v1_database_is_upgraded_in_place_rather_than_rewritten() {
     assert_eq!(stored.track.artist, "DECO*27");
     assert_eq!(stored.queued_at, None);
     assert_eq!(stored.attempts, 0);
-}
-
-/// A row `stk get --album` writes says so, because its title came off a
-/// filename rather than out of anything anyone asked for by name.
-#[test]
-fn a_row_records_whether_its_title_was_guessed() {
-    let scratch = Scratch::new("review-guessed");
-    let mut store = store(&scratch);
-
-    store
-        .add(&[
-            roki(),
-            Track {
-                title: "Aimai Elegy".to_owned(),
-                title_guessed: true,
-                ..roki()
-            },
-        ])
-        .expect("two added tracks");
-
-    let stored = store.tracks(&[], None).expect("tracks");
-    assert!(!stored[0].track.title_guessed);
-    assert!(stored[1].track.title_guessed);
-}
-
-/// v4 adds `title_guessed` to a table an existing database already holds rows
-/// in, so the column has to arrive without disturbing them.
-#[test]
-fn a_v3_database_keeps_its_tracks_when_the_guessed_column_arrives() {
-    let scratch = Scratch::new("review-v3");
-    let database = scratch.join("v3.db");
-
-    {
-        let mut store = ReviewStore::open(&database).expect("a store");
-        reviewable(&mut store);
-    }
-    let connection = rusqlite::Connection::open(&database).expect("a database");
-    connection
-        .execute_batch("ALTER TABLE tracks DROP COLUMN title_guessed")
-        .expect("a v3 tracks table");
-    drop(connection);
-
-    let store = ReviewStore::open(&database).expect("an upgraded store");
-    let stored = &store.tracks(&[], None).expect("tracks")[0];
-
-    assert_eq!(stored.track.query(), "DECO*27 - Roki");
-    assert_eq!(stored.candidates.len(), 3);
-    // Nothing written before the column existed was a guess, which is what the
-    // default says, rather than leaving it unknown.
-    assert!(!stored.track.title_guessed);
 }

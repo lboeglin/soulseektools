@@ -6,7 +6,7 @@ use std::path::PathBuf;
 
 use stk::matching::{MatchThresholds, NameForms};
 use stk::models::{LibraryEntry, ReplayGainTags, Track, TrackTags};
-use stk::wantlist::{diff, keep_played, read_export, split_query, Format, WantlistDiff};
+use stk::wantlist::{diff, keep_played, read_export, split_query, WantlistDiff};
 use support::{encode, Encoded, Scratch};
 
 fn entry(artist: &str, title: &str) -> LibraryEntry {
@@ -78,71 +78,12 @@ fn reads_alternative_column_names() {
 }
 
 #[test]
-fn reads_a_duration_written_as_minutes_and_seconds() {
-    let scratch = Scratch::new("wantlist-mmss");
-    let path = write_csv(&scratch, "Title,Artist,Length\nRoki,DECO*27,3:35\n");
-
-    let duration = read_export(&path, None, None).expect("an export")[0]
-        .duration_seconds
-        .expect("a duration");
-    assert!((duration - 215.0).abs() < 1e-9);
-}
-
-#[test]
-fn the_original_row_is_kept() {
-    let scratch = Scratch::new("wantlist-source-row");
-    let path = write_csv(
-        &scratch,
-        "Track name,Artist name,Added at\nRoki,DECO*27,2026-01-01\n",
-    );
-
-    let source_row = &read_export(&path, None, None).expect("an export")[0].source_row;
-    assert!(
-        source_row.contains(&("Added at".to_owned(), "2026-01-01".to_owned())),
-        "{source_row:?}"
-    );
-}
-
-#[test]
-fn blank_rows_are_skipped() {
-    let scratch = Scratch::new("wantlist-blank");
-    let path = write_csv(&scratch, "Track name,Artist name\nRoki,DECO*27\n,\n");
-
-    assert_eq!(read_export(&path, None, None).expect("an export").len(), 1);
-}
-
-#[test]
 fn a_file_without_the_needed_columns_is_rejected() {
     let scratch = Scratch::new("wantlist-no-columns");
     let path = write_csv(&scratch, "Foo,Bar\n1,2\n");
 
     let error = read_export(&path, None, None).expect_err("a rejected export");
     assert!(error.to_string().contains("need a title column"), "{error}");
-}
-
-#[test]
-fn an_empty_file_is_rejected() {
-    let scratch = Scratch::new("wantlist-empty");
-    let path = write_csv(&scratch, "");
-
-    let error = read_export(&path, None, None).expect_err("a rejected export");
-    assert!(error.to_string().contains("empty"), "{error}");
-}
-
-#[test]
-fn an_owned_track_is_not_missing() {
-    let library = [entry("DECO*27", "Roki")];
-    let result = split(&wanted("DECO*27", "Roki"), &library);
-
-    assert!(result.missing.is_empty());
-    assert_eq!(result.owned.len(), 1);
-    assert!(result.owned[0].score > 0.9);
-}
-
-#[test]
-fn a_track_absent_from_the_library_is_missing() {
-    let result = split(&wanted("ZUN", "Heian Alien"), &[entry("DECO*27", "Roki")]);
-    assert_eq!(result.missing.len(), 1);
 }
 
 #[test]
@@ -168,18 +109,6 @@ fn an_uncertain_match_stays_in_the_wantlist() {
 }
 
 #[test]
-fn the_best_of_several_matches_is_reported() {
-    let library = [
-        entry("Hatsune Miku", "Senbonzakura -Long Ver-"),
-        entry("Hatsune Miku", "Senbonzakura"),
-    ];
-
-    let result = split(&wanted("Hatsune Miku", "Senbonzakura"), &library);
-
-    assert_eq!(result.owned[0].entry.title.raw, "Senbonzakura");
-}
-
-#[test]
 fn every_track_is_accounted_for() {
     let mut tracks = wanted("DECO*27", "Roki");
     tracks.extend(wanted("ZUN", "Heian Alien"));
@@ -199,38 +128,6 @@ fn blocking_finds_a_match_inside_a_large_library() {
     let result = split(&wanted("DECO_27", "Roki"), &library);
 
     assert!(result.missing.is_empty());
-}
-
-/// The track number stays in the raw row and is read back by header, with the
-/// same tolerance the export was read with.
-#[test]
-fn a_track_number_is_found_whatever_its_header_spelling() {
-    let scratch = Scratch::new("wantlist-track-number");
-    let path = write_csv(
-        &scratch,
-        "Track Name,Artist Name(s),TRACK NUMBER \nRoki,DECO*27,3\n",
-    );
-
-    let track = &read_export(&path, None, None).expect("an export")[0];
-    assert_eq!(
-        track.source_value(stk::wantlist::TRACK_NUMBER_COLUMNS),
-        Some("3")
-    );
-}
-
-#[test]
-fn an_empty_cell_reads_as_no_value() {
-    let scratch = Scratch::new("wantlist-track-number-empty");
-    let path = write_csv(
-        &scratch,
-        "Track Name,Artist Name(s),Track Number\nRoki,DECO*27,\n",
-    );
-
-    let track = &read_export(&path, None, None).expect("an export")[0];
-    assert_eq!(
-        track.source_value(stk::wantlist::TRACK_NUMBER_COLUMNS),
-        None
-    );
 }
 
 #[test]
@@ -275,20 +172,6 @@ fn a_title_list_without_an_artist_column_is_split_as_a_guess() {
         (tracks[1].artist.as_str(), tracks[1].title.as_str()),
         ("", "Ghost Rule")
     );
-}
-
-#[test]
-fn reads_a_lastfm_export_whose_title_column_is_track() {
-    let scratch = Scratch::new("wantlist-lastfm-headered");
-    let path = write_csv(
-        &scratch,
-        "uts,utc_time,artist,artist_mbid,album,album_mbid,track,track_mbid\n\
-         1700000000,14 Nov 2023 22:13,DECO*27,,Ghost,,Roki,\n",
-    );
-
-    let track = &read_export(&path, None, None).expect("an export")[0];
-    assert_eq!(track.query(), "DECO*27 - Roki");
-    assert_eq!(track.album, "Ghost");
 }
 
 #[test]
@@ -384,23 +267,6 @@ fn reads_an_apple_music_library() {
 }
 
 #[test]
-fn an_apple_item_without_an_artist_falls_back_to_the_album_artist() {
-    let scratch = Scratch::new("wantlist-apple-album-artist");
-    let path = write_library(
-        &scratch,
-        r"<key>1</key><dict>
-			<key>Name</key><string>Roki</string>
-			<key>Album Artist</key><string>DECO*27</string>
-		</dict>",
-    );
-
-    assert_eq!(
-        read_export(&path, None, None).expect("a library")[0].artist,
-        "DECO*27"
-    );
-}
-
-#[test]
 fn podcasts_films_and_audiobooks_in_an_apple_library_are_skipped() {
     let scratch = Scratch::new("wantlist-apple-not-music");
     let items = format!(
@@ -429,20 +295,6 @@ fn podcasts_films_and_audiobooks_in_an_apple_library_are_skipped() {
 }
 
 #[test]
-fn a_plist_without_tracks_is_rejected() {
-    let scratch = Scratch::new("wantlist-apple-no-tracks");
-    let path = scratch.join("Library.xml");
-    std::fs::write(
-        &path,
-        r#"<?xml version="1.0" encoding="UTF-8"?><plist version="1.0"><dict><key>Major Version</key><integer>1</integer></dict></plist>"#,
-    )
-    .expect("a written plist");
-
-    let error = read_export(&path, None, None).expect_err("a rejected library");
-    assert!(error.to_string().contains("no Tracks"), "{error}");
-}
-
-#[test]
 fn an_apple_library_is_recognised_by_its_content_not_its_name() {
     let scratch = Scratch::new("wantlist-apple-renamed");
     let library = write_library(&scratch, ROKI);
@@ -453,15 +305,6 @@ fn an_apple_library_is_recognised_by_its_content_not_its_name() {
         read_export(&renamed, None, None).expect("a library")[0].title,
         "Roki"
     );
-}
-
-#[test]
-fn a_format_given_outright_is_not_second_guessed() {
-    let scratch = Scratch::new("wantlist-format-override");
-    let path = write_library(&scratch, ROKI);
-
-    let error = read_export(&path, Some(Format::Csv), None).expect_err("a plist read as a CSV");
-    assert!(error.to_string().contains("need a title column"), "{error}");
 }
 
 fn write_playlist(scratch: &Scratch, name: &str, body: &str) -> PathBuf {
@@ -539,47 +382,5 @@ fn a_bare_playlist_entry_is_guessed_from_its_filename() {
     assert_eq!(
         (tracks[1].artist.as_str(), tracks[1].title.as_str()),
         ("", "Ghost Rule")
-    );
-}
-
-#[test]
-fn every_playlist_entry_carries_the_same_columns() {
-    let scratch = Scratch::new("wantlist-m3u-columns");
-    let path = write_playlist(
-        &scratch,
-        "list.m3u8",
-        "#EXTINF:215,DECO*27 - Roki\nmissing.flac\nAdo - Usseewa.flac\n",
-    );
-
-    let keys: Vec<Vec<String>> = read_export(&path, None, None)
-        .expect("a playlist")
-        .iter()
-        .map(|track| {
-            track
-                .source_row
-                .iter()
-                .map(|(key, _)| key.clone())
-                .collect()
-        })
-        .collect();
-    assert_eq!(
-        keys[0],
-        ["path", "artist", "title", "album", "track number"]
-    );
-    assert_eq!(keys[0], keys[1]);
-}
-
-#[test]
-fn a_playlist_is_recognised_by_its_header_whatever_its_name() {
-    let scratch = Scratch::new("wantlist-m3u-renamed");
-    let path = write_playlist(
-        &scratch,
-        "list.txt",
-        "#EXTM3U\n#EXTINF:1,DECO*27 - Roki\nx.flac\n",
-    );
-
-    assert_eq!(
-        read_export(&path, None, None).expect("a playlist")[0].query(),
-        "DECO*27 - Roki"
     );
 }

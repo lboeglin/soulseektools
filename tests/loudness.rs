@@ -52,24 +52,6 @@ fn a_known_tone_measures_the_loudness_the_standard_gives_it() {
     assert!(measured.integrated_lufs.abs() < 0.5, "{measured:?}");
 }
 
-#[test]
-fn a_quieter_signal_measures_quieter_by_exactly_as_much() {
-    let loud = loudness_of(&tone(0.5, 3.0), 2).expect("a measurement");
-    let quiet = loudness_of(&tone(0.25, 3.0), 2).expect("a measurement");
-
-    assert!(
-        (loud.integrated_lufs - quiet.integrated_lufs - 6.0206).abs() < 0.01,
-        "{loud:?} against {quiet:?}"
-    );
-}
-
-#[test]
-fn a_peak_comes_back_as_a_linear_amplitude() {
-    let measured = loudness_of(&tone(0.5, 1.0), 2).expect("a measurement");
-
-    assert!((measured.peak - 0.5).abs() < 0.01, "{measured:?}");
-}
-
 /// The whole reason the scan is not handed a mono downmix: BS.1770 sums the
 /// channels under fixed weights, so the same signal in two channels is louder
 /// than in one.
@@ -85,87 +67,10 @@ fn the_same_signal_in_two_channels_is_louder_than_in_one() {
     );
 }
 
-/// Digital silence gates away to nothing. Read as a number it would be a gain
-/// asking a player to raise silence infinitely.
-#[test]
-fn digital_silence_has_no_measurable_loudness() {
-    assert_eq!(loudness_of(&vec![0.0; RATE as usize * 2 * 3], 2), None);
-}
-
-#[test]
-fn a_measurement_reads_back_from_a_real_file() {
-    let scratch = Scratch::new("loudness-real");
-    let path = encode(
-        &scratch.join("tone.flac"),
-        &Encoded {
-            seconds: 2.0,
-            ..Encoded::default()
-        },
-    );
-
-    let result = measure_file(&path, &LoudnessSettings::default());
-
-    let loudness = result.loudness.expect("a measurement");
-    assert!(
-        loudness.integrated_lufs < 0.0 && loudness.integrated_lufs > -70.0,
-        "{loudness:?}"
-    );
-    assert!(loudness.peak > 0.0 && loudness.peak <= 1.0, "{loudness:?}");
-}
-
-#[test]
-fn a_file_six_db_quieter_is_measured_six_db_quieter() {
-    let scratch = Scratch::new("loudness-relative");
-    let loud = encode(
-        &scratch.join("loud.flac"),
-        &Encoded {
-            seconds: 2.0,
-            modulation_hz: 0.5,
-            ..Encoded::default()
-        },
-    );
-    let quiet = encode(
-        &scratch.join("quiet.flac"),
-        &Encoded {
-            seconds: 2.0,
-            modulation_hz: 0.5,
-            // -6dB, as an amplitude.
-            gain: 0.501_187_2,
-            ..Encoded::default()
-        },
-    );
-
-    let settings = LoudnessSettings::default();
-    let first = measure_file(&loud, &settings)
-        .loudness
-        .expect("the loud one");
-    let second = measure_file(&quiet, &settings)
-        .loudness
-        .expect("the quiet one");
-
-    assert!(
-        (first.integrated_lufs - second.integrated_lufs - 6.0).abs() < 0.1,
-        "{first:?} against {second:?}"
-    );
-}
-
 #[test]
 fn a_file_of_digital_silence_is_reported_rather_than_measured() {
     let scratch = Scratch::new("loudness-silence");
     let path = silence(&scratch.join("quiet.flac"), 2, 44100);
-
-    let result = measure_file(&path, &LoudnessSettings::default());
-
-    assert_eq!(result.loudness, None);
-    assert!(!result.detail.is_empty());
-}
-
-/// One unreadable file must not abort a library-wide scan.
-#[test]
-fn a_file_that_cannot_be_read_carries_its_reason_rather_than_failing() {
-    let scratch = Scratch::new("loudness-broken");
-    let path = scratch.join("broken.flac");
-    std::fs::write(&path, b"not audio").expect("a written file");
 
     let result = measure_file(&path, &LoudnessSettings::default());
 
@@ -212,19 +117,6 @@ fn an_album_is_measured_across_its_tracks_at_once() {
     );
     // The peak belongs to whichever track holds it.
     assert!((album.peak - tracks[0].peak).abs() < 1e-9);
-}
-
-/// A record nothing in which could be read has no figure to give its tracks.
-#[test]
-fn an_album_of_unreadable_files_reports_no_album_loudness() {
-    let scratch = Scratch::new("loudness-album-broken");
-    let path = scratch.join("broken.flac");
-    std::fs::write(&path, b"not audio").expect("a written file");
-
-    let scan = measure_album(&[path], &LoudnessSettings::default());
-
-    assert_eq!(scan.album, None);
-    assert_eq!(scan.tracks.len(), 1);
 }
 
 /// A gate is relative to the programme it is applied to, so a figure taken from

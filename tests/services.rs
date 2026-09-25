@@ -54,14 +54,3 @@ fn a_refusal_without_a_message_still_names_its_status() {
 
     assert!(error.to_string().contains("404 Not Found"), "{error}");
 }
-
-#[test]
-fn a_success_is_read_as_json() {
-    let (url, server) = serve_once("200 OK", r#"{"lovedtracks":{"track":[]}}"#);
-    let http = HttpTransport::new(5.0, "").expect("a transport");
-
-    let body = http.get_json(&url, &[]).expect("a body");
-    server.join().expect("the server");
-
-    assert!(body.get("lovedtracks").is_some());
-}

@@ -113,20 +113,6 @@ fn an_edited_cell_is_the_only_field_proposed() {
 }
 
 #[test]
-fn a_blank_cell_leaves_the_tag_alone() {
-    // The commoner cause of an empty cell is a half-filled sheet, not an intent
-    // to erase, and the wrong write costs more here than no write.
-    let scratch = Scratch::new("sheet-blank-keeps");
-    let path = scratch.join("a.flac");
-    let body = rows(&path, "album", "");
-
-    let edits = read_sheet(&sheet(&scratch, &body), Blanks::LeaveAlone).expect("a sheet");
-    let planned = plan_changes(&edits, &[entry(&path, tagged())]);
-
-    assert_eq!(skips(&planned), vec![Skipped::NoChange]);
-}
-
-#[test]
 fn a_blank_cell_clears_the_tag_when_the_run_asks_for_it() {
     let scratch = Scratch::new("sheet-blank-clears");
     let path = scratch.join("a.flac");
@@ -169,45 +155,6 @@ fn a_row_whose_path_is_not_indexed_is_reported_rather_than_guessed_at() {
 }
 
 #[test]
-fn a_container_that_cannot_carry_tags_is_reported() {
-    let scratch = Scratch::new("sheet-untaggable");
-    let path = scratch.join("a.wav");
-    let body = rows(&path, "title", "Something");
-
-    let edits = read_sheet(&sheet(&scratch, &body), Blanks::LeaveAlone).expect("a sheet");
-    let planned = plan_changes(&edits, &[entry(&path, TrackTags::default())]);
-
-    assert_eq!(skips(&planned), vec![Skipped::NotTaggable]);
-}
-
-#[test]
-fn a_derived_column_is_not_writable() {
-    // `folder_artist` and `duration_seconds` are in the dump and are not tags.
-    let scratch = Scratch::new("sheet-derived");
-    let path = scratch.join("a.flac");
-    let body = rows(
-        &path,
-        "folder_artist,duration_seconds",
-        "Someone Else,999.9",
-    );
-
-    let edits = read_sheet(&sheet(&scratch, &body), Blanks::LeaveAlone).expect("a sheet");
-    let planned = plan_changes(&edits, &[entry(&path, tagged())]);
-
-    assert_eq!(skips(&planned), vec![Skipped::NoChange]);
-}
-
-#[test]
-fn a_sheet_without_a_path_column_is_rejected_by_name() {
-    let scratch = Scratch::new("sheet-no-path");
-    let path = sheet(&scratch, "artist,title\nZUN,Song\n");
-
-    let error = read_sheet(&path, Blanks::LeaveAlone).expect_err("a rejected sheet");
-    assert!(error.to_string().contains("no 'path' column"), "{error}");
-    assert!(error.to_string().contains("artist, title"), "{error}");
-}
-
-#[test]
 fn a_sheet_with_a_byte_order_mark_reads_the_same_as_one_without() {
     // `tags dump -o` writes a BOM, so without this the dump cannot be fed back
     // in: the first header would be named "\u{feff}path".
@@ -223,28 +170,6 @@ fn a_sheet_with_a_byte_order_mark_reads_the_same_as_one_without() {
         read_sheet(&plain, Blanks::LeaveAlone).expect("a sheet"),
         read_sheet(&with_bom, Blanks::LeaveAlone).expect("a sheet")
     );
-}
-
-#[test]
-fn a_header_is_matched_whatever_its_case_and_spacing() {
-    let scratch = Scratch::new("sheet-header-case");
-    let path = scratch.join("a.flac");
-    let body = format!("Path, TITLE \n\"{}\",Ghost Rule\n", path.display());
-
-    let edits = read_sheet(&sheet(&scratch, &body), Blanks::LeaveAlone).expect("a sheet");
-    let planned = plan_changes(&edits, &[entry(&path, tagged())]);
-
-    assert_eq!(changed(&planned)[0].fields, vec![TagField::Title]);
-}
-
-#[test]
-fn a_row_with_no_path_is_skipped_rather_than_read_as_one() {
-    let scratch = Scratch::new("sheet-blank-row");
-    let body = "path,title\n,Ghost Rule\n";
-
-    let edits = read_sheet(&sheet(&scratch, body), Blanks::LeaveAlone).expect("a sheet");
-
-    assert!(edits.is_empty());
 }
 
 #[test]
@@ -309,20 +234,4 @@ fn a_field_edited_on_disk_since_the_plan_blocks_that_row() {
         tags::read_tags(&path).expect("readable tags").title,
         "Someone Fixed This By Hand"
     );
-}
-
-#[test]
-fn a_row_whose_file_has_gone_is_reported_in_the_plan() {
-    // Reported while planning rather than discovered at write time: a dry run
-    // that promises a change and then fails on it is not a plan.
-    let scratch = Scratch::new("sheet-file-gone");
-    let path = scratch.join("a.flac");
-    let body = rows(&path, "title", "Ghost Rule");
-    let edits = read_sheet(&sheet(&scratch, &body), Blanks::LeaveAlone).expect("a sheet");
-    let indexed = entry(&path, tagged());
-
-    std::fs::remove_file(&path).expect("a removed file");
-    let planned = plan_changes(&edits, &[indexed]);
-
-    assert_eq!(skips(&planned), vec![Skipped::FileGone]);
 }

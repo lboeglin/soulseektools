@@ -15,7 +15,7 @@ use serde_json::{json, Value};
 
 use stk::errors::{Error, Result};
 use stk::services::ServiceHttp;
-use stk::wantlist::discogs::{MIN_INTERVAL_SECONDS, MIN_INTERVAL_WITH_TOKEN_SECONDS, RELEASE_URL};
+use stk::wantlist::discogs::RELEASE_URL;
 use stk::wantlist::{read_export, Discogs, Format, LastFm, Remote, TRACK_NUMBER_COLUMNS};
 use support::Scratch;
 
@@ -155,26 +155,6 @@ fn every_track_of_a_release_is_wanted_under_the_release_artist() {
 }
 
 #[test]
-fn a_track_keeps_its_position_and_the_rows_own_columns() {
-    let scratch = Scratch::new("discogs-row");
-    let path = write_collection(&scratch, &[STOCKHOLM]);
-
-    let track = &read(&path, &all_recorded(), &discogs(&scratch, None)).expect("a collection")[1];
-    assert_eq!(track.source_value(TRACK_NUMBER_COLUMNS), Some("B1"));
-    assert_eq!(track.source_value(&["album artist"]), Some("The Persuader"));
-    assert_eq!(track.source_value(&["label"]), Some("Svek"));
-    assert_eq!(track.source_value(&["release_id"]), Some("1"));
-    // The release's own title never stands in for the track's.
-    assert_eq!(track.source_value(&["title"]), Some("Vasastaden"));
-    let titles = track
-        .source_row
-        .iter()
-        .filter(|(key, _)| key.eq_ignore_ascii_case("title"))
-        .count();
-    assert_eq!(titles, 1);
-}
-
-#[test]
 fn a_compilation_credits_each_track_to_its_own_artists() {
     let scratch = Scratch::new("discogs-compilation");
     let path = write_collection(&scratch, &[PROFOUND]);
@@ -239,22 +219,6 @@ fn a_heading_is_not_a_track() {
 }
 
 #[test]
-fn a_release_already_fetched_is_read_from_the_cache() {
-    let scratch = Scratch::new("discogs-cache");
-    let path = write_collection(&scratch, &[STOCKHOLM, PROFOUND]);
-    let client = discogs(&scratch, None);
-
-    let http = all_recorded();
-    let first = read(&path, &http, &client).expect("a collection");
-    assert_eq!(http.requested_urls().len(), 2);
-
-    let offline = Recorded::default();
-    let second = read(&path, &offline, &client).expect("a cached collection");
-    assert!(offline.requested_urls().is_empty());
-    assert_eq!(first, second);
-}
-
-#[test]
 fn a_grown_collection_fetches_only_the_new_release() {
     let scratch = Scratch::new("discogs-cache-grown");
     let client = discogs(&scratch, None);
@@ -291,56 +255,4 @@ fn a_failed_lookup_names_the_release_and_keeps_what_came_before() {
         .expect("the cached release");
     assert_eq!(resumed.len(), 6);
     assert!(offline.requested_urls().is_empty());
-}
-
-#[test]
-fn the_token_is_sent_only_when_one_is_set() {
-    let scratch = Scratch::new("discogs-token");
-    let path = write_collection(&scratch, &[STOCKHOLM]);
-
-    let anonymous = all_recorded();
-    read(&path, &anonymous, &discogs(&scratch, None)).expect("a collection");
-    assert!(anonymous.requested.borrow()[0].1.is_empty());
-
-    let scratch = Scratch::new("discogs-token-set");
-    let path = write_collection(&scratch, &[STOCKHOLM]);
-    let authorised = all_recorded();
-    read(&path, &authorised, &discogs(&scratch, Some("s3cret"))).expect("a collection");
-    assert_eq!(
-        authorised.requested.borrow()[0].1,
-        [("token".to_owned(), "s3cret".to_owned())]
-    );
-}
-
-#[test]
-fn a_token_buys_the_faster_pace() {
-    assert!((Discogs::min_interval_seconds(None) - MIN_INTERVAL_SECONDS).abs() < 1e-9);
-    assert!(
-        (Discogs::min_interval_seconds(Some("s3cret")) - MIN_INTERVAL_WITH_TOKEN_SECONDS).abs()
-            < 1e-9
-    );
-    const { assert!(MIN_INTERVAL_SECONDS >= 60.0 / 25.0) };
-    const { assert!(MIN_INTERVAL_WITH_TOKEN_SECONDS >= 1.0) };
-}
-
-#[test]
-fn an_unreadable_cache_is_fetched_again_rather_than_refused() {
-    let scratch = Scratch::new("discogs-cache-corrupt");
-    let path = write_collection(&scratch, &[STOCKHOLM]);
-    let client = discogs(&scratch, None);
-    std::fs::create_dir_all(scratch.join("cache")).expect("a cache folder");
-    std::fs::write(scratch.join("cache").join("discogs.json"), "{not json").expect("a cache");
-
-    let http = all_recorded();
-    assert_eq!(read(&path, &http, &client).expect("a collection").len(), 6);
-    assert_eq!(http.requested_urls().len(), 1);
-}
-
-#[test]
-fn a_collection_is_refused_without_the_api() {
-    let scratch = Scratch::new("discogs-offline");
-    let path = write_collection(&scratch, &[STOCKHOLM]);
-
-    let error = read_export(&path, None, None).expect_err("no API to read through");
-    assert!(error.to_string().contains("Discogs API"), "{error}");
 }

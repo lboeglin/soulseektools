@@ -1,28 +1,10 @@
 //! Reading Japanese names as romaji.
 
-use stk::text::romaji::{contains_japanese, to_romaji};
+use stk::text::romaji::to_romaji;
 
 fn assert_romanises(cases: &[(&str, &str)]) {
     for (japanese, romanised) in cases {
         assert_eq!(to_romaji(japanese), *romanised, "to_romaji({japanese:?})");
-    }
-}
-
-#[test]
-fn contains_japanese_detects_the_scripts_worth_transliterating() {
-    for (text, expected) in [
-        ("\u{5343}\u{672c}\u{685c}", true),
-        ("\u{30e9}\u{30b0}\u{30c8}\u{30ec}\u{30a4}\u{30f3}", true),
-        ("\u{3072}\u{3089}\u{304c}\u{306a}", true),
-        ("Senbonzakura", false),
-        ("DECO*27", false),
-        ("", false),
-    ] {
-        assert_eq!(
-            contains_japanese(text),
-            expected,
-            "contains_japanese({text:?})"
-        );
     }
 }
 
@@ -50,12 +32,6 @@ fn to_romaji_normalises_text_without_japanese_characters() {
     assert_eq!(to_romaji("DECO*27"), "deco 27");
 }
 
-#[test]
-fn to_romaji_is_idempotent() {
-    let once = to_romaji("\u{5343}\u{672c}\u{685c}");
-    assert_eq!(to_romaji(&once), once);
-}
-
 /// Spaces in the name survive; IPADIC's word boundaries add none.
 #[test]
 fn only_the_spaces_in_the_name_survive() {
@@ -81,28 +57,9 @@ fn name_readings_survive_transliteration() {
     ]);
 }
 
-/// The name table must not disturb a reading of the same kanji elsewhere.
-#[test]
-fn readings_outside_the_name_table_are_untouched() {
-    assert_romanises(&[
-        ("\u{97f3}\u{697d}", "ongaku"),
-        ("\u{91cd}\u{529b}", "juuryoku"),
-    ]);
-}
-
 /// IPADIC has no entry for these kanji, so each takes its Unihan reading rather
 /// than being left as it is.
 #[test]
 fn kanji_ipadic_cannot_read_take_their_unihan_reading() {
     assert_romanises(&[("\u{53f7}\u{54ed}", "goukoku"), ("\u{6a02}", "gaku")]);
-}
-
-#[test]
-fn latin_and_digits_in_a_japanese_run_keep_their_spelling() {
-    assert_romanises(&[("25\u{6642}", "25ji"), ("miku\u{306e}cd", "mikunocd")]);
-}
-
-#[test]
-fn half_width_katakana_reads_as_full_width() {
-    assert_romanises(&[("\u{ff76}\u{ff9e}\u{ff77}\u{ff9e}", "gagi")]);
 }

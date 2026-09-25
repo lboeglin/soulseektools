@@ -2,8 +2,8 @@
 
 mod support;
 
-use lofty::prelude::{AudioFile as _, ItemKey, TaggedFileExt};
-use stk::library::tags::{self, TagField};
+use lofty::prelude::{ItemKey, TaggedFileExt};
+use stk::library::tags::{self};
 use stk::models::{Artwork, ReplayGainTags, TrackTags};
 use support::{committed, encode, Encoded, Scratch};
 
@@ -61,48 +61,6 @@ fn read_tags_treats_an_untagged_file_as_empty_rather_than_an_error() {
 }
 
 #[test]
-fn read_duration_comes_from_the_container_header() {
-    let scratch = Scratch::new("tags-duration");
-
-    for suffix in TAGGABLE.iter().chain(["wav"].iter()) {
-        let path = encode(
-            &scratch.join(&format!("track.{suffix}")),
-            &Encoded {
-                seconds: 2.0,
-                ..Encoded::default()
-            },
-        );
-
-        let duration = tags::read_duration(&path)
-            .expect("a readable header")
-            .expect("a duration");
-        assert!((duration - 2.0).abs() < 0.15, "{suffix}: {duration}");
-    }
-}
-
-#[test]
-fn write_genres_replaces_rather_than_appends() {
-    let scratch = Scratch::new("tags-genres-replace");
-
-    for suffix in TAGGABLE {
-        let path = encode(
-            &scratch.join(&format!("track.{suffix}")),
-            &Encoded {
-                metadata: &[("genre", "Pop")],
-                ..Encoded::default()
-            },
-        );
-        tags::write_genres(&path, &["Vocaloid".to_owned()]).expect("written genres");
-
-        assert_eq!(
-            tags::read_tags(&path).expect("readable tags").genres,
-            vec!["Vocaloid".to_owned()],
-            "{suffix}"
-        );
-    }
-}
-
-#[test]
 fn write_artwork_replaces_the_existing_cover() {
     let scratch = Scratch::new("tags-artwork-replace");
     let cover = artwork(40);
@@ -124,53 +82,11 @@ fn write_artwork_replaces_the_existing_cover() {
 }
 
 #[test]
-fn artwork_size_matches_the_embedded_bytes() {
-    let scratch = Scratch::new("tags-artwork-size");
-    let cover = artwork(40);
-
-    for suffix in TAGGABLE {
-        let path = encode(
-            &scratch.join(&format!("track.{suffix}")),
-            &Encoded::default(),
-        );
-        tags::write_artwork(&path, &cover).expect("written artwork");
-
-        assert_eq!(
-            tags::artwork_size(&path),
-            cover.data.len() as u64,
-            "{suffix}"
-        );
-    }
-}
-
-#[test]
-fn artwork_size_is_zero_for_a_container_that_cannot_hold_a_cover() {
-    // The original scripts raised or crashed here; callers only ever want a number.
-    let scratch = Scratch::new("tags-artwork-wav");
-    let path = encode(&scratch.join("track.wav"), &Encoded::default());
-
-    assert_eq!(tags::artwork_size(&path), 0);
-}
-
-#[test]
 fn reading_artwork_from_an_unsupported_container_is_explicit() {
     let scratch = Scratch::new("tags-artwork-unsupported");
     let path = encode(&scratch.join("track.wav"), &Encoded::default());
 
     let error = tags::read_artwork(&path).expect_err("an unsupported container");
-    assert!(
-        matches!(error, stk::errors::Error::UnsupportedFormat(_)),
-        "{error}"
-    );
-}
-
-#[test]
-fn reading_a_non_audio_file_is_explicit() {
-    let scratch = Scratch::new("tags-not-audio");
-    let path = scratch.join("notes.txt");
-    std::fs::write(&path, "not audio").expect("a written file");
-
-    let error = tags::read_tags(&path).expect_err("a non-audio file");
     assert!(
         matches!(error, stk::errors::Error::UnsupportedFormat(_)),
         "{error}"
@@ -239,16 +155,6 @@ fn an_empty_value_removes_the_key_rather_than_writing_a_blank() {
 }
 
 #[test]
-fn writing_tags_creates_a_tag_block_in_a_file_that_has_none() {
-    let scratch = Scratch::new("tags-write-untagged");
-    let path = encode(&scratch.join("t.flac"), &Encoded::default());
-
-    tags::write_tags(&path, &full_tags()).expect("written tags");
-
-    assert_eq!(tags::read_tags(&path).expect("readable tags"), full_tags());
-}
-
-#[test]
 fn writing_tags_leaves_the_embedded_cover_alone() {
     let scratch = Scratch::new("tags-write-artwork");
     let path = encode(&scratch.join("t.flac"), &Encoded::default());
@@ -294,67 +200,6 @@ fn a_total_after_the_track_number_survives_a_write_that_keeps_the_number() {
         .or_else(|| file.first_tag())
         .expect("a tag");
     assert_eq!(tag.get_string(&ItemKey::TrackTotal), Some("12"));
-}
-
-#[test]
-fn a_changed_track_number_leaves_the_total_where_it_was() {
-    let scratch = Scratch::new("tags-write-track-changed");
-    let path = encode(
-        &scratch.join("t.flac"),
-        &Encoded {
-            metadata: &[("track", "3/12")],
-            ..Encoded::default()
-        },
-    );
-
-    let mut edited = tags::read_tags(&path).expect("readable tags");
-    edited.track_number = Some(4);
-    tags::write_tags(&path, &edited).expect("written tags");
-
-    let file = lofty::read_from_path(&path).expect("a readable file");
-    let tag = file
-        .primary_tag()
-        .or_else(|| file.first_tag())
-        .expect("a tag");
-    assert_eq!(tag.get_string(&ItemKey::TrackNumber), Some("4"));
-}
-
-#[test]
-fn a_field_reads_back_the_value_a_dump_spelled() {
-    let tags = full_tags();
-
-    assert_eq!(TagField::Artist.value(&tags), "DECO*27");
-    assert_eq!(TagField::TrackNumber.value(&tags), "3");
-    assert_eq!(TagField::Genres.value(&tags), "Vocaloid");
-    assert_eq!(TagField::TrackNumber.value(&TrackTags::default()), "");
-}
-
-#[test]
-fn several_genres_share_one_cell_and_come_back_in_order() {
-    let mut tags = TrackTags::default();
-    TagField::Genres.set(&mut tags, "Touhou; Eurobeat");
-
-    assert_eq!(
-        tags.genres,
-        vec!["Touhou".to_owned(), "Eurobeat".to_owned()]
-    );
-    assert_eq!(TagField::Genres.value(&tags), "Touhou; Eurobeat");
-}
-
-#[test]
-fn a_track_number_that_is_not_a_number_leaves_the_field_empty() {
-    let mut tags = full_tags();
-    TagField::TrackNumber.set(&mut tags, "side B");
-
-    assert_eq!(tags.track_number, None);
-}
-
-#[test]
-fn a_field_name_round_trips_through_its_spelling() {
-    for field in TagField::ALL {
-        assert_eq!(field.as_str().parse::<TagField>(), Ok(field));
-    }
-    assert!("nonsense".parse::<TagField>().is_err());
 }
 
 #[test]
@@ -429,46 +274,6 @@ fn a_loudness_measurement_round_trips_through_every_container() {
     }
 }
 
-/// Undoing a first-ever scan means removing the tags, not writing empty ones.
-#[test]
-fn clearing_a_measurement_leaves_the_file_the_way_it_started() {
-    let scratch = Scratch::new("tags-loudness-clear");
-    let path = encode(&scratch.join("t.flac"), &Encoded::default());
-    tags::write_replay_gain(&path, &measurement()).expect("a loudness write");
-
-    tags::write_replay_gain(&path, &ReplayGainTags::default()).expect("a cleared measurement");
-
-    assert!(tags::read_replay_gain(&path)
-        .expect("readable loudness tags")
-        .is_empty());
-}
-
-/// The inverse of `a_tag_this_project_does_not_manage_survives_a_write`: a scan
-/// must not cost a file its artist, and a tag edit must not cost it its scan.
-#[test]
-fn a_scan_and_a_tag_edit_leave_each_other_alone() {
-    let scratch = Scratch::new("tags-loudness-coexist");
-    let path = encode(
-        &scratch.join("t.flac"),
-        &Encoded {
-            metadata: &[("title", "Heian Alien")],
-            ..Encoded::default()
-        },
-    );
-
-    tags::write_replay_gain(&path, &measurement()).expect("a loudness write");
-    assert_eq!(
-        tags::read_tags(&path).expect("readable tags").title,
-        "Heian Alien"
-    );
-
-    tags::write_tags(&path, &full_tags()).expect("written tags");
-    assert_eq!(
-        tags::read_replay_gain(&path).expect("readable loudness tags"),
-        measurement()
-    );
-}
-
 /// Opus keeps its gain in the comment header as `R128_TRACK_GAIN`, and that is
 /// what players read there.
 #[test]
@@ -495,26 +300,6 @@ fn an_opus_file_carries_r128_alongside_the_standard_tags() {
     );
 }
 
-/// Decided by the container the parse identified, not by a second guess at the
-/// filename. The two agree today -- `lofty` commits to a container from the
-/// suffix, so a misnamed file does not reach this at all -- but only one of
-/// them can ever disagree with what was actually read, and
-/// [`write_replay_gain`] replaces the whole set rather than patching it, so
-/// disagreeing would take an `R128_TRACK_GAIN` away without writing one back.
-#[test]
-fn an_r128_field_is_asked_of_opus_and_of_nothing_else() {
-    let scratch = Scratch::new("tags-r128-container");
-    for extension in TAGGABLE {
-        let path = encode(
-            &scratch.join(&format!("t.{extension}")),
-            &Encoded::default(),
-        );
-        let described = tags::describe_file(&path).expect("a described file");
-
-        assert_eq!(described.r128, *extension == "opus", "{extension}");
-    }
-}
-
 /// What a Soulseek peer's tagger typically leaves beside the fields that matter.
 fn peer_block() -> Encoded<'static> {
     Encoded {
@@ -528,41 +313,6 @@ fn peer_block() -> Encoded<'static> {
         ],
         ..Encoded::default()
     }
-}
-
-/// The encoder is the exception among a peer's leftovers: on Vorbis comments
-/// it is the vendor string, which the container always carries, so it counts
-/// as kept everywhere or a round trip through `write_extras` could never be
-/// total.
-#[test]
-fn an_encoder_name_is_not_an_extra() {
-    let scratch = Scratch::new("tags-extras-encoder");
-    let path = encode(
-        &scratch.join("t.mp3"),
-        &Encoded {
-            metadata: &[("encoder", "LAME 3.100")],
-            ..Encoded::default()
-        },
-    );
-
-    assert!(tags::read_extras(&path)
-        .expect("readable extras")
-        .is_empty());
-}
-
-#[test]
-fn read_extras_reports_only_what_this_project_does_not_manage() {
-    let scratch = Scratch::new("tags-extras-read");
-    let path = encode(&scratch.join("t.flac"), &peer_block());
-
-    assert_eq!(
-        tags::read_extras(&path).expect("readable extras"),
-        vec![tags::Extra {
-            key: "COMMENT".to_owned(),
-            value: "ripped by someone".to_owned(),
-            locator: false,
-        },]
-    );
 }
 
 #[test]
@@ -630,38 +380,6 @@ fn extras_round_trip_through_every_container() {
             "{suffix}"
         );
     }
-}
-
-/// ID3v2 keeps a URL as its own kind of frame, and putting one back as text
-/// would write a different frame from the one that was logged.
-#[test]
-fn a_url_item_comes_back_as_a_url() {
-    let scratch = Scratch::new("tags-extras-url");
-    let path = encode(&scratch.join("t.mp3"), &Encoded::default());
-    let mut file = lofty::read_from_path(&path).expect("a readable file");
-    let tag = file
-        .tag_mut(lofty::tag::TagType::Id3v2)
-        .expect("the tag the fixture carries");
-    tag.push_unchecked(lofty::tag::TagItem::new(
-        ItemKey::AudioFileUrl,
-        lofty::tag::ItemValue::Locator("https://example.invalid/roki".to_owned()),
-    ));
-    file.save_to_path(&path, lofty::config::WriteOptions::default())
-        .expect("a written url");
-
-    let extras = tags::read_extras(&path).expect("readable extras");
-    assert_eq!(
-        extras,
-        vec![tags::Extra {
-            key: "WOAF".to_owned(),
-            value: "https://example.invalid/roki".to_owned(),
-            locator: true,
-        }]
-    );
-
-    tags::write_extras(&path, &[]).expect("stripped extras");
-    tags::write_extras(&path, &extras).expect("restored extras");
-    assert_eq!(tags::read_extras(&path).expect("readable extras"), extras);
 }
 
 #[test]

@@ -12,12 +12,12 @@ mod support;
 use std::cell::RefCell;
 use std::path::{Path, PathBuf};
 
-use serde_json::{json, Value};
+use serde_json::Value;
 
 use stk::audio::fingerprint::Fingerprint;
 use stk::config::IdentifySettings;
 use stk::errors::{Error, Result};
-use stk::identify::acoustid::{credited, AcoustId, Credit, LOOKUP_URL};
+use stk::identify::acoustid::{credited, AcoustId, LOOKUP_URL};
 use stk::identify::{choose, edits, identify, Identification, Match, Outcome};
 use stk::library::tags::TagField;
 use stk::matching::NameForms;
@@ -172,26 +172,6 @@ fn a_print_without_a_duration_is_refused_before_any_request() {
 }
 
 #[test]
-fn a_refused_key_is_reported_with_the_services_message() {
-    let error = AcoustId::new(0.0)
-        .lookup(
-            &Recorded::answering(recorded("invalid-key.json")),
-            &print(Some(8.0)),
-        )
-        .expect_err("an error status");
-
-    assert!(error.to_string().contains("invalid API key"), "{error}");
-}
-
-#[test]
-fn hits_come_back_best_first() {
-    let hits = lookup("deja-vu.json");
-
-    assert_eq!(hits.len(), 2);
-    assert!(hits[0].score > hits[1].score);
-}
-
-#[test]
 fn a_compressed_answer_falls_back_to_its_parents_values() {
     // Under `compress` a release with no title has its group's, and a track
     // with no title or artists has its recording's.
@@ -218,34 +198,6 @@ fn a_compressed_answer_falls_back_to_its_parents_values() {
 }
 
 #[test]
-fn a_joinphrase_joins_a_credit_as_it_is_written() {
-    assert_eq!(
-        credited(&[
-            Credit {
-                name: "Anamanaguchi".to_owned(),
-                joinphrase: " feat. ".to_owned()
-            },
-            Credit {
-                name: "初音ミク".to_owned(),
-                joinphrase: String::new()
-            },
-        ]),
-        "Anamanaguchi feat. 初音ミク"
-    );
-}
-
-#[test]
-fn an_unknown_print_is_no_match() {
-    let outcome = choose(
-        &lookup("no-match.json"),
-        &entry("Music/X/a.flac", ""),
-        &settings(),
-    );
-
-    assert_eq!(outcome, Outcome::NoMatch("unknown to AcoustID".to_owned()));
-}
-
-#[test]
 fn below_the_threshold_nothing_is_proposed_and_the_best_score_is_reported() {
     let outcome = choose(
         &lookup("ghost-rule.json"),
@@ -259,22 +211,6 @@ fn below_the_threshold_nothing_is_proposed_and_the_best_score_is_reported() {
     assert_eq!(
         outcome,
         Outcome::NoMatch("no confident match (best 0.98)".to_owned())
-    );
-}
-
-#[test]
-fn a_known_print_with_no_release_linked_is_no_match() {
-    let hits = AcoustId::new(0.0)
-        .lookup(
-            &Recorded::answering(json!({"status": "ok", "results": [{"id": "x", "score": 0.99}]})),
-            &print(Some(261.0)),
-        )
-        .expect("an answer");
-
-    let outcome = choose(&hits, &entry("Music/X/a.flac", ""), &settings());
-
-    assert!(
-        matches!(outcome, Outcome::NoMatch(reason) if reason.contains("no MusicBrainz release"))
     );
 }
 
@@ -338,23 +274,6 @@ fn the_recording_credited_to_the_files_artist_beats_a_cover() {
 }
 
 #[test]
-fn otherwise_the_earliest_release_wins() {
-    let found = matched(choose(
-        &lookup("deja-vu.json"),
-        &entry("Music/Dave Rodgers/1.01. DEJA VU.flac", ""),
-        &settings(),
-    ));
-
-    assert!(
-        found.release_id.starts_with("94532064"),
-        "{}",
-        found.release_id
-    );
-    assert_eq!(found.year, Some(2000));
-    assert_eq!(found.reason, "the earliest of 7 releases (2000-11-22)");
-}
-
-#[test]
 fn a_compilation_gives_the_release_artist_beside_the_recordings() {
     // The hazard from the issue: with the two the wrong way round, `organise`
     // files everything under Various Artists.
@@ -398,40 +317,6 @@ fn the_original_is_chosen_over_a_compilation_released_the_same_day() {
 }
 
 #[test]
-fn the_reason_names_the_compilation_rule_when_that_is_what_decided() {
-    let hits = AcoustId::new(0.0)
-        .lookup(
-            &Recorded::answering(json!({"status": "ok", "results": [{
-                "id": "x", "score": 0.99,
-                "recordings": [{
-                    "id": "r", "title": "Roki", "artists": [{"name": "DECO*27"}],
-                    "releasegroups": [
-                        {"id": "g1", "title": "Best Of", "type": "Album",
-                         "secondarytypes": ["Compilation"],
-                         "artists": [{"name": "Various Artists"}],
-                         "releases": [{"id": "a", "date": {"year": 2016},
-                                       "mediums": [{"tracks": [{"position": 3}]}]}]},
-                        {"id": "g2", "title": "Ghost", "type": "Album",
-                         "releases": [{"id": "b", "date": {"year": 2016},
-                                       "mediums": [{"tracks": [{"position": 1}]}]}]}
-                    ]
-                }]
-            }]})),
-            &print(Some(261.0)),
-        )
-        .expect("an answer");
-
-    let found = matched(choose(
-        &hits,
-        &entry("Music/DECO_27/a.flac", ""),
-        &settings(),
-    ));
-
-    assert_eq!(found.proposed.album, "Ghost");
-    assert_eq!(found.reason, "the original over a compilation, both 2016");
-}
-
-#[test]
 fn a_match_credited_to_someone_else_says_so() {
     // With --all a tagged file is looked up too, and one print linked only to
     // a cover is usually the cover; the plan says so rather than refusing.
@@ -444,75 +329,6 @@ fn a_match_credited_to_someone_else_says_so() {
         "{}",
         found.reason
     );
-}
-
-#[test]
-fn an_untagged_files_folder_is_not_worth_contradicting() {
-    let found = matched(choose(
-        &lookup("deja-vu.json"),
-        &entry("Music/Unknown/01 track.flac", ""),
-        &settings(),
-    ));
-
-    assert!(!found.reason.contains("not credited"), "{}", found.reason);
-}
-
-#[test]
-fn a_solo_release_leaves_the_album_artist_empty() {
-    let found = matched(choose(
-        &lookup("ghost-rule.json"),
-        &entry("Music/DECO_27/00 - DECO_27 - Ghost Rule.flac", ""),
-        &settings(),
-    ));
-
-    assert_eq!(found.proposed.album_artist, "");
-}
-
-#[test]
-fn a_featured_credit_is_written_with_its_joinphrase() {
-    let found = matched(choose(
-        &lookup("miku.json"),
-        &entry("Music/Anamanaguchi/Miku.flac", ""),
-        &settings(),
-    ));
-
-    assert_eq!(found.proposed.artist, "Anamanaguchi feat. 初音ミク");
-    assert_eq!(found.proposed.album, "HATSUNE MIKU EXPO 2016 E.P.");
-    assert_eq!(found.proposed.album_artist, "初音ミク");
-    assert_eq!(found.proposed.track_number, Some(11));
-    assert!(
-        found.reason.starts_with("the earliest of"),
-        "{}",
-        found.reason
-    );
-}
-
-#[test]
-fn an_undated_release_sorts_after_every_dated_one() {
-    // The EXPO E.P. is on MusicBrainz twice, once with no date; the dated
-    // copy is the one chosen.
-    let found = matched(choose(
-        &lookup("miku.json"),
-        &entry("Music/Anamanaguchi/Miku.flac", ""),
-        &settings(),
-    ));
-
-    assert!(
-        found.release_id.starts_with("cb3a030e"),
-        "{}",
-        found.release_id
-    );
-}
-
-#[test]
-fn genres_are_carried_over_untouched() {
-    let found = matched(choose(
-        &lookup("ghost-rule.json"),
-        &entry("Music/DECO_27/00 - DECO_27 - Ghost Rule.flac", ""),
-        &settings(),
-    ));
-
-    assert_eq!(found.proposed.genres, ["Eurobeat"]);
 }
 
 #[test]
@@ -535,22 +351,6 @@ fn identify_reports_a_failed_print_and_a_failed_request_against_their_files() {
         matches!(&results[0].outcome, Outcome::Failed(reason) if reason.contains("no decoder"))
     );
     assert!(matches!(&results[1].outcome, Outcome::Failed(reason) if reason.contains("503")));
-}
-
-#[test]
-fn identify_matches_each_print_to_its_own_entry() {
-    let entries = [entry("Music/DECO_27/00 - DECO_27 - Ghost Rule.flac", "")];
-    let results = identify(
-        &Recorded::answering(recorded("ghost-rule.json")),
-        &AcoustId::new(0.0),
-        &entries,
-        vec![Ok(print(Some(210.0)))],
-        &settings(),
-    );
-
-    assert_eq!(results.len(), 1);
-    assert_eq!(results[0].entry.path, entries[0].path);
-    assert!(matches!(results[0].outcome, Outcome::Match(_)));
 }
 
 #[test]

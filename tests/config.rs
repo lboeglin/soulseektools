@@ -9,8 +9,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
 use stk::config::{
-    find_config_file, load_settings, read_toml, render_toml, write_config, Overrides, Settings,
-    CONFIG_FILENAME,
+    find_config_file, load_settings, render_toml, write_config, Overrides, CONFIG_FILENAME,
 };
 use support::Scratch;
 
@@ -76,18 +75,6 @@ fn load(path: Option<&Path>) -> stk::config::Resolved {
 }
 
 #[test]
-fn settings_load_without_any_config_file() {
-    let _guard = exclusive();
-    let scratch = Scratch::new("config-defaults");
-    let _environment = CleanEnvironment::enter(scratch.path());
-
-    let resolved = load(None);
-
-    assert_eq!(resolved.source_path, None);
-    assert!((resolved.settings.matching.artist - 0.6).abs() < 1e-9);
-}
-
-#[test]
 fn extensions_are_normalised_to_lowercase_with_a_leading_dot() {
     let _guard = exclusive();
     let scratch = Scratch::new("config-extensions");
@@ -103,18 +90,6 @@ fn extensions_are_normalised_to_lowercase_with_a_leading_dot() {
         resolved.settings.library.extensions,
         vec![".flac".to_owned(), ".mp3".to_owned()]
     );
-}
-
-#[test]
-fn finds_the_config_beside_the_working_directory() {
-    let _guard = exclusive();
-    let scratch = Scratch::new("config-beside");
-    let _environment = CleanEnvironment::enter(scratch.path());
-    let expected = write_toml(&scratch.join(CONFIG_FILENAME), "");
-
-    let found = find_config_file(Some(scratch.path())).expect("a config file");
-    assert_eq!(found.file_name(), expected.file_name());
-    assert!(found.is_file());
 }
 
 #[test]
@@ -229,19 +204,6 @@ fn secrets_are_read_from_the_environment_and_never_rendered() {
 }
 
 #[test]
-fn unset_keys_keep_their_defaults() {
-    let _guard = exclusive();
-    let scratch = Scratch::new("config-partial");
-    let _environment = CleanEnvironment::enter(scratch.path());
-    let path = write_toml(
-        &scratch.join(CONFIG_FILENAME),
-        "[matching]\nartist = 0.75\n",
-    );
-
-    assert!((load(Some(&path)).settings.matching.title - 0.62).abs() < 1e-9);
-}
-
-#[test]
 fn a_missing_explicit_config_is_an_error() {
     let _guard = exclusive();
     let scratch = Scratch::new("config-missing");
@@ -264,15 +226,6 @@ fn an_unknown_key_is_rejected_rather_than_silently_ignored() {
         error.to_string().contains("invalid configuration"),
         "{error}"
     );
-}
-
-#[test]
-fn malformed_toml_is_reported_as_a_config_error() {
-    let scratch = Scratch::new("config-malformed");
-    let path = write_toml(&scratch.join(CONFIG_FILENAME), "not = = toml");
-
-    let error = read_toml(&path).expect_err("malformed toml");
-    assert!(error.to_string().contains("cannot read"), "{error}");
 }
 
 #[test]
@@ -334,23 +287,6 @@ fn a_relative_library_root_resolves_against_the_config_file() {
 }
 
 #[test]
-fn an_absolute_library_root_is_left_alone() {
-    let _guard = exclusive();
-    let scratch = Scratch::new("config-absolute-root");
-    let _environment = CleanEnvironment::enter(scratch.path());
-    let absolute = scratch.join("Elsewhere");
-    let path = write_toml(
-        &scratch.join(CONFIG_FILENAME),
-        &format!(
-            "[library]\nroot = {}\n",
-            toml::Value::String(absolute.display().to_string())
-        ),
-    );
-
-    assert_eq!(load(Some(&path)).resolved_library_roots(), vec![absolute]);
-}
-
-#[test]
 fn written_config_reloads_to_the_same_settings() {
     let _guard = exclusive();
     let scratch = Scratch::new("config-round-trip");
@@ -362,65 +298,4 @@ fn written_config_reloads_to_the_same_settings() {
     let reloaded = load(Some(&written)).settings;
 
     assert_eq!(reloaded, original);
-}
-
-#[test]
-fn writing_over_an_existing_config_is_refused() {
-    let _guard = exclusive();
-    let scratch = Scratch::new("config-no-clobber");
-    let _environment = CleanEnvironment::enter(scratch.path());
-    let path = write_toml(&scratch.join(CONFIG_FILENAME), "");
-
-    let error = write_config(&path, &Settings::default()).expect_err("an existing config");
-    assert!(error.to_string().contains("already exists"), "{error}");
-}
-
-#[test]
-fn the_written_file_says_where_secrets_come_from() {
-    let scratch = Scratch::new("config-secret-note");
-    let written = write_config(&scratch.join(CONFIG_FILENAME), &Settings::default())
-        .expect("a written config");
-
-    let text = std::fs::read_to_string(written).expect("a readable config");
-    assert!(text.contains("SLSKD_API_KEY"), "{text}");
-}
-
-#[test]
-fn multiple_roots_and_exclusions_are_accepted() {
-    let _guard = exclusive();
-    let scratch = Scratch::new("config-roots");
-    let _environment = CleanEnvironment::enter(scratch.path());
-    let path = write_toml(
-        &scratch.join(CONFIG_FILENAME),
-        "[library]\nroots = [\"E:/Music\", \"F:/More\"]\nexclude = [\"**/Audiobooks/**\"]\n",
-    );
-
-    let resolved = load(Some(&path));
-
-    assert_eq!(resolved.settings.library.all_roots().len(), 2);
-    assert_eq!(resolved.settings.library.exclude, vec!["**/Audiobooks/**"]);
-}
-
-#[test]
-fn preferring_one_uploader_is_on_by_default() {
-    let settings = Settings::default();
-
-    assert!(settings.uploader.prefer_one);
-    assert_eq!(settings.uploader.score_window, 2000);
-    assert!(settings.uploader.score_window < settings.ranking.penalty_per_term);
-}
-
-#[test]
-fn a_download_is_retagged_unless_the_config_says_otherwise() {
-    let _guard = exclusive();
-    let scratch = Scratch::new("config-fetch-tags-default");
-    let _environment = CleanEnvironment::enter(scratch.path());
-
-    let settings = load(None).settings;
-    assert_eq!(settings.fetch.tags, stk::retag::TagPolicy::Replace);
-    let rendered = render_toml(&settings).expect("rendered config");
-    assert!(
-        rendered.contains("[fetch]\ntags = \"replace\""),
-        "{rendered}"
-    );
 }

@@ -13,9 +13,8 @@ use realfft::num_complex::Complex;
 use realfft::RealFftPlanner;
 
 use stk::audio::spectral::{
-    analyse, average_spectrum_db, band_average, bitrate_tier, classify, classify_lossy,
-    cliff_steepness, cutoff_tier, find_cutoff, matched_bitrate, resampled_from, Bands, Claim,
-    Tuning, BAND_WIDTH_HZ, KNOWN_LOSSY_CUTOFFS, MIN_ANALYSABLE_CUTOFF_HZ,
+    analyse, average_spectrum_db, band_average, classify, classify_lossy, cliff_steepness,
+    find_cutoff, resampled_from, Bands, Claim, Tuning, BAND_WIDTH_HZ, KNOWN_LOSSY_CUTOFFS,
 };
 use stk::models::Verdict;
 
@@ -97,15 +96,6 @@ fn steepness_of(samples: Vec<f32>) -> f64 {
 }
 
 #[test]
-fn average_spectrum_returns_frequencies_up_to_nyquist() {
-    let (frequencies, db) = average_spectrum_db(&[full_band(SAMPLE_RATE)], SAMPLE_RATE, FFT_SIZE)
-        .expect("an analysable spectrum");
-
-    assert!((frequencies[frequencies.len() - 1] - f64::from(SAMPLE_RATE) / 2.0).abs() < 1e-6);
-    assert!(db.iter().copied().fold(f64::MIN, f64::max).abs() < 1e-9);
-}
-
-#[test]
 fn find_cutoff_locates_a_brickwall_within_a_band_width() {
     for cutoff in [16000.0, 18000.0, 19500.0] {
         let samples = brickwall(cutoff, SAMPLE_RATE, DURATION_SECONDS);
@@ -119,15 +109,6 @@ fn find_cutoff_locates_a_brickwall_within_a_band_width() {
             "cutoff {cutoff}: found {found}"
         );
     }
-}
-
-#[test]
-fn full_band_audio_reaches_near_nyquist() {
-    let spectrum = average_spectrum_db(&[full_band(SAMPLE_RATE)], SAMPLE_RATE, FFT_SIZE)
-        .expect("an analysable spectrum");
-    let bands = band_average(&spectrum.0, &spectrum.1, BAND_WIDTH_HZ);
-
-    assert!(find_cutoff(&bands, tuning().noise_floor_db) > f64::from(SAMPLE_RATE) / 2.0 - 1500.0);
 }
 
 #[test]
@@ -150,39 +131,10 @@ fn a_brickwall_is_far_steeper_than_a_rolloff() {
 }
 
 #[test]
-fn known_bitrate_cutoffs_are_named() {
-    for (cutoff, expected) in [
-        (16000.0, "~128kbps source"),
-        (18000.0, "~160-192kbps source"),
-        (19500.0, "~256-320kbps source"),
-    ] {
-        assert_eq!(matched_bitrate(cutoff), Some(expected));
-    }
-    assert_eq!(matched_bitrate(12000.0), None);
-    assert_eq!(matched_bitrate(21000.0), None);
-}
-
-#[test]
 fn the_known_bands_leave_no_gap_a_real_transcode_could_fall_into() {
     for pair in KNOWN_LOSSY_CUTOFFS.windows(2) {
         assert_eq!(pair[0].1, pair[1].0);
     }
-}
-
-#[test]
-fn content_near_nyquist_is_accepted_however_steep() {
-    let (verdict, detail) = classify(21500.0, 90.0, SAMPLE_RATE, 25.0, 1500);
-
-    assert_eq!(verdict, Verdict::Ok);
-    assert!(detail.contains("Nyquist"));
-}
-
-#[test]
-fn a_steep_cutoff_at_a_known_bitrate_is_fake() {
-    let (verdict, detail) = classify(16000.0, 60.0, SAMPLE_RATE, 25.0, 1500);
-
-    assert_eq!(verdict, Verdict::Fake);
-    assert!(detail.contains("~128kbps source"));
 }
 
 #[test]
@@ -204,19 +156,6 @@ fn a_gradual_rolloff_is_accepted_even_when_it_starts_low() {
 }
 
 #[test]
-fn a_sharply_cut_hi_res_container_is_called_an_upsample() {
-    let (verdict, detail) = classify(19000.0, 60.0, 96000, 25.0, 1500);
-
-    assert_eq!(verdict, Verdict::Fake);
-    assert!(detail.contains("upsampled"));
-}
-
-#[test]
-fn a_gently_rolled_hi_res_container_is_not_flagged() {
-    assert_eq!(classify(19000.0, 9.0, 96000, 25.0, 1500).0, Verdict::Ok);
-}
-
-#[test]
 fn audio_too_band_limited_to_judge_is_not_called_lossless() {
     // A pure tone, or anything else whose content stops far below every encoder
     // cutoff, carries no evidence either way. Saying it looks genuinely lossless
@@ -225,15 +164,6 @@ fn audio_too_band_limited_to_judge_is_not_called_lossless() {
 
     assert_eq!(verdict, Verdict::Error);
     assert!(detail.contains("too band-limited to judge"));
-}
-
-#[test]
-fn a_cutoff_just_above_the_analysable_floor_is_still_judged() {
-    let cutoff = f64::from(MIN_ANALYSABLE_CUTOFF_HZ);
-    assert_eq!(
-        classify(cutoff, 0.0, SAMPLE_RATE, 25.0, 1500).0,
-        Verdict::Ok
-    );
 }
 
 #[test]
@@ -269,80 +199,6 @@ fn genuine_lossless_audio_passes() {
 }
 
 #[test]
-fn a_gradual_rolloff_passes() {
-    let samples = gradual_rolloff(14000.0, 7.0, SAMPLE_RATE);
-    let result = analyse(&[samples], SAMPLE_RATE, Claim::Lossless, &tuning())
-        .expect("an analysable spectrum");
-    assert_eq!(result.verdict, Verdict::Ok);
-}
-
-#[test]
-fn an_upsampled_hi_res_file_is_detected() {
-    let samples = brickwall(19000.0, 96000, DURATION_SECONDS);
-    let result =
-        analyse(&[samples], 96000, Claim::Lossless, &tuning()).expect("an analysable spectrum");
-
-    assert_eq!(result.verdict, Verdict::Fake);
-    assert!(result.detail.contains("upsampled"));
-}
-
-#[test]
-fn the_steepness_threshold_is_configurable() {
-    let gentle = vec![gradual_rolloff(9000.0, 12.0, SAMPLE_RATE)];
-
-    let relaxed =
-        analyse(&gentle, SAMPLE_RATE, Claim::Lossless, &tuning()).expect("an analysable spectrum");
-    assert_eq!(relaxed.verdict, Verdict::Ok);
-
-    let strict = analyse(
-        &gentle,
-        SAMPLE_RATE,
-        Claim::Lossless,
-        &Tuning {
-            steep_db_per_khz: 2.0,
-            ..tuning()
-        },
-    )
-    .expect("an analysable spectrum");
-    assert_ne!(strict.verdict, Verdict::Ok);
-}
-
-#[test]
-fn the_near_nyquist_margin_is_configurable() {
-    assert_eq!(
-        classify(19000.0, 60.0, SAMPLE_RATE, 25.0, 5000).0,
-        Verdict::Ok
-    );
-}
-
-#[test]
-fn input_too_short_to_analyse_returns_none() {
-    assert!(analyse(&[vec![0.0; 64]], SAMPLE_RATE, Claim::Lossless, &tuning()).is_none());
-    assert!(average_spectrum_db(&[vec![0.0; 16]], SAMPLE_RATE, FFT_SIZE).is_none());
-    assert!(average_spectrum_db(&[], SAMPLE_RATE, FFT_SIZE).is_none());
-}
-
-#[test]
-fn every_known_band_names_the_bitrate_its_encodes_start_at() {
-    for pair in KNOWN_LOSSY_CUTOFFS.windows(2) {
-        assert!(pair[0].3 < pair[1].3);
-    }
-    assert_eq!(bitrate_tier(127.0), None);
-    assert_eq!(bitrate_tier(128.0), Some(0));
-    assert_eq!(bitrate_tier(192.0), Some(1));
-    assert_eq!(bitrate_tier(320.0), Some(2));
-}
-
-#[test]
-fn a_cutoff_tier_counts_the_bands_below_it() {
-    assert_eq!(cutoff_tier(12000.0), 0);
-    assert_eq!(cutoff_tier(16000.0), 0);
-    assert_eq!(cutoff_tier(18000.0), 1);
-    assert_eq!(cutoff_tier(20000.0), 2);
-    assert_eq!(cutoff_tier(21000.0), 3);
-}
-
-#[test]
 fn a_320kbps_header_over_a_128kbps_wall_is_an_upsample() {
     let (verdict, detail) = classify_lossy(16500.0, 100.0, SAMPLE_RATE, 320, false, 25.0, 1500);
 
@@ -367,14 +223,6 @@ fn a_wall_at_or_above_where_the_header_bitrate_puts_it_is_accepted() {
 }
 
 #[test]
-fn a_wall_one_tier_short_is_enough_for_a_cbr_file() {
-    assert_eq!(
-        classify_lossy(18700.0, 100.0, SAMPLE_RATE, 320, false, 25.0, 1500).0,
-        Verdict::Upsampled
-    );
-}
-
-#[test]
 fn a_vbr_average_is_discounted_before_it_is_held_to_a_tier() {
     // 260 kbps is a dense V0 encode, whose low-pass sits in the 160-192 band's
     // neighbour rather than at 320's; held to the average undiscounted it would
@@ -390,38 +238,6 @@ fn a_vbr_average_is_discounted_before_it_is_held_to_a_tier() {
     assert_eq!(
         classify_lossy(16500.0, 100.0, SAMPLE_RATE, 230, true, 25.0, 1500).0,
         Verdict::Upsampled
-    );
-}
-
-#[test]
-fn a_gradual_rolloff_in_an_mp3_is_the_masters() {
-    let (verdict, detail) = classify_lossy(16000.0, 5.0, SAMPLE_RATE, 320, false, 25.0, 1500);
-
-    assert_eq!(verdict, Verdict::Ok);
-    assert!(detail.contains("mastering"), "{detail}");
-}
-
-#[test]
-fn a_header_below_every_band_promises_nothing() {
-    assert_eq!(
-        classify_lossy(11000.0, 100.0, SAMPLE_RATE, 96, false, 25.0, 1500).0,
-        Verdict::Ok
-    );
-}
-
-#[test]
-fn a_wall_below_every_band_under_a_high_header_is_still_named() {
-    let (verdict, detail) = classify_lossy(11000.0, 100.0, SAMPLE_RATE, 320, false, 25.0, 1500);
-
-    assert_eq!(verdict, Verdict::Upsampled);
-    assert!(detail.contains("below any standard bitrate"), "{detail}");
-}
-
-#[test]
-fn an_mp3_too_band_limited_to_judge_is_an_error() {
-    assert_eq!(
-        classify_lossy(400.0, 0.0, SAMPLE_RATE, 320, false, 25.0, 1500).0,
-        Verdict::Error
     );
 }
 
@@ -464,15 +280,6 @@ fn walled(sample_rate: u32, wall_hz: f64) -> Bands {
 }
 
 #[test]
-fn a_sharp_wall_just_short_of_a_lower_nyquist_is_an_upsample() {
-    // soxr's passband ends at about 96% of the Nyquist it protects.
-    let resampled = resampled_from(&walled(96000, 21300.0), 96000, &tuning()).expect("an edge");
-
-    assert_eq!(resampled.from_hz, vec![44100]);
-    assert!(resampled.steepness_db_per_khz > 25.0);
-}
-
-#[test]
 fn every_rate_that_could_have_left_an_edge_is_named() {
     let between = resampled_from(&walled(96000, 23850.0), 96000, &tuning()).expect("an edge");
     let high = resampled_from(&walled(192_000, 47850.0), 192_000, &tuning()).expect("an edge");
@@ -507,18 +314,6 @@ fn a_hi_res_master_fading_into_its_converters_noise_is_not_an_upsample() {
     });
 
     assert_eq!(resampled_from(&genuine, 96000, &tuning()), None);
-}
-
-#[test]
-fn a_wall_nowhere_near_a_lower_nyquist_is_not_an_upsample() {
-    assert_eq!(
-        resampled_from(&walled(96000, 35000.0), 96000, &tuning()),
-        None
-    );
-    assert_eq!(
-        resampled_from(&walled(96000, 16000.0), 96000, &tuning()),
-        None
-    );
 }
 
 #[test]

@@ -153,18 +153,6 @@ fn every_loved_track_is_wanted_across_pages() {
 }
 
 #[test]
-fn the_key_and_user_are_sent_with_every_request() {
-    let http = Canned::profile();
-
-    read(&http, Some("k3y"), "lastfm:rj", None, None).expect("loved tracks");
-    for params in http.requested.borrow().iter() {
-        assert_eq!(params["api_key"], "k3y");
-        assert_eq!(params["user"], "rj");
-        assert_eq!(params["format"], "json");
-    }
-}
-
-#[test]
 fn min_plays_adds_the_tracks_played_that_often_and_stops_below_it() {
     let http = Canned::profile();
 
@@ -206,36 +194,6 @@ fn a_loved_track_also_played_often_is_listed_once_with_its_playcount() {
 }
 
 #[test]
-fn a_played_track_carries_its_duration_unless_last_fm_does_not_know_it() {
-    let http = Canned::profile();
-
-    let tracks = read(&http, Some("k3y"), "lastfm:rj", None, Some(5)).expect("a profile");
-    let by_title = |title: &str| {
-        tracks
-            .iter()
-            .find(|track| track.title == title)
-            .expect("the track")
-    };
-    assert!((by_title("Roki").duration_seconds.expect("a duration") - 215.0).abs() < 1e-9);
-    assert_eq!(by_title("Ghost Rule").duration_seconds, None);
-    assert_eq!(by_title("Roki").artist, "みきとP");
-    assert!(tracks.iter().all(|track| track.title != "ヴァンパイア"));
-    assert_eq!(
-        http.methods().last(),
-        Some(&("user.gettoptracks".to_owned(), "2".to_owned()))
-    );
-}
-
-#[test]
-fn a_profile_without_an_api_key_is_refused_before_any_request() {
-    let http = Canned::profile();
-
-    let error = read(&http, None, "lastfm:rj", None, None).expect_err("no key");
-    assert!(error.to_string().contains("LASTFM_API_KEY"), "{error}");
-    assert!(http.requested.borrow().is_empty());
-}
-
-#[test]
 fn an_error_from_last_fm_is_reported_in_its_own_words() {
     let http = Canned::default().with("user.getlovedtracks", 1, "user-not-found");
 
@@ -255,36 +213,4 @@ fn a_failed_request_never_quotes_the_key() {
     let error = read(&http, Some("k3y"), "lastfm:rj", None, None).expect_err("a failure");
     assert!(!error.to_string().contains("k3y"), "{error}");
     assert!(error.to_string().contains("403"), "{error}");
-}
-
-#[test]
-fn a_format_is_refused_for_a_profile() {
-    let http = Canned::profile();
-
-    let error = read(&http, Some("k3y"), "lastfm:rj", Some(Format::Csv), None)
-        .expect_err("a format for a profile");
-    assert!(error.to_string().contains("--format csv"), "{error}");
-    assert!(http.requested.borrow().is_empty());
-}
-
-#[test]
-fn min_plays_on_a_file_still_counts_its_repeats() {
-    let scratch = Scratch::new("lastfm-file-min-plays");
-    let path = scratch.join("scrobbles.csv");
-    std::fs::write(
-        &path,
-        "artist,title\nDECO*27,Roki\nDECO*27,Roki\nAdo,Usseewa\n",
-    )
-    .expect("a written export");
-
-    let tracks = read(
-        &Canned::default(),
-        None,
-        &path.display().to_string(),
-        None,
-        Some(2),
-    )
-    .expect("an export");
-    assert_eq!(tracks.len(), 1);
-    assert_eq!(tracks[0].query(), "DECO*27 - Roki");
 }

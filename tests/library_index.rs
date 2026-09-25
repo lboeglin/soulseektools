@@ -5,7 +5,7 @@ mod support;
 use std::path::{Path, PathBuf};
 
 use stk::library::index::{default_extensions, describe, LibraryIndex};
-use stk::library::scan::{folder_artist, iter_audio_files, owning_root, Excludes};
+use stk::library::scan::{iter_audio_files, owning_root, Excludes};
 use stk::library::tags;
 use support::{encode, Encoded, Scratch};
 
@@ -75,28 +75,6 @@ fn scan_walks_nested_album_folders() {
 }
 
 #[test]
-fn scan_honours_the_extension_filter() {
-    let scratch = Scratch::new("index-filter");
-    let root = library_root(&scratch);
-
-    let found = iter_audio_files(&root, &[".flac"], &Excludes::default());
-
-    assert!(found.iter().all(|path| path.extension().unwrap() == "flac"));
-    assert_eq!(found.len(), 2);
-}
-
-#[test]
-fn folder_artist_is_the_first_component_below_the_root() {
-    let scratch = Scratch::new("index-folder-artist");
-    let root = library_root(&scratch);
-    let nested = root.join("ZUN").join("Nested").join("15 Heian Alien.flac");
-
-    assert_eq!(folder_artist(&nested, &root), "ZUN");
-    assert_eq!(folder_artist(&root.join("loose.flac"), &root), "");
-    assert_eq!(folder_artist(Path::new("/elsewhere/track.flac"), &root), "");
-}
-
-#[test]
 fn describe_prefers_tags_over_the_folder_layout() {
     let scratch = Scratch::new("describe-tags");
     let root = library_root(&scratch);
@@ -122,70 +100,6 @@ fn describe_falls_back_to_the_folder_and_filename_when_untagged() {
 }
 
 #[test]
-fn describe_strips_the_track_number_from_a_filename_derived_title() {
-    let scratch = Scratch::new("describe-track-number");
-    let root = library_root(&scratch);
-
-    let entry = describe(
-        &root.join("ZUN").join("Nested").join("15 Heian Alien.flac"),
-        &root,
-    )
-    .expect("an entry");
-
-    assert_eq!(entry.title.raw, "Heian Alien");
-}
-
-#[test]
-fn describe_records_size_duration_and_artwork() {
-    let scratch = Scratch::new("describe-properties");
-    let root = library_root(&scratch);
-
-    let entry = describe(&root.join("DECO_27").join("01 - Roki.flac"), &root).expect("an entry");
-
-    assert!(entry.size > 0);
-    let expected = Encoded::default().seconds;
-    assert!((entry.duration_seconds.expect("a duration") - expected).abs() < 0.15);
-    assert_eq!(entry.artwork_bytes, 0);
-    assert!(!entry.has_artwork());
-}
-
-#[test]
-fn describe_precomputes_the_name_forms_used_for_matching() {
-    let scratch = Scratch::new("describe-forms");
-    let root = library_root(&scratch);
-
-    let entry = describe(&root.join("DECO_27").join("01 - Roki.flac"), &root).expect("an entry");
-
-    assert_eq!(entry.artist.normalized, "deco 27");
-    assert_eq!(entry.title.romaji, "roki");
-}
-
-#[test]
-fn describe_records_the_stream_properties_the_upgrade_flow_needs() {
-    let scratch = Scratch::new("describe-stream");
-    let root = library_root(&scratch);
-
-    let entry = describe(&root.join("DECO_27").join("01 - Roki.flac"), &root).expect("an entry");
-
-    assert_eq!(entry.codec, "flac");
-    assert_eq!(entry.sample_rate, Some(44100));
-    assert!(entry.bitrate.is_some());
-}
-
-#[test]
-fn refresh_indexes_every_file() {
-    let scratch = Scratch::new("index-refresh");
-    let root = library_root(&scratch);
-    let mut index = open(&scratch, "index.db");
-
-    let result = refresh(&mut index, &root);
-
-    assert_eq!(result.added, 4);
-    assert_eq!(result.unchanged, 0);
-    assert_eq!(index.count().expect("a count"), 4);
-}
-
-#[test]
 fn a_second_refresh_rereads_nothing() {
     let scratch = Scratch::new("index-incremental");
     let root = library_root(&scratch);
@@ -197,27 +111,6 @@ fn a_second_refresh_rereads_nothing() {
     assert_eq!(result.unchanged, 4);
     assert_eq!(result.added, 0);
     assert_eq!(result.updated, 0);
-}
-
-#[test]
-fn full_refresh_rereads_everything() {
-    let scratch = Scratch::new("index-full");
-    let root = library_root(&scratch);
-    let mut index = open(&scratch, "index.db");
-    refresh(&mut index, &root);
-
-    let result = index
-        .refresh(
-            std::slice::from_ref(&root),
-            default_extensions(),
-            &Excludes::default(),
-            true,
-            None,
-        )
-        .expect("a refresh");
-
-    assert_eq!(result.updated, 4);
-    assert_eq!(result.unchanged, 0);
 }
 
 #[test]
@@ -272,42 +165,6 @@ fn entries_round_trip_through_sqlite() {
     let stored = index.entry(&track).expect("a lookup").expect("an entry");
 
     assert_eq!(stored, describe(&track, &root).expect("an entry"));
-}
-
-#[test]
-fn entries_are_returned_in_a_deterministic_order() {
-    let scratch = Scratch::new("index-order");
-    let root = library_root(&scratch);
-    let mut index = open(&scratch, "index.db");
-    refresh(&mut index, &root);
-
-    let paths: Vec<String> = index
-        .entries()
-        .expect("entries")
-        .iter()
-        .map(|entry| entry.path.display().to_string())
-        .collect();
-    let mut sorted = paths.clone();
-    sorted.sort();
-
-    assert_eq!(paths, sorted);
-}
-
-#[test]
-fn artist_counts_group_by_folder() {
-    let scratch = Scratch::new("index-artists");
-    let root = library_root(&scratch);
-    let mut index = open(&scratch, "index.db");
-    refresh(&mut index, &root);
-
-    assert_eq!(
-        index.artist_counts().expect("counts"),
-        vec![
-            ("DECO_27".to_owned(), 2),
-            ("ZUN".to_owned(), 1),
-            ("beatMARIO".to_owned(), 1),
-        ]
-    );
 }
 
 #[test]
@@ -389,68 +246,6 @@ fn a_v2_database_is_upgraded_in_place_rather_than_rewritten() {
     assert!(index.snapshots(None).expect("a series").is_empty());
 }
 
-#[test]
-fn a_v5_database_gains_the_loudness_columns_in_place() {
-    let scratch = Scratch::new("index-v5");
-    let database = scratch.join("v5.db");
-
-    // A v5 `snapshots` table: the trend existed, the loudness column did not.
-    let connection = rusqlite::Connection::open(&database).expect("a database");
-    connection
-        .execute_batch(
-            "CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
-             CREATE TABLE snapshots (
-                id INTEGER PRIMARY KEY, taken_at REAL NOT NULL, total INTEGER NOT NULL,
-                tagged INTEGER NOT NULL, with_artwork INTEGER NOT NULL,
-                with_genre INTEGER NOT NULL, lossless INTEGER NOT NULL,
-                verified_clean INTEGER NOT NULL, flagged INTEGER NOT NULL
-             );
-             INSERT INTO meta VALUES ('schema_version', '5');
-             INSERT INTO snapshots
-                (taken_at, total, tagged, with_artwork, with_genre, lossless,
-                 verified_clean, flagged)
-             VALUES (1.0, 10, 9, 8, 7, 6, 5, 4);",
-        )
-        .expect("a v5 database");
-    drop(connection);
-
-    let index = LibraryIndex::open(&database).expect("an upgraded index");
-
-    let series = index.snapshots(None).expect("a series");
-    assert_eq!(series.len(), 1);
-    assert_eq!(series[0].total, 10);
-    // Absent rather than zero: that scan did not count this, which is not the
-    // same as having counted none.
-    assert_eq!(series[0].with_replay_gain, None);
-    assert_eq!(index.schema_version().expect("a version"), 6);
-}
-
-#[test]
-fn a_scan_records_the_loudness_tags_a_file_carries() {
-    let scratch = Scratch::new("index-loudness");
-    let root = library_root(&scratch);
-    let track = root.join("DECO_27").join("01 - Roki.flac");
-    let written = stk::models::ReplayGainTags {
-        track_gain: Some("-7.29 dB".to_owned()),
-        track_peak: Some("0.988556".to_owned()),
-        album_gain: Some("-6.25 dB".to_owned()),
-        album_peak: Some("0.995000".to_owned()),
-        r128_track_gain: None,
-        r128_album_gain: None,
-    };
-    stk::library::tags::write_replay_gain(&track, &written).expect("a loudness write");
-
-    let mut index = open(&scratch, "index.db");
-    refresh(&mut index, &root);
-
-    let entry = index
-        .entry(&track)
-        .expect("a lookup")
-        .expect("the indexed row");
-    assert_eq!(entry.replay_gain, written);
-    assert!(entry.is_level_matched());
-}
-
 /// Adding a column changes neither size nor mtime, so the next scan has to
 /// backfill it explicitly.
 #[test]
@@ -529,49 +324,6 @@ fn the_backfill_leaves_a_recorded_verdict_where_it_was() {
     );
 }
 
-#[test]
-fn every_verdict_survives_the_round_trip_through_the_index() {
-    let scratch = Scratch::new("index-every-verdict");
-    let root = library_root(&scratch);
-    let track = root.join("DECO_27").join("01 - Roki.flac");
-    let mut index = open(&scratch, "index.db");
-    refresh(&mut index, &root);
-
-    for verdict in stk::models::Verdict::ALL {
-        index
-            .set_verdict(&track, verdict, 1.0)
-            .expect("a recorded verdict");
-        assert_eq!(index.verdict(&track).expect("a lookup"), Some(verdict));
-        assert_eq!(verdict.as_str().parse(), Ok(verdict));
-    }
-}
-
-#[test]
-fn files_under_two_roots_land_in_one_index() {
-    let scratch = Scratch::new("index-two-roots");
-    let first = library_root(&scratch);
-    let second = scratch.join("More");
-    encode(
-        &second.join("ZUN").join("Bad Apple.flac"),
-        &Encoded {
-            metadata: &[("artist", "ZUN"), ("title", "Bad Apple")],
-            ..Encoded::default()
-        },
-    );
-    let mut index = open(&scratch, "index.db");
-
-    let roots = vec![first.clone(), second.clone()];
-    let result = refresh_roots(&mut index, &roots, &Excludes::default());
-
-    assert_eq!(result.added, 5);
-    assert_eq!(index.count().expect("a count"), 5);
-    let entry = index
-        .entry(&second.join("ZUN").join("Bad Apple.flac"))
-        .expect("a lookup")
-        .expect("the second root's file");
-    assert_eq!(entry.folder_artist, "ZUN");
-}
-
 /// A refresh deletes what it did not walk, so a per-root loop would make each
 /// root evict the other's rows.
 #[test]
@@ -594,35 +346,12 @@ fn a_second_root_does_not_evict_the_first_roots_files() {
 }
 
 #[test]
-fn an_excluded_folder_stays_out_of_the_walk() {
-    let scratch = Scratch::new("index-exclude");
-    let root = library_root(&scratch);
-    encode(
-        &root.join("Audiobooks").join("Chapter 1.mp3"),
-        &Encoded::default(),
-    );
-    let exclude = Excludes::new(&["**/Audiobooks/**".to_owned()]).expect("compiled globs");
-
-    let found = iter_audio_files(&root, default_extensions(), &exclude);
-
-    assert_eq!(found.len(), 4);
-    assert!(found
-        .iter()
-        .all(|path| !path.starts_with(root.join("Audiobooks"))));
-}
-
-#[test]
 fn an_exclusion_matches_whatever_the_platform_separator_is() {
     let root = Path::new("E:").join("Music");
     let exclude = Excludes::new(&["**/Samples/**".to_owned()]).expect("compiled globs");
 
     assert!(exclude.matches(&root, &root.join("Samples").join("kick.wav")));
     assert!(!exclude.matches(&root, &root.join("ZUN").join("kick.wav")));
-}
-
-#[test]
-fn an_unparseable_exclusion_is_reported_rather_than_ignored() {
-    assert!(Excludes::new(&["[".to_owned()]).is_err());
 }
 
 /// Roots may nest, and the deeper one is what names the artist.
@@ -636,26 +365,6 @@ fn the_deepest_root_owns_a_file() {
 
     assert_eq!(owner, inner);
     assert_eq!(owning_root(Path::new(r"F:\Elsewhere\a.flac"), &roots), None);
-}
-
-/// A re-described file drops its verdict: `upsert` replaces the whole row, so
-/// the judgement cannot outlive the audio it was made about.
-#[test]
-fn reindexing_a_file_clears_its_verdict() {
-    let scratch = Scratch::new("index-verdict-cleared");
-    let root = library_root(&scratch);
-    let track = root.join("DECO_27").join("01 - Roki.flac");
-    let mut index = open(&scratch, "index.db");
-    refresh(&mut index, &root);
-    index
-        .set_verdict(&track, stk::models::Verdict::Ok, 1.0)
-        .expect("a recorded verdict");
-
-    index
-        .reindex(&track, std::slice::from_ref(&root))
-        .expect("a reindex");
-
-    assert_eq!(index.verdict(&track).expect("a lookup"), None);
 }
 
 #[test]

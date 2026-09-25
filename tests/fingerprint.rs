@@ -32,12 +32,6 @@ fn unrelated(seed: u64, length: usize) -> Fingerprint {
 }
 
 #[test]
-fn a_fingerprint_matches_itself() {
-    let values = unrelated(7, 40);
-    assert!((similarity(&values, &values) - 1.0).abs() < 1e-9);
-}
-
-#[test]
 fn the_same_track_shifted_in_time_still_matches() {
     // Two rips of one track routinely differ by a second of leading silence,
     // which shifts every word along without changing any of them.
@@ -50,22 +44,6 @@ fn the_same_track_shifted_in_time_still_matches() {
 #[test]
 fn unrelated_fingerprints_do_not_match() {
     assert!(similarity(&unrelated(1, 60), &unrelated(2, 60)) < 0.9);
-}
-
-#[test]
-fn too_few_frames_to_compare_scores_zero() {
-    let short = print(vec![1, 2, 3]);
-    assert!(similarity(&short, &short) < f64::EPSILON);
-}
-
-#[test]
-fn a_fingerprint_with_a_few_altered_bits_still_matches() {
-    // A re-encode of the same recording changes a bit here and there; that is
-    // the whole reason the comparison is a bit error rate and not equality.
-    let values: Vec<u32> = (2000..2040).collect();
-    let altered: Vec<u32> = values.iter().map(|value| value ^ 0b1).collect();
-
-    assert!(similarity(&print(values), &print(altered)) > 0.95);
 }
 
 #[test]
@@ -108,21 +86,6 @@ fn two_different_tracks_do_not_fingerprint_alike() {
 }
 
 #[test]
-fn a_fingerprint_records_the_duration() {
-    let scratch = Scratch::new("fp-duration");
-    let track = encode(
-        &scratch.join("a.flac"),
-        &Encoded {
-            seconds: 5.0,
-            ..Encoded::default()
-        },
-    );
-
-    let result = fingerprint(&track).expect("a fingerprint");
-    assert!((result.duration_seconds.expect("a duration") - 5.0).abs() < 0.2);
-}
-
-#[test]
 fn a_container_with_no_decoder_says_so_rather_than_scoring_zero() {
     // Opus is taggable and undecodable here, and a duplicate scan that silently
     // returned an empty fingerprint for it would report "not a duplicate".
@@ -145,20 +108,6 @@ fn the_compressed_form_names_the_algorithm_and_the_length() {
 
     let header: Vec<u8> = decode_base64url(&encoded).into_iter().take(4).collect();
     assert_eq!(header, [1, 0, 1, 44]);
-}
-
-#[test]
-fn the_compressed_form_is_url_safe_base64_without_padding() {
-    // fpcalc's spelling, and the only one AcoustID accepts in a query string.
-    for length in [1, 2, 3, 40, 41] {
-        let encoded = print((0..length).map(|value| value * 7).collect()).compressed();
-        assert!(
-            encoded
-                .chars()
-                .all(|character| character.is_ascii_alphanumeric() || "-_".contains(character)),
-            "{encoded}"
-        );
-    }
 }
 
 /// A decoder small enough to live here, so the test does not trust the

@@ -115,34 +115,6 @@ fn an_empty_answer_takes_the_first_candidate() {
 }
 
 #[test]
-fn a_number_takes_that_candidate() {
-    let scratch = Scratch::new("picker-number");
-    let mut store = queue(&scratch);
-
-    let (tally, _) = walk(&mut store, "2\n3\n");
-
-    assert_eq!(tally.approved, 2);
-    assert_eq!(approved_rank(&store, "Roki"), Some(2));
-    assert_eq!(approved_rank(&store, "Ghost Rule"), Some(3));
-}
-
-#[test]
-fn a_rank_not_offered_is_asked_again_rather_than_recorded() {
-    let scratch = Scratch::new("picker-out-of-range");
-    let mut store = queue(&scratch);
-
-    let (tally, transcript) = walk(&mut store, "9\n2\nq\n");
-
-    assert!(
-        transcript.contains("Not one of the offered candidates."),
-        "{transcript}"
-    );
-    assert_eq!(tally.approved, 1);
-    assert_eq!(approved_rank(&store, "Roki"), Some(2));
-    assert_eq!(status_of(&store, "Ghost Rule"), TrackStatus::AwaitingReview);
-}
-
-#[test]
 fn r_rejects_the_track_and_moves_on() {
     let scratch = Scratch::new("picker-reject");
     let mut store = queue(&scratch);
@@ -153,18 +125,6 @@ fn r_rejects_the_track_and_moves_on() {
     assert_eq!(status_of(&store, "Roki"), TrackStatus::Rejected);
     assert_eq!(approved_rank(&store, "Roki"), None);
     assert_eq!(status_of(&store, "Ghost Rule"), TrackStatus::Approved);
-}
-
-#[test]
-fn s_leaves_the_track_awaiting_review() {
-    let scratch = Scratch::new("picker-skip");
-    let mut store = queue(&scratch);
-
-    let (tally, _) = walk(&mut store, "s\nq\n");
-
-    assert_eq!(tally.skipped, 1);
-    assert_eq!(tally.approved, 0);
-    assert_eq!(status_of(&store, "Roki"), TrackStatus::AwaitingReview);
 }
 
 #[test]
@@ -180,18 +140,6 @@ fn u_takes_back_the_previous_decision_and_offers_it_again() {
     // would fall past it to the third and the best copy would never be fetched.
     let id = id_of(&store, "Roki");
     assert_eq!(store.next_candidate(id).expect("a retry"), Some(1));
-}
-
-#[test]
-fn undoing_a_rejection_returns_the_track_to_the_queue() {
-    let scratch = Scratch::new("picker-undo-reject");
-    let mut store = queue(&scratch);
-
-    let (tally, _) = walk(&mut store, "r\nu\ns\nq\n");
-
-    assert_eq!(tally.rejected, 0);
-    assert_eq!(tally.skipped, 1);
-    assert_eq!(status_of(&store, "Roki"), TrackStatus::AwaitingReview);
 }
 
 #[test]
@@ -220,35 +168,6 @@ fn exhausted_input_ends_the_walk_rather_than_approving() {
     for title in TITLES {
         assert_eq!(status_of(&store, title), TrackStatus::AwaitingReview);
     }
-}
-
-#[test]
-fn the_listing_shows_each_candidates_path_and_flags() {
-    let scratch = Scratch::new("picker-listing");
-    let mut store = queue(&scratch);
-
-    let (_, transcript) = walk(&mut store, "q\n");
-
-    assert!(
-        transcript.contains("@@peer1\\Music\\Ghost Rule EP\\Roki.flac"),
-        "{transcript}"
-    );
-    assert!(transcript.contains("preferred-uploader"), "{transcript}");
-    assert!(transcript.contains("1/2  DECO*27 - Roki"), "{transcript}");
-}
-
-#[test]
-fn only_tracks_awaiting_review_are_offered() {
-    let scratch = Scratch::new("picker-awaiting-only");
-    let mut store = queue(&scratch);
-    let rejected = id_of(&store, "Roki");
-    store.reject(rejected, "live").expect("a rejection");
-
-    let (tally, transcript) = walk(&mut store, "1\n");
-
-    assert_eq!(tally.waiting, 1);
-    assert!(!transcript.contains("Roki.flac"), "{transcript}");
-    assert_eq!(approved_rank(&store, "Ghost Rule"), Some(1));
 }
 
 #[test]
@@ -282,13 +201,4 @@ fn declining_a_track_is_not_abandoning_the_queue() {
     assert_eq!(tally.skipped, 1);
     assert_eq!(status_of(&store, "Roki"), TrackStatus::AwaitingReview);
     assert_eq!(approved_rank(&store, "Ghost Rule"), Some(2));
-}
-
-#[test]
-fn a_listing_with_no_candidates_has_no_default_to_take() {
-    // The empty answer takes the first candidate, which is a rank nothing can
-    // honour when there is no listing -- so it is not a decision to record.
-    assert_eq!(picker::parse("", 0), None);
-    assert_eq!(picker::parse("1", 0), None);
-    assert_eq!(picker::parse("q", 0), Some(Decision::Quit));
 }

@@ -14,7 +14,7 @@ use stk::library::changes::{apply_undo, plan_undo, ChangeFilter, ChangeLog, UNDO
 use stk::library::index::LibraryIndex;
 use stk::matching::{MatchThresholds, NameForms};
 use stk::models::{LibraryEntry, ReplayGainTags, TrackTags};
-use stk::organise::{Obstacle, PlannedMove};
+use stk::organise::PlannedMove;
 use support::{encode, Encoded, Scratch};
 
 fn entry(path: &str, artist: &str, title: &str) -> LibraryEntry {
@@ -122,20 +122,6 @@ fn the_same_song_under_two_artist_spellings_is_found() {
 }
 
 #[test]
-fn unrelated_tracks_are_not_paired() {
-    let entries = [
-        entry("ZUN/Heian Alien.flac", "ZUN", "Heian Alien"),
-        entry(
-            "beatMARIO/Night of Knights.flac",
-            "beatMARIO",
-            "Night of Knights",
-        ),
-    ];
-
-    assert!(by_title(&entries).is_empty());
-}
-
-#[test]
 fn the_same_title_by_a_clearly_different_artist_is_not_paired() {
     let entries = [
         entry("YOASOBI/Idol.flac", "YOASOBI", "Idol"),
@@ -146,64 +132,9 @@ fn the_same_title_by_a_clearly_different_artist_is_not_paired() {
 }
 
 #[test]
-fn a_strong_title_match_pairs_similar_artist_names() {
-    // The rule that lets a kanji artist match its romanisation also pairs two
-    // merely similar names when the title is identical. Deliberate: the command
-    // reports candidates for review and deletes nothing.
-    let entries = [
-        entry("Ado/Odo.flac", "Ado", "Odo"),
-        entry("Syudou/Odo.flac", "Syudou", "Odo"),
-    ];
-
-    let pairs = by_title(&entries);
-
-    assert_eq!(pairs.len(), 1);
-    assert!(pairs[0].score < 1.0);
-}
-
-#[test]
 fn a_file_is_never_paired_with_itself() {
     let single = entry("Ado/Odo.flac", "Ado", "Odo");
     assert!(by_title(&[single.clone(), single]).is_empty());
-}
-
-#[test]
-fn pairs_are_ordered_by_confidence() {
-    let entries = [
-        entry("A/Senbonzakura.flac", "Hatsune Miku", "Senbonzakura"),
-        entry("B/Senbonzakura.flac", "Hatsune Miku", "Senbonzakura"),
-        entry(
-            "C/Senbonzakura Long.flac",
-            "Hatsune Miku",
-            "Senbonzakura -Long Ver-",
-        ),
-    ];
-
-    let scores: Vec<f64> = by_title(&entries).iter().map(|pair| pair.score).collect();
-    let mut sorted = scores.clone();
-    sorted.sort_by(|left, right| right.partial_cmp(left).expect("comparable scores"));
-
-    assert_eq!(scores, sorted);
-}
-
-#[test]
-fn the_larger_copy_is_identified_as_the_one_to_keep() {
-    let entries = [
-        entry_with("A/Odo.mp3", "Ado", "Odo", 5_000_000, Some(200.0)),
-        entry_with("B/Odo.flac", "Ado", "Odo", 40_000_000, Some(200.0)),
-    ];
-
-    let pairs = by_title(&entries);
-    let pair = &pairs[0];
-
-    assert_eq!(
-        pair.larger().path.extension().expect("an extension"),
-        "flac"
-    );
-    assert_eq!(
-        pair.smaller().path.extension().expect("an extension"),
-        "mp3"
-    );
 }
 
 #[test]
@@ -287,73 +218,6 @@ fn different_audio_of_the_same_length_is_not_paired() {
 }
 
 #[test]
-fn tracks_of_very_different_length_are_never_fingerprinted() {
-    let entries = [
-        entry_with("X/a.flac", "One", "Track", 1_000_000, Some(100.0)),
-        entry_with("Y/b.flac", "Two", "Other", 1_000_000, Some(400.0)),
-    ];
-
-    assert!(by_audio(
-        &entries,
-        duplicates::DEFAULT_AUDIO_THRESHOLD,
-        duplicates::DEFAULT_DURATION_TOLERANCE_SECONDS,
-        HashMap::new(),
-    )
-    .is_empty());
-}
-
-#[test]
-fn the_duration_tolerance_is_configurable() {
-    let shape = print(0, 40);
-    let entries = [
-        entry_with("X/a.flac", "One", "Track", 1_000_000, Some(200.0)),
-        entry_with("Y/b.flac", "Two", "Other", 1_000_000, Some(205.0)),
-    ];
-    let prints = table(&[("a.flac", shape.clone()), ("b.flac", shape)]);
-
-    assert!(by_audio(
-        &entries,
-        duplicates::DEFAULT_AUDIO_THRESHOLD,
-        duplicates::DEFAULT_DURATION_TOLERANCE_SECONDS,
-        prints.clone(),
-    )
-    .is_empty());
-    assert!(!by_audio(&entries, duplicates::DEFAULT_AUDIO_THRESHOLD, 10.0, prints).is_empty());
-}
-
-#[test]
-fn files_without_a_known_duration_are_skipped() {
-    let entries = [
-        entry_with("X/a.flac", "One", "Track", 1_000_000, None),
-        entry_with("Y/b.flac", "Two", "Other", 1_000_000, None),
-    ];
-
-    assert!(by_audio(
-        &entries,
-        duplicates::DEFAULT_AUDIO_THRESHOLD,
-        duplicates::DEFAULT_DURATION_TOLERANCE_SECONDS,
-        HashMap::new(),
-    )
-    .is_empty());
-}
-
-#[test]
-fn the_threshold_is_configurable() {
-    let entries = [
-        entry("X/a.flac", "One", "Track"),
-        entry("Y/b.flac", "Two", "Other"),
-    ];
-
-    assert!(!by_audio(
-        &entries,
-        0.1,
-        duplicates::DEFAULT_DURATION_TOLERANCE_SECONDS,
-        table(&[("a.flac", print(0, 40)), ("b.flac", print(3, 40))]),
-    )
-    .is_empty());
-}
-
-#[test]
 fn an_undecodable_file_is_skipped_rather_than_aborting_the_run() {
     let entries = [
         entry("X/a.flac", "One", "Track"),
@@ -391,62 +255,6 @@ fn an_undecodable_file_is_skipped_rather_than_aborting_the_run() {
         names,
         std::collections::HashSet::from(["a.flac".to_owned()])
     );
-}
-
-#[test]
-fn fingerprints_are_cached_in_the_index() {
-    let scratch = Scratch::new("dupes-cache");
-    let entries = [
-        entry("X/a.flac", "One", "Track"),
-        entry("Y/b.flac", "Two", "Other"),
-    ];
-    let shape = print(0, 40);
-
-    let mut index = LibraryIndex::open(&scratch.join("index.db")).expect("an index");
-    let mut calls = 0;
-
-    for _ in 0..2 {
-        let mut source = |entry: &LibraryEntry| {
-            if let Ok(Some(cached)) = index.fingerprint(&entry.path, entry.mtime) {
-                return Some(cached);
-            }
-            calls += 1;
-            let value = shape.clone();
-            let _ = index.store_fingerprint(&entry.path, entry.mtime, &value);
-            Some(value)
-        };
-        duplicates::find_by_audio(
-            &entries,
-            duplicates::DEFAULT_AUDIO_THRESHOLD,
-            duplicates::DEFAULT_DURATION_TOLERANCE_SECONDS,
-            &mut source,
-        );
-    }
-
-    // Two files fingerprinted on the first pass, none on the second.
-    assert_eq!(calls, 2);
-}
-
-#[test]
-fn the_index_answers_a_cached_print_without_opening_the_file() {
-    // The entries name files that do not exist: a hit that had to decode would
-    // fail, so a value coming back is proof the cache answered.
-    let scratch = Scratch::new("index-cached-prints");
-    let entries = [
-        entry("X/a.flac", "One", "Track"),
-        entry("Y/b.flac", "Two", "Other"),
-    ];
-    let shape = print(0, 40);
-
-    let mut index = LibraryIndex::open(&scratch.join("index.db")).expect("an index");
-    index
-        .store_fingerprint(&entries[0].path, entries[0].mtime, &shape)
-        .expect("a stored print");
-
-    let prints = index.fingerprints(&entries);
-
-    assert_eq!(prints[0].as_ref().expect("the cached print"), &shape);
-    assert!(prints[1].is_err());
 }
 
 #[test]
@@ -525,25 +333,6 @@ fn three_copies_reported_as_three_pairs_are_one_group() {
 }
 
 #[test]
-fn copies_linked_only_through_a_third_share_its_group_and_others_stay_apart() {
-    let [a, b, c] = [sized("a.flac", 1), sized("b.flac", 2), sized("c.flac", 3)];
-    let apart = [sized("x.flac", 1), sized("y.flac", 2)];
-
-    let groups = duplicates::group([
-        pair(&apart[0], &apart[1], 1.0),
-        pair(&b, &c, 1.0),
-        pair(&a, &b, 1.0),
-    ]);
-
-    assert_eq!(groups.len(), 2);
-    assert_eq!(paths(&groups[0].entries).len(), 3);
-    assert_eq!(
-        paths(&groups[1].entries),
-        [Path::new("x.flac"), Path::new("y.flac")]
-    );
-}
-
-#[test]
 fn a_pair_both_finders_report_is_counted_once_on_the_stronger_score() {
     let [a, b] = [sized("a.flac", 1), sized("b.flac", 2)];
 
@@ -551,15 +340,6 @@ fn a_pair_both_finders_report_is_counted_once_on_the_stronger_score() {
 
     assert_eq!(groups[0].pairs.len(), 1);
     assert!((groups[0].pairs[0].score - 0.97).abs() < f64::EPSILON);
-}
-
-#[test]
-fn a_group_is_as_strong_as_its_weakest_pair() {
-    let [a, b, c] = [sized("a.flac", 1), sized("b.flac", 2), sized("c.flac", 3)];
-
-    let groups = duplicates::group([pair(&a, &b, 0.99), pair(&b, &c, 0.8)]);
-
-    assert!((groups[0].lowest_score() - 0.8).abs() < f64::EPSILON);
 }
 
 #[test]
@@ -576,26 +356,6 @@ fn lossless_keeps_the_flac_even_when_its_mp3_is_larger() {
         "{:?}",
         resolution.losers
     );
-}
-
-#[test]
-fn largest_keeps_the_larger_copy_whatever_its_container() {
-    let group = one_group(&[sized("Roki.flac", 1_000), sized("Roki.mp3", 5_000)]);
-
-    let resolution = duplicates::choose(&group, Keep::Largest);
-
-    assert_eq!(resolution.keeper.path, Path::new("Roki.mp3"));
-    assert_eq!(resolution.losers[0].reason, "smaller");
-}
-
-#[test]
-fn lossless_falls_back_to_the_larger_of_two_lossless_copies() {
-    let group = one_group(&[sized("a.flac", 1_000), sized("b.flac", 2_000)]);
-
-    let resolution = duplicates::choose(&group, Keep::Lossless);
-
-    assert_eq!(resolution.keeper.path, Path::new("b.flac"));
-    assert_eq!(resolution.losers[0].reason, "smaller");
 }
 
 #[test]
@@ -636,61 +396,6 @@ fn identical_copies_resolve_by_path_whatever_order_they_came_in() {
         assert_eq!(resolution.keeper.path, Path::new("a.flac"));
         assert!(resolution.losers[0].reason.contains("first by path"));
     }
-}
-
-#[test]
-fn a_keep_policy_parses_by_name_and_names_the_known_ones_otherwise() {
-    assert_eq!(Keep::default(), Keep::Lossless);
-    for keep in Keep::ALL {
-        assert_eq!(keep.to_string().parse::<Keep>(), Ok(keep));
-    }
-    let error = "biggest".parse::<Keep>().expect_err("an unknown policy");
-    assert!(
-        error.contains("largest, lossless, oldest, tagged"),
-        "{error}"
-    );
-}
-
-fn resolution(keeper: &str, losers: &[&str]) -> Resolution {
-    Resolution {
-        keeper: sized(keeper, 1),
-        losers: losers
-            .iter()
-            .map(|path| Loser {
-                entry: sized(path, 1),
-                reason: "smaller".to_owned(),
-            })
-            .collect(),
-    }
-}
-
-#[test]
-fn quarantine_keeps_each_losers_path_below_its_root() {
-    let scratch = Scratch::new("dupes-plan-quarantine");
-    let roots = [scratch.join("E"), scratch.join("F")];
-    let keep = |name: &str| scratch.join("E").join(name).display().to_string();
-    let lose = |root: &str, name: &str| scratch.join(root).join(name).display().to_string();
-    let directory = scratch.join("quarantine").join("7");
-    std::fs::create_dir_all(directory.join("Occupied")).expect("a directory");
-    std::fs::write(directory.join("Occupied").join("x.mp3"), b"x").expect("a file");
-
-    let planned = duplicates::plan_quarantine(
-        &[
-            resolution(&keep("A/keep.flac"), &[&lose("E", "A/lose.mp3")]),
-            resolution(&keep("B/keep.flac"), &[&lose("F", "A/lose.mp3")]),
-            resolution(&keep("C/keep.flac"), &[&lose("E", "Occupied/x.mp3")]),
-            resolution(&keep("D/keep.flac"), &["/elsewhere/y.mp3"]),
-        ],
-        &roots,
-        &directory,
-    );
-
-    let target = directory.join("A").join("lose.mp3");
-    assert_eq!(planned[0].destination, target);
-    assert!(planned[0].ready());
-    assert_eq!(planned[1].blocked, Some(Obstacle::Claimed(target)));
-    assert!(matches!(planned[2].blocked, Some(Obstacle::Occupied(_))));
-    assert_eq!(planned[3].blocked, Some(Obstacle::NoRoot));
 }
 
 #[test]

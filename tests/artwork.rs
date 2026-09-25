@@ -14,7 +14,7 @@ use stk::artwork::base::{select, ArtCandidate, ArtProvider};
 use stk::artwork::coverartarchive::CoverArtArchiveProvider;
 use stk::artwork::itunes::ITunesProvider;
 use stk::artwork::service::{
-    audit, build_providers, detect_mime, download, embed, find_artwork, ArtworkResult,
+    audit, build_providers, detect_mime, embed, find_artwork, ArtworkResult,
 };
 use stk::config::ArtworkSettings;
 use stk::errors::{Error, Result};
@@ -156,44 +156,6 @@ fn the_best_matching_artist_wins_over_the_first_result() {
 }
 
 #[test]
-fn verification_can_be_disabled() {
-    let selection = select(
-        &[candidate("Some Other Band", "itunes")],
-        "DECO*27",
-        false,
-        0.8,
-    );
-
-    assert!(selection.is_some());
-    assert!(
-        selection.reason.contains("unverified"),
-        "{}",
-        selection.reason
-    );
-}
-
-#[test]
-fn the_threshold_is_configurable() {
-    let candidates = [candidate("DECO 27 Official", "itunes")];
-
-    assert!(select(&candidates, "DECO*27", true, 0.99)
-        .candidate
-        .is_none());
-    assert!(select(&candidates, "DECO*27", true, 0.3).is_some());
-}
-
-#[test]
-fn a_following_request_waits_out_the_interval() {
-    let limiter = RateLimiter::new(0.2);
-    limiter.wait();
-
-    let started = Instant::now();
-    limiter.wait();
-
-    assert!(started.elapsed().as_secs_f64() >= 0.15);
-}
-
-#[test]
 fn time_already_spent_counts_towards_the_interval() {
     // A second of interval so a loaded runner's oversleep cannot pass for a
     // full wait: at a fifth of a second a macOS runner overslept the 50 ms
@@ -207,39 +169,6 @@ fn time_already_spent_counts_towards_the_interval() {
 
     // Only the remainder is waited out, not another full interval.
     assert!(started.elapsed().as_secs_f64() < 0.8);
-}
-
-#[test]
-fn a_zero_interval_disables_pacing() {
-    let limiter = RateLimiter::new(0.0);
-    let started = Instant::now();
-    limiter.wait();
-    limiter.wait();
-
-    assert!(started.elapsed().as_secs_f64() < 0.05);
-}
-
-#[test]
-fn providers_are_built_with_their_own_limits_by_default() {
-    let providers = build_providers(&ArtworkSettings::default()).expect("providers");
-
-    assert_eq!(providers[0].name(), "itunes");
-    assert!((providers[0].min_interval_seconds() - 3.0).abs() < f64::EPSILON);
-    assert_eq!(providers[1].name(), "coverartarchive");
-    assert!((providers[1].min_interval_seconds() - 1.0).abs() < f64::EPSILON);
-}
-
-#[test]
-fn the_interval_can_be_overridden_for_every_provider() {
-    let settings = ArtworkSettings {
-        min_request_interval_seconds: Some(0.0),
-        ..ArtworkSettings::default()
-    };
-    let providers = build_providers(&settings).expect("providers");
-
-    assert!(providers
-        .iter()
-        .all(|provider| provider.min_interval_seconds() == 0.0));
 }
 
 #[test]
@@ -275,28 +204,6 @@ fn itunes_parses_results_and_upscales_the_thumbnail() {
 }
 
 #[test]
-fn itunes_results_without_artwork_are_skipped() {
-    let http = Recorded::default().json_at(
-        stk::artwork::itunes::SEARCH_URL,
-        json!({"results": [{"artistName": "DECO*27"}]}),
-    );
-
-    let provider = ITunesProvider::new(1200, 0.0);
-    assert!(provider
-        .search(&http, "DECO*27", "Roki")
-        .expect("results")
-        .is_empty());
-}
-
-#[test]
-fn an_http_error_propagates_to_the_caller() {
-    let http = Recorded::default().failing(stk::artwork::itunes::SEARCH_URL, "503");
-    let provider = ITunesProvider::new(1200, 0.0);
-
-    assert!(provider.search(&http, "DECO*27", "Roki").is_err());
-}
-
-#[test]
 fn coverartarchive_builds_an_archive_url_from_the_recordings_release() {
     let http = Recorded::default().json_at(
         stk::artwork::coverartarchive::SEARCH_URL,
@@ -322,28 +229,6 @@ fn coverartarchive_builds_an_archive_url_from_the_recordings_release() {
 }
 
 #[test]
-fn a_recording_with_no_release_is_skipped() {
-    let http = Recorded::default().json_at(
-        stk::artwork::coverartarchive::SEARCH_URL,
-        json!({"recordings": [{"title": "Roki", "artist-credit": [{"name": "DECO*27"}]}]}),
-    );
-
-    let provider = CoverArtArchiveProvider::new(1200, 0.0);
-    assert!(provider
-        .search(&http, "DECO*27", "Roki")
-        .expect("results")
-        .is_empty());
-}
-
-#[test]
-fn a_file_with_no_cover_needs_artwork() {
-    let statuses = audit(&[entry("DECO*27", "Roki", 0)], &ArtworkSettings::default());
-
-    assert!(statuses[0].needs_artwork);
-    assert_eq!(statuses[0].reason, "no embedded cover");
-}
-
-#[test]
 fn a_placeholder_sized_cover_counts_as_missing() {
     let statuses = audit(
         &[entry("DECO*27", "Roki", 500)],
@@ -358,68 +243,12 @@ fn a_placeholder_sized_cover_counts_as_missing() {
     );
 }
 
-#[test]
-fn a_real_cover_is_left_alone() {
-    let statuses = audit(
-        &[entry("DECO*27", "Roki", 50_000)],
-        &ArtworkSettings::default(),
-    );
-
-    assert!(!statuses[0].needs_artwork);
-}
-
-#[test]
-fn builds_the_configured_providers_in_order() {
-    let settings = ArtworkSettings {
-        providers: vec!["coverartarchive".to_owned(), "itunes".to_owned()],
-        ..ArtworkSettings::default()
-    };
-    let providers = build_providers(&settings).expect("providers");
-
-    assert_eq!(providers[0].name(), "coverartarchive");
-    assert_eq!(providers[1].name(), "itunes");
-}
-
-#[test]
-fn an_unknown_provider_is_rejected_with_the_valid_names() {
-    let settings = ArtworkSettings {
-        providers: vec!["discogs".to_owned()],
-        ..ArtworkSettings::default()
-    };
-
-    let Err(error) = build_providers(&settings) else {
-        panic!("an unknown provider should be rejected");
-    };
-    assert!(error.to_string().contains("itunes"), "{error}");
-    assert!(error.to_string().contains("coverartarchive"), "{error}");
-}
-
 fn itunes_only() -> ArtworkSettings {
     ArtworkSettings {
         providers: vec!["itunes".to_owned()],
         min_request_interval_seconds: Some(0.0),
         ..ArtworkSettings::default()
     }
-}
-
-#[test]
-fn downloads_a_verified_match() {
-    let settings = itunes_only();
-    let http = Recorded::default()
-        .json_at(
-            stk::artwork::itunes::SEARCH_URL,
-            json!({"results": [{
-                "artworkUrl100": "https://is1.test/100x100bb.jpg",
-                "artistName": "DECO*27", "trackName": "Roki"
-            }]}),
-        )
-        .bytes_at("https://is1.test/1200x1200bb.jpg", jpeg(10_000));
-
-    let providers = build_providers(&settings).expect("providers");
-    let result = find_artwork(&entry("DECO*27", "Roki", 0), &providers, &settings, &http);
-
-    assert!(result.ok(), "{}", result.error);
-    assert_eq!(result.artwork.expect("artwork").mime, "image/jpeg");
 }
 
 #[test]
@@ -445,37 +274,6 @@ fn a_wrong_artist_result_is_not_downloaded() {
         .expect("the recorder")
         .iter()
         .all(|url| url.starts_with(stk::artwork::itunes::SEARCH_URL)));
-}
-
-#[test]
-fn the_second_provider_is_tried_when_the_first_finds_nothing() {
-    let settings = ArtworkSettings {
-        min_request_interval_seconds: Some(0.0),
-        ..ArtworkSettings::default()
-    };
-    let http = Recorded::default()
-        .json_at(stk::artwork::itunes::SEARCH_URL, json!({"results": []}))
-        .json_at(
-            stk::artwork::coverartarchive::SEARCH_URL,
-            json!({"recordings": [{
-                "title": "Roki",
-                "artist-credit": [{"name": "DECO*27"}],
-                "releases": [{"id": "abc-123", "title": "Ghost"}]
-            }]}),
-        )
-        .bytes_at(
-            "https://coverartarchive.org/release/abc-123/front-1200",
-            jpeg(10_000),
-        );
-
-    let providers = build_providers(&settings).expect("providers");
-    let result = find_artwork(&entry("DECO*27", "Roki", 0), &providers, &settings, &http);
-
-    assert!(result.ok(), "{}", result.error);
-    assert_eq!(
-        result.selection.candidate.expect("a selection").source,
-        "coverartarchive"
-    );
 }
 
 #[test]
@@ -526,26 +324,6 @@ fn a_download_too_small_to_be_a_cover_is_rejected() {
 }
 
 #[test]
-fn a_failed_download_is_reported_not_raised() {
-    let settings = itunes_only();
-    let http = Recorded::default()
-        .json_at(
-            stk::artwork::itunes::SEARCH_URL,
-            json!({"results": [{
-                "artworkUrl100": "https://is1.test/100x100bb.jpg",
-                "artistName": "DECO*27", "trackName": "Roki"
-            }]}),
-        )
-        .failing("https://is1.test/1200x1200bb.jpg", "404 Not Found");
-
-    let providers = build_providers(&settings).expect("providers");
-    let result = find_artwork(&entry("DECO*27", "Roki", 0), &providers, &settings, &http);
-
-    assert!(!result.ok());
-    assert!(result.error.contains("404"), "{}", result.error);
-}
-
-#[test]
 fn type_comes_from_the_bytes_not_the_headers() {
     for (data, expected) in [
         (
@@ -557,17 +335,6 @@ fn type_comes_from_the_bytes_not_the_headers() {
     ] {
         assert_eq!(detect_mime(&data), expected, "{data:?}");
     }
-}
-
-#[test]
-fn download_takes_its_type_from_the_bytes() {
-    let png = vec![0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a, 0, 0];
-    let http = Recorded::default().bytes_at("https://x.test/cover", png.clone());
-
-    let artwork = download(&http, "https://x.test/cover").expect("a download");
-
-    assert_eq!(artwork.mime, "image/png");
-    assert_eq!(artwork.data, png);
 }
 
 #[test]

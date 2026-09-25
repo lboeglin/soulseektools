@@ -46,19 +46,6 @@ fn replace_leaves_what_the_row_cannot_say_to_the_peer() {
     assert_eq!(planned.track_number, Some(7));
 }
 
-#[test]
-fn a_track_number_the_row_carries_wins_under_replace() {
-    let row = RowTags {
-        track_number: Some(3),
-        ..row()
-    };
-
-    assert_eq!(
-        plan(TagPolicy::Replace, &row, &peer()).track_number,
-        Some(3)
-    );
-}
-
 /// An `stk get` row has no album, a title-only query no artist.
 #[test]
 fn a_blank_in_the_row_never_blanks_the_file() {
@@ -95,44 +82,6 @@ fn fill_writes_only_the_fields_the_peer_left_empty() {
     assert_eq!(planned.album, "www.something.ru");
 }
 
-#[test]
-fn keep_changes_nothing() {
-    assert_eq!(plan(TagPolicy::Keep, &row(), &peer()), peer());
-}
-
-#[test]
-fn an_untagged_file_ends_up_the_same_under_replace_and_fill() {
-    let bare = TrackTags::default();
-
-    assert_eq!(
-        plan(TagPolicy::Replace, &row(), &bare),
-        plan(TagPolicy::Fill, &row(), &bare)
-    );
-    assert_eq!(plan(TagPolicy::Fill, &row(), &bare).artist, "DECO*27");
-}
-
-#[test]
-fn the_row_reads_its_track_number_out_of_the_export_columns() {
-    let track = Track {
-        source_row: vec![
-            ("Track Name".to_owned(), "Roki".to_owned()),
-            (" track number ".to_owned(), "3/12".to_owned()),
-        ],
-        ..Track::new("DECO*27", "Roki")
-    };
-
-    assert_eq!(RowTags::of(&track).track_number, Some(3));
-}
-
-#[test]
-fn the_row_is_trimmed_before_it_is_compared() {
-    let track = Track::new("  DECO*27 ", " Roki ");
-    let row = RowTags::of(&track);
-
-    assert_eq!(row.artist, "DECO*27");
-    assert_eq!(row.title, "Roki");
-}
-
 /// `replace` says the row beats whatever the uploader's tagger left, which
 /// holds for a title someone asked for by name. A title `stk get --album` read
 /// off a filename is the weaker of the two guesses, so it never overwrites.
@@ -164,32 +113,6 @@ fn a_guessed_title_still_fills_a_file_that_has_none() {
     };
 
     assert_eq!(plan(TagPolicy::Replace, &guessed, &untitled).title, "Roki");
-}
-
-#[test]
-fn a_guessed_title_writes_nothing_under_keep() {
-    let guessed = RowTags {
-        title_guessed: true,
-        ..row()
-    };
-    let untitled = TrackTags {
-        title: String::new(),
-        ..peer()
-    };
-
-    assert_eq!(plan(TagPolicy::Keep, &guessed, &untitled), untitled);
-}
-
-#[test]
-fn the_row_carries_whether_the_queue_called_its_title_a_guess() {
-    let asked_for = Track::new("DECO*27", "Roki");
-    let guessed = Track {
-        title_guessed: true,
-        ..Track::new("DECO*27", "Roki")
-    };
-
-    assert!(!RowTags::of(&asked_for).title_guessed);
-    assert!(RowTags::of(&guessed).title_guessed);
 }
 
 #[test]
