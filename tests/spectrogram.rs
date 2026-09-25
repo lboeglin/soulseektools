@@ -1,8 +1,4 @@
-//! The picture `stk verify --spectrograms` leaves beside a flagged file.
-//!
-//! Nothing compares these images to anything, so what is worth pinning is that
-//! one is written, that it is the size the axes were laid out for, and that a
-//! file with no decoder is reported rather than silently skipped.
+//! The image `stk verify --spectrograms` writes beside a flagged file.
 
 mod support;
 

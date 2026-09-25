@@ -1,5 +1,4 @@
-//! Cover art selection, providers, pacing and embedding, against recorded HTTP
-//! responses. The rate limiter is timed for real, with short intervals.
+//! Cover art selection, providers, pacing and embedding, against recorded HTTP responses.
 
 mod support;
 
@@ -157,9 +156,7 @@ fn the_best_matching_artist_wins_over_the_first_result() {
 
 #[test]
 fn time_already_spent_counts_towards_the_interval() {
-    // A second of interval so a loaded runner's oversleep cannot pass for a
-    // full wait: at a fifth of a second a macOS runner overslept the 50 ms
-    // remainder past the bound.
+    // A full second, so a loaded runner's oversleep can't pass for a full wait.
     let limiter = RateLimiter::new(1.0);
     limiter.wait();
     std::thread::sleep(std::time::Duration::from_millis(600));
@@ -167,7 +164,6 @@ fn time_already_spent_counts_towards_the_interval() {
     let started = Instant::now();
     limiter.wait();
 
-    // Only the remainder is waited out, not another full interval.
     assert!(started.elapsed().as_secs_f64() < 0.8);
 }
 
@@ -267,7 +263,7 @@ fn a_wrong_artist_result_is_not_downloaded() {
 
     assert!(!result.ok());
     assert!(result.artwork.is_none());
-    // Nothing was fetched: the guard runs before the download.
+    // The artist guard runs before any download.
     assert!(http
         .requested
         .lock()

@@ -1,4 +1,4 @@
-//! The EBU R 128 loudness scan behind `stk loudness`.
+//! The EBU R 128 loudness scan.
 
 mod support;
 
@@ -18,11 +18,7 @@ fn measure_file(path: &Path, settings: &LoudnessSettings) -> LoudnessResult {
 
 const RATE: u32 = 48_000;
 
-/// A stereo 1 kHz tone at a known amplitude, interleaved as the analyser wants.
-///
-/// Every cast here is bounded by a few seconds of audio at a known rate, not by
-/// an address space, and the samples are `f32` because that is what the
-/// analyser takes.
+/// A stereo 1 kHz tone at a known amplitude, interleaved.
 #[allow(
     clippy::cast_possible_truncation,
     clippy::cast_sign_loss,
@@ -49,10 +45,7 @@ fn loudness_of(samples: &[f32], channels: u32) -> Option<Loudness> {
     })
 }
 
-/// A full-scale stereo 1 kHz tone measures about 0 LUFS. Each channel's mean
-/// square is 0.5 and BS.1770 sums them under unit weights, so the energy is
-/// 1.0 and the whole figure is the -0.691 offset against the K-weighting's
-/// small lift near 1 kHz.
+/// Each channel's mean square is 0.5, summed to 1.0, so the figure is the -0.691 offset.
 #[test]
 fn a_known_tone_measures_the_loudness_the_standard_gives_it() {
     let measured = loudness_of(&tone(1.0, 3.0), 2).expect("a measurement");
@@ -60,9 +53,7 @@ fn a_known_tone_measures_the_loudness_the_standard_gives_it() {
     assert!(measured.integrated_lufs.abs() < 0.5, "{measured:?}");
 }
 
-/// The whole reason the scan is not handed a mono downmix: BS.1770 sums the
-/// channels under fixed weights, so the same signal in two channels is louder
-/// than in one.
+/// BS.1770 sums channels, so the scan must not be handed a mono downmix.
 #[test]
 fn the_same_signal_in_two_channels_is_louder_than_in_one() {
     let stereo = loudness_of(&tone(0.5, 3.0), 2).expect("a measurement");
@@ -86,8 +77,7 @@ fn a_file_of_digital_silence_is_reported_rather_than_measured() {
     assert!(!result.detail.is_empty());
 }
 
-/// An album's gate is the album's, not each track's, so a record is scanned as
-/// one programme rather than averaged from the figures its tracks got.
+/// The gate is relative to the whole album, so it can't be averaged from tracks.
 #[test]
 fn an_album_is_measured_across_its_tracks_at_once() {
     let scratch = Scratch::new("loudness-album");
@@ -104,7 +94,6 @@ fn an_album_is_measured_across_its_tracks_at_once() {
         &Encoded {
             seconds: 2.0,
             modulation_hz: 0.5,
-            // -12dB, as an amplitude.
             gain: 0.251_188_65,
             ..Encoded::default()
         },
@@ -123,13 +112,9 @@ fn an_album_is_measured_across_its_tracks_at_once() {
             && album.integrated_lufs > tracks[1].integrated_lufs,
         "{album:?} against {tracks:?}"
     );
-    // The peak belongs to whichever track holds it.
     assert!((album.peak - tracks[0].peak).abs() < 1e-9);
 }
 
-/// A gate is relative to the programme it is applied to, so a figure taken from
-/// nine tracks of a twelve-track record describes nine tracks. Writing it to
-/// those nine as their album gain would say otherwise.
 #[test]
 fn a_record_with_a_track_it_could_not_read_has_no_album_figure() {
     let scratch = Scratch::new("loudness-album-partial");
@@ -151,10 +136,7 @@ fn a_record_with_a_track_it_could_not_read_has_no_album_figure() {
     assert!(scan.tracks[1].loudness.is_none());
 }
 
-/// The decode is handed to the analyser a block at a time, and a 64 KiB read
-/// lands mid-sample far more often than not. A boundary mishandled would shift
-/// every frame after it, so a steady tone long enough to cross dozens of them
-/// has to measure exactly what a short one of the same tone does.
+/// A decode read landing mid-sample would shift every frame after it.
 #[test]
 fn a_long_track_measures_what_a_short_one_of_the_same_tone_does() {
     let scratch = Scratch::new("loudness-blocks");
@@ -173,7 +155,6 @@ fn a_long_track_measures_what_a_short_one_of_the_same_tone_does() {
             .expect("a measurement")
     };
 
-    // 12 s of 48 kHz stereo `f32` is 4.6 MB, so about seventy blocks.
     let long = measure("long.flac", 12.0);
     let short = measure("short.flac", 2.0);
 

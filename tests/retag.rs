@@ -1,12 +1,8 @@
-//! The policy that decides what a fetched file is tagged with.
-//!
-//! `plan` is pure, so every rule about which side wins is checked here without
-//! a file; the write, the log and the reindex are covered in `fetch.rs`.
+//! What a fetched file is tagged with; the write itself is covered in `fetch.rs`.
 
 use stk::models::{Track, TrackTags};
 use stk::retag::{plan, RowTags, TagPolicy};
 
-/// What a peer's tagger typically leaves.
 fn peer() -> TrackTags {
     TrackTags {
         artist: "Unknown Artist".to_owned(),
@@ -82,9 +78,6 @@ fn fill_writes_only_the_fields_the_peer_left_empty() {
     assert_eq!(planned.album, "www.something.ru");
 }
 
-/// `replace` says the row beats whatever the uploader's tagger left, which
-/// holds for a title someone asked for by name. A title `stk get --album` read
-/// off a filename is the weaker of the two guesses, so it never overwrites.
 #[test]
 fn a_guessed_title_does_not_overwrite_the_one_the_peer_wrote() {
     let guessed = RowTags {
@@ -95,8 +88,7 @@ fn a_guessed_title_does_not_overwrite_the_one_the_peer_wrote() {
     let planned = plan(TagPolicy::Replace, &guessed, &peer());
 
     assert_eq!(planned.title, "Track 01");
-    // Only the title is demoted: the artist and album came from the album that
-    // was asked for, not from a filename.
+    // Only the title is demoted; artist and album came from the request.
     assert_eq!(planned.artist, "DECO*27");
     assert_eq!(planned.album, "Ghost");
 }

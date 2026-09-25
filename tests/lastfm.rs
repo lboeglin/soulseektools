@@ -1,11 +1,4 @@
-//! Reading a Last.fm profile by username, against canned responses.
-//!
-//! Last.fm answers nothing without an API key, so the bodies under
-//! `tests/data/lastfm` are written to the shape its API documentation gives
-//! rather than recorded: loved tracks over two pages, the second holding one
-//! track and so written as an object rather than an array, the way Last.fm
-//! writes a list of one; two pages of top tracks, most played first; and an
-//! error.
+//! A Last.fm profile, against responses written to the API's documented shape.
 
 mod support;
 
@@ -22,7 +15,6 @@ use stk::wantlist::lastfm::API_URL;
 use stk::wantlist::{read_source, Discogs, Format, LastFm, Remote, Source};
 use support::Scratch;
 
-/// A transport answering each method and page with a canned body.
 #[derive(Default)]
 struct Canned {
     bodies: HashMap<(String, String), Value>,
@@ -167,8 +159,7 @@ fn min_plays_adds_the_tracks_played_that_often_and_stops_below_it() {
             "DECO*27 - Ghost Rule",
         ]
     );
-    // Forty pages of top tracks, and the one read was enough: its last track
-    // was played fewer times than asked.
+    // One page of forty was enough: its last track fell below the threshold.
     assert_eq!(
         http.methods().last(),
         Some(&("user.gettoptracks".to_owned(), "1".to_owned()))

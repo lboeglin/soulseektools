@@ -1,7 +1,4 @@
 //! Loading, layering, validating and writing the configuration.
-//!
-//! Tests touching `STK_*`, the secrets or the working directory hold one lock
-//! and restore what they changed.
 
 mod support;
 
@@ -13,17 +10,13 @@ use stk::config::{
 };
 use support::Scratch;
 
-/// The variables secrets are read from, which a test must neither inherit nor leak.
 const SECRETS: &[&str] = &["SLSKD_API_KEY", "DISCOGS_TOKEN", "LASTFM_API_KEY"];
 
-/// Environment and working directory are process-wide; only one test may hold
-/// them at a time.
 fn exclusive() -> MutexGuard<'static, ()> {
     static LOCK: Mutex<()> = Mutex::new(());
     LOCK.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
-/// Clear every variable the loader reads, and put them back afterwards.
 struct CleanEnvironment {
     saved: Vec<(String, String)>,
     directory: PathBuf,
@@ -155,7 +148,6 @@ fn an_invalid_value_is_rejected_naming_the_key() {
             "[dupes]\nresolve_min_score = 1.5\n",
             "dupes.resolve_min_score",
         ),
-        // Wide enough to let batch coherence buy a live recording.
         (
             "[uploader]\nscore_window = 5000000\n",
             "uploader.score_window",

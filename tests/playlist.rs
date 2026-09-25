@@ -1,4 +1,4 @@
-//! The M3U writer, which is how an order gets back out of the library.
+//! The M3U writer.
 
 use std::path::{Path, PathBuf};
 
@@ -32,7 +32,7 @@ fn an_entry_carries_its_length_and_name_before_its_path() {
 
 #[test]
 fn a_track_with_no_duration_is_written_with_minus_one() {
-    // The extended-M3U convention. A zero makes several players skip the entry.
+    // Some players skip an entry with a zero length.
     let text = render(&[entry("/music/a.flac", "A", "B", None)], None);
 
     assert!(text.contains("#EXTINF:-1,A - B"), "{text}");
@@ -50,7 +50,6 @@ fn a_relative_playlist_reaches_the_music_from_where_it_sits() {
 
 #[test]
 fn a_file_the_playlist_cannot_reach_is_written_absolute() {
-    // Two Windows drives share no prefix, so no number of `..` connects them.
     assert_eq!(
         relative_to(Path::new(r"E:\Music\a.flac"), Path::new(r"C:\lists")),
         None

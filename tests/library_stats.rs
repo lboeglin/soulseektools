@@ -1,4 +1,4 @@
-//! Measuring the library over time, behind `stk library trend`.
+//! Measuring the library over time.
 
 mod support;
 
@@ -56,8 +56,6 @@ fn a_file_counts_as_tagged_only_when_it_has_a_title() {
     assert_eq!(measured.tagged, 1);
 }
 
-/// An Opus file scanned in its native mode carries only the header field, and
-/// is level-matched wherever it is played.
 #[test]
 fn an_opus_file_carrying_only_r128_counts_as_level_matched() {
     let mut scanned = titled("/music/a.opus");
@@ -68,8 +66,6 @@ fn an_opus_file_carrying_only_r128_counts_as_level_matched() {
 
 #[test]
 fn everything_verify_doubted_is_counted_as_flagged() {
-    // FAKE, SUSPECT and UPSAMPLED go in one column because anyone chasing
-    // them down treats them the same way.
     let verdicts: BTreeMap<Verdict, usize> = [
         (Verdict::Ok, 10),
         (Verdict::Fake, 2),
@@ -96,8 +92,6 @@ fn measured(total: usize) -> LibrarySnapshot {
 
 #[test]
 fn a_measurement_that_repeats_the_last_one_is_not_recorded_again() {
-    // Scanning four times on a quiet afternoon should leave one point on the
-    // trend, not four: a run of identical rows is not evidence of anything.
     let scratch = support::Scratch::new("stats-repeat");
     let mut index = LibraryIndex::open(&scratch.join("library.db")).expect("an index");
 
@@ -118,7 +112,7 @@ fn a_measurement_that_repeats_the_last_one_is_not_recorded_again() {
 
 #[test]
 fn a_leap_day_is_dated_as_one() {
-    // The 400-year rule, which a naive divide-by-365 gets wrong.
+    // The 400-year rule, which dividing by 365 gets wrong.
     assert_eq!(date_of(951_782_400.0), "2000-02-29");
     assert_eq!(date_of(1_709_164_800.0), "2024-02-29");
 }

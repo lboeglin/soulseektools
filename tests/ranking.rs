@@ -65,8 +65,6 @@ fn a_rejected_term_in_the_folder_drops_a_result_to_the_bottom() {
 
 #[test]
 fn a_term_the_track_itself_contains_is_not_held_against_it() {
-    // Someone wanting "Live and Learn" is not asking to reject every result
-    // whose path says "live".
     let wanted = Track::new("Crush 40", "Live and Learn");
     let result = candidate("@@peer\\Sonic Adventure 2\\01 Live and Learn.flac");
 
@@ -95,7 +93,7 @@ fn a_file_named_after_another_song_is_dropped() {
 
 #[test]
 fn a_file_named_after_the_artist_alone_is_kept() {
-    // Peers file untitled rips under the artist's name; a human can still judge it.
+    // Peers file untitled rips under the artist's name.
     assert!(!ranked(&track(), &[candidate("@@peer\\Music\\DECO 27.flac")]).is_empty());
 }
 
@@ -125,8 +123,6 @@ fn a_result_of_the_wrong_length_is_penalised() {
     assert!(results[1].flags.contains(&"duration".to_owned()));
 }
 
-/// A batch is a list per track; these are built by hand so the pass is tested
-/// without a client, a store or a search.
 fn scored(username: &str, score: i64) -> ScoredCandidate {
     ScoredCandidate {
         candidate: Candidate {
@@ -154,8 +150,6 @@ fn first_peers(batch: &[Vec<ScoredCandidate>]) -> Vec<&str> {
         .collect()
 }
 
-/// Three tracks, each won by a different peer, with `bulk` a close second on
-/// every one of them.
 fn close_batch() -> Vec<Vec<ScoredCandidate>> {
     (0..3)
         .map(|index| {
@@ -180,7 +174,6 @@ fn a_peer_covering_more_of_the_batch_wins_a_close_race() {
 
 #[test]
 fn a_promoted_candidate_says_why_it_moved() {
-    // A silent reordering of a list a human reads is worse than none.
     let mut batch = close_batch();
     prefer_one_uploader(&mut batch, &uploader()).expect("a preferred peer");
 
@@ -223,7 +216,6 @@ fn a_rejected_candidate_is_never_promoted() {
 
 #[test]
 fn the_preferred_peer_is_the_same_whatever_order_the_tracks_arrive_in() {
-    // Coverage is counted against the un-reordered lists for exactly this.
     let mut forwards = close_batch();
     let mut backwards = close_batch();
     backwards.reverse();
@@ -257,8 +249,6 @@ fn ghost_rule() -> Vec<Candidate> {
     )
 }
 
-/// A file is scored on its own path; a folder is taken whole, so one karaoke
-/// track inside it is evidence about every track inside it.
 #[test]
 fn a_rejected_term_on_any_file_rejects_the_whole_folder() {
     let mixed = album(
@@ -272,8 +262,6 @@ fn a_rejected_term_on_any_file_rejects_the_whole_folder() {
     assert_eq!(scored.flags, vec!["reject:karaoke".to_owned()]);
 }
 
-/// The mean, not the sum. A folder padded out with bonus tracks is not a better
-/// rip of the record than a folder holding the record.
 #[test]
 fn a_longer_folder_does_not_outscore_a_better_one() {
     let padded: Vec<Candidate> = (1..=20)
@@ -287,9 +275,6 @@ fn a_longer_folder_does_not_outscore_a_better_one() {
     assert!(short.score > long.score);
 }
 
-/// A folder is taken whole, so the one MP3 among the FLACs is a warning. Hiding
-/// it would describe a folder that is not the one on the peer's disk, and the
-/// one on the peer's disk is what would arrive.
 #[test]
 fn a_folder_that_is_only_partly_lossless_is_warned_about_rather_than_dropped() {
     let mut mixed = ghost_rule();

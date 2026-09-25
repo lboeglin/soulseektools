@@ -1,9 +1,4 @@
-//! The interactive picker: what each answer decides, and what it leaves
-//! behind in the review queue.
-//!
-//! The walk takes its input and its transcript as arguments, so a whole session
-//! is a string of answers and the result is read back out of the store -- no
-//! terminal, and no subprocess.
+//! The interactive picker, driven by a string of answers and read back from the store.
 
 mod support;
 
@@ -36,11 +31,7 @@ fn scored(title: &str, rank: u32, flags: &[&str]) -> ScoredCandidate {
     }
 }
 
-/// Two tracks awaiting review, three candidates each.
-///
-/// The first candidate carries `preferred-uploader`, the flag the batch pass
-/// leaves when it moves a result to the front because one peer covers more of
-/// the batch -- which is exactly what someone deciding wants to see.
+/// The first candidate carries `preferred-uploader`.
 fn queue(scratch: &Scratch) -> ReviewStore {
     let mut store = ReviewStore::open(&scratch.join("review.db")).expect("a store");
     for title in TITLES {
@@ -88,7 +79,6 @@ fn approved_rank(store: &ReviewStore, title: &str) -> Option<i64> {
         .approved_rank
 }
 
-/// Answer the prompts with `script`, and hand back the tally and the transcript.
 fn walk(store: &mut ReviewStore, script: &str) -> (Tally, String) {
     let mut input = Cursor::new(script.as_bytes().to_vec());
     let mut transcript: Vec<u8> = Vec::new();
@@ -136,8 +126,7 @@ fn u_takes_back_the_previous_decision_and_offers_it_again() {
 
     assert_eq!(tally.approved, 1);
     assert_eq!(approved_rank(&store, "Roki"), Some(2));
-    // The candidate taken back must not stay marked as tried, or the retry
-    // would fall past it to the third and the best copy would never be fetched.
+    // Still marked tried, the retry would skip past it and the best copy would never be fetched.
     let id = id_of(&store, "Roki");
     assert_eq!(store.next_candidate(id).expect("a retry"), Some(1));
 }
@@ -155,10 +144,7 @@ fn q_stops_the_walk_with_the_rest_undecided() {
 
 #[test]
 fn exhausted_input_ends_the_walk_rather_than_approving() {
-    // An empty answer takes the first candidate, and a pipe at its end reads as
-    // an empty line unless the difference is checked for. It was not in the
-    // prompt this loop grew out of, so `stk get "..." < /dev/null` downloaded a
-    // candidate nobody had chosen; here it would have approved the whole queue.
+    // Regression: end of input read as an empty answer, which takes the first candidate.
     let scratch = Scratch::new("picker-eof");
     let mut store = queue(&scratch);
 
@@ -185,10 +171,7 @@ fn every_answer_the_prompt_offers_is_understood() {
 
 #[test]
 fn declining_a_track_is_not_abandoning_the_queue() {
-    // `stk get` asks the same question of one track, where "none" and "quit" are
-    // the same act, and its prompt is where someone learns to type `n`. Carried
-    // into a walk of a hundred and thirty-nine, `n` meaning quit would drop the
-    // remaining hundred and thirty-four on a keystroke meaning "not this one".
+    // In a long walk, `n` meaning quit would drop the rest of the queue.
     for answer in ["n", "no", "none"] {
         assert_eq!(picker::parse(answer, 3), Some(Decision::Skip), "{answer}");
     }

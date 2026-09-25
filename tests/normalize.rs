@@ -20,8 +20,7 @@ fn normalize_folds_case_punctuation_and_whitespace() {
 
 #[test]
 fn a_capital_dotted_i_normalises_to_a_form_that_stays_put() {
-    // Lowercasing last left the combining dot `İ` lowercases to, so the form
-    // normalised to a second form: `i\u{307}stanbul`, then `i stanbul`.
+    // Regression: lowercasing last left `İ`'s combining dot for a second pass to strip.
     for raw in ["\u{130}stanbul", "A\u{130}B"] {
         let once = normalize(raw);
         assert_eq!(normalize(&once), once, "normalize({raw:?})");
@@ -57,8 +56,7 @@ fn normalize_applies_nfkc_so_fullwidth_matches_halfwidth() {
 
 #[test]
 fn strip_artist_prefix_survives_spellings_of_differing_length() {
-    // A literal-length slice would cut "Melt" short here, because the folder name
-    // is far longer than its normalised form.
+    // A slice by the folder name's length would cut "Melt" short.
     assert_eq!(
         strip_artist_prefix("ryo (supercell) - Melt", "ryo (supercell)"),
         "Melt"
@@ -70,7 +68,6 @@ fn sanitize_folder_name_replaces_characters_a_filesystem_rejects() {
     for (raw, expected) in [
         ("DECO*27", "DECO_27"),
         ("AC/DC", "AC_DC"),
-        // A backslash is the separator this function exists to neutralise.
         (r"AC\DC", "AC_DC"),
         (
             "\u{4e0a}\u{6d77}\u{30a2}\u{30ea}\u{30b9}\u{5e7b}\u{6a02}\u{56e3}",
@@ -86,9 +83,6 @@ fn sanitize_folder_name_replaces_characters_a_filesystem_rejects() {
     }
 }
 
-/// `1-05` is the fifth track of the first disc, and what a tag calls the track
-/// number is the track. Taking the leading group would file every disc's opener
-/// as track one.
 #[test]
 fn a_disc_prefixed_filename_yields_the_track_not_the_disc() {
     assert_eq!(track_number("1-05 Roki.flac"), Some(5));
@@ -97,7 +91,7 @@ fn a_disc_prefixed_filename_yields_the_track_not_the_disc() {
 
 #[test]
 fn a_combining_mark_is_punctuation_not_part_of_a_word() {
-    // Rust's `\w` would keep it; only L, Nd, Nl and No are word characters here.
+    // Rust's `\w` would keep a combining mark.
     assert_eq!(normalize("a\u{20dd}b"), "a b");
 }
 

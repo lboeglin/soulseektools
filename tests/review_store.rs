@@ -1,4 +1,4 @@
-//! The review queue in `review.db`: states, choices, retries and migrations.
+//! The review queue: states, choices, retries and migrations.
 
 mod support;
 
@@ -49,7 +49,6 @@ fn first_id(store: &ReviewStore) -> i64 {
     store.tracks(&[], None).expect("tracks")[0].id
 }
 
-/// A track with three candidates found and none chosen yet.
 fn reviewable(store: &mut ReviewStore) -> i64 {
     store.add(&[roki()]).expect("an added track");
     let track_id = first_id(store);
@@ -120,7 +119,6 @@ fn changing_the_choice_clears_the_previous_one() {
     assert_eq!(stored.approved_rank, Some(3));
 }
 
-/// A second track with candidates of its own, for the batch approvals.
 fn second_reviewable(store: &mut ReviewStore) -> i64 {
     store
         .add(&[track("ZUN", "Heian Alien")])
@@ -132,8 +130,6 @@ fn second_reviewable(store: &mut ReviewStore) -> i64 {
     track_id
 }
 
-/// An album is taken or left as a unit, so one rank that does not exist has to
-/// leave every other track in the offer undecided.
 #[test]
 fn approving_several_tracks_at_once_is_all_or_nothing() {
     let scratch = Scratch::new("review-approve-all-fails");
@@ -171,8 +167,6 @@ fn rejecting_records_the_reason_and_clears_any_choice() {
     );
 }
 
-/// `review.db` v2. `FAILED` used to be terminal even though the next
-/// candidate was already in the database.
 #[test]
 fn the_next_candidate_is_promoted_without_losing_the_search() {
     let scratch = Scratch::new("review-next");
@@ -188,7 +182,7 @@ fn the_next_candidate_is_promoted_without_losing_the_search() {
     let stored = store.track(track_id).expect("a lookup").expect("the track");
     assert_eq!(stored.approved_rank, Some(2));
     assert_eq!(stored.attempts, 1);
-    // The point of this over `reset`: the search results are still here.
+    // Unlike `reset`, the search results are kept.
     assert_eq!(stored.candidates.len(), 3);
 }
 
@@ -197,9 +191,7 @@ fn a_track_only_fails_once_its_candidates_are_exhausted() {
     let scratch = Scratch::new("review-exhausted");
     let mut store = store(&scratch);
     let track_id = reviewable(&mut store);
-    // Started on the last candidate, the way an album approval does when the
-    // folder is not the track's own best. The two the scorer preferred are
-    // untried, so exhaustion means all of them rather than all of them above.
+    // Started on the last candidate, as an album approval may; the two above are untried.
     store.approve(track_id, 3).expect("an approval");
 
     assert_eq!(
@@ -223,8 +215,6 @@ fn a_track_only_fails_once_its_candidates_are_exhausted() {
 
 #[test]
 fn a_transfer_sitting_too_long_is_reported_as_stalled() {
-    // Nothing recorded when a track entered QUEUED before, so a transfer sitting
-    // for six hours looked exactly like one queued a minute ago.
     let scratch = Scratch::new("review-stalled");
     let mut store = store(&scratch);
     let track_id = reviewable(&mut store);
@@ -236,8 +226,6 @@ fn a_transfer_sitting_too_long_is_reported_as_stalled() {
     assert_eq!(store.stalled(9000.0, 3600.0).expect("stalled").len(), 1);
 }
 
-/// A stalled peer's group is reordered after its ranks were written, so
-/// the renumbering has to keep what was tried marked and leave ranks dense.
 #[test]
 fn reordering_the_untried_candidates_keeps_the_tried_ones_first_and_tried() {
     let scratch = Scratch::new("review-reorder");
@@ -270,7 +258,6 @@ fn reordering_the_untried_candidates_keeps_the_tried_ones_first_and_tried() {
     );
 }
 
-/// The oldest queue schema is upgraded in place, not rewritten.
 #[test]
 fn a_v1_database_is_upgraded_in_place_rather_than_rewritten() {
     let scratch = Scratch::new("review-v1");

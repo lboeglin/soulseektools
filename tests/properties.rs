@@ -20,9 +20,7 @@ use stk::text::romaji::to_romaji;
 use stk::wantlist::{read_export, Format, ARTIST_COLUMNS, TITLE_COLUMNS};
 use support::{encode, Encoded, Scratch};
 
-/// Text with a fair share of what breaks parsers and paths: separators, dots,
-/// quotes, control characters, Japanese, characters whose case mapping or
-/// compatibility form changes their length, and anything else Unicode holds.
+/// Separators, dots, quotes, control characters, Japanese, case mappings that change length.
 fn awkward_text() -> impl Strategy<Value = String> {
     prop_oneof![
         any::<String>(),
@@ -117,7 +115,6 @@ mod organise {
         .prop_map(|segments| segments.concat())
     }
 
-    /// Any pattern the parser accepts, built from the documented placeholders.
     fn pattern() -> impl Strategy<Value = Pattern> {
         (
             proptest::collection::vec(component(), 1..4),
@@ -208,7 +205,6 @@ mod names {
         )
     }
 
-    /// The same name as an export, a filename and a peer might each spell it.
     fn respelled(words: &[String], separator: &str, suffix: &str) -> String {
         format!("{}{suffix}", words.join(separator).to_uppercase())
     }
@@ -298,8 +294,7 @@ mod spectral {
 mod undo {
     use super::*;
 
-    /// A tag value as a tag editor would leave it: no surrounding whitespace,
-    /// which `TagField::set` trims, and no `;`, which separates genres.
+    /// No surrounding whitespace, which `TagField::set` trims, and no `;`, the genre separator.
     fn value() -> impl Strategy<Value = String> {
         "[^;\\x00-\\x1f]{0,16}".prop_map(|text| text.trim().to_owned())
     }

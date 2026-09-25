@@ -1,7 +1,4 @@
-//! The album grouping and the gain arithmetic behind `stk loudness`.
-//!
-//! All of it is pure, so what a gain figure means is established here rather
-//! than through a decode. The measurement itself is in `loudness.rs`.
+//! Album grouping and gain arithmetic; the measurement itself is in `loudness.rs`.
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -43,7 +40,6 @@ fn target(path: &str, tags: TrackTags) -> Target {
     }
 }
 
-/// One group's worth of scan, as the command hands it to `plan`.
 fn scanned(album: Option<Loudness>, tracks: &[(Target, f64)]) -> Scanned {
     Scanned {
         album,
@@ -61,20 +57,15 @@ fn a_gain_is_written_the_way_other_scanners_write_it() {
     assert_eq!(format_peak(0.988_556_4), "0.988556");
 }
 
-/// The Opus header states its gain against a fixed -23 LUFS, whatever
-/// reference the `REPLAYGAIN_*` figures used.
 #[test]
 fn an_opus_gain_is_the_q78_offset_from_minus_23_lufs() {
-    // A file measured at -18 LUFS needs no gain to reach the -18 reference,
-    // and -5 dB to reach -23.
+    // -18 LUFS needs no gain against a -18 reference, and -5 dB against -23.
     assert_eq!(format_r128(0.0, -18.0), (-5 * 256).to_string());
     assert_eq!(format_r128(-2.9, -18.0), "-2022");
-    // Against a -23 reference the two spellings agree.
     assert_eq!(format_r128(4.0, -23.0), (4 * 256).to_string());
 }
 
-/// The field is a signed 16 bit integer: a wrapped value would be a loud file
-/// asking to be made louder.
+/// A wrapped value would ask a loud file to be made louder.
 #[test]
 fn an_absurd_opus_gain_saturates_rather_than_wrapping() {
     assert_eq!(format_r128(900.0, -18.0), i16::MAX.to_string());
@@ -135,8 +126,7 @@ fn two_albums_of_the_same_name_by_different_artists_stay_apart() {
     assert_eq!(groups.len(), 2);
 }
 
-/// `normalize` drops a bracketed suffix, which would make a deluxe edition and
-/// the record it expands one album. They are two, mastered separately.
+/// `normalize` would drop the bracketed suffix and merge the two albums.
 #[test]
 fn a_deluxe_edition_is_not_the_album_it_expands() {
     assert_ne!(
@@ -145,9 +135,6 @@ fn a_deluxe_edition_is_not_the_album_it_expands() {
     );
 }
 
-/// An album gain describes a whole record. Measuring the half of an album that
-/// has no gain yet would write an album figure derived from half of it, so the
-/// skip is decided per record rather than per file.
 #[test]
 fn a_half_scanned_album_is_measured_entire() {
     let mut done = target("/music/a.flac", tags("ZUN", "Heian Alien"));
@@ -161,8 +148,6 @@ fn a_half_scanned_album_is_measured_entire() {
     assert!(selection.skipped.is_empty());
 }
 
-/// An Opus file `rsgain` scanned in its native mode carries only the header
-/// field. Re-measuring it would overwrite a scan.
 #[test]
 fn an_opus_file_carrying_only_r128_counts_as_scanned() {
     let mut scanned = target("/music/a.opus", tags("ZUN", ""));
@@ -172,9 +157,6 @@ fn an_opus_file_carrying_only_r128_counts_as_scanned() {
     assert!(select(group(vec![scanned], true), false).wanted.is_empty());
 }
 
-/// An album gain describes a whole record, so naming one track of one has no
-/// album figure to write: a figure measured from that track alone would tell a
-/// player the record is as loud as its loudest song.
 #[test]
 fn a_run_covering_part_of_a_record_holds_no_album_figure_for_it() {
     let groups = group(
@@ -191,8 +173,6 @@ fn a_run_covering_part_of_a_record_holds_no_album_figure_for_it() {
     assert_eq!(partial.len(), 1);
 }
 
-/// The whole-library run, and the folder nothing has scanned yet: an index that
-/// has never heard of the record is a reason to scan, not to refuse a figure.
 #[test]
 fn a_record_the_index_does_not_know_is_taken_at_face_value() {
     let groups = group(

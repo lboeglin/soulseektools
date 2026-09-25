@@ -1,4 +1,4 @@
-//! Romaji-aware fuzzy matching of artist and title names.
+//! Romaji-aware fuzzy matching.
 
 use std::collections::HashSet;
 
@@ -19,8 +19,7 @@ fn keys(forms: &[&NameForms]) -> HashSet<String> {
 }
 
 #[test]
-// An empty name short-circuits to a literal zero rather than a computed score,
-// so exact equality is the assertion.
+// An empty name short-circuits to exactly zero.
 #[allow(clippy::float_cmp)]
 fn empty_names_are_falsy_and_never_match() {
     assert!(!forms("").is_present());
@@ -29,8 +28,6 @@ fn empty_names_are_falsy_and_never_match() {
 
 #[test]
 fn kanji_matches_its_romanised_filename() {
-    // The case the whole romaji layer exists for: the export says 千本桜, the
-    // file on disk is Senbonzakura.flac.
     assert!(
         similarity(&forms("\u{5343}\u{672c}\u{685c}"), &forms("Senbonzakura"))
             >= thresholds().title_strong
@@ -39,8 +36,7 @@ fn kanji_matches_its_romanised_filename() {
 
 #[test]
 fn two_kanji_spellings_sharing_a_reading_match_through_romaji() {
-    // Neither side is romanised, so this only works because romaji is compared
-    // against romaji as well as against the normalised form.
+    // Only matches because romaji is compared against romaji too.
     assert!(
         similarity(
             &forms("\u{521d}\u{97f3}\u{30df}\u{30af}"),
@@ -102,8 +98,6 @@ fn a_name_and_its_romanisation_share_a_blocking_key() {
 
 #[test]
 fn candidate_pairs_skips_almost_every_comparison_in_a_distinct_library() {
-    // Blocking has to turn the quadratic scan into a near-linear one over names
-    // that share nothing.
     let mut state = 20_260_830_u64;
     let mut next = || {
         state = state

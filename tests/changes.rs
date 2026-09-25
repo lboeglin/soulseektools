@@ -1,5 +1,4 @@
-//! The `--apply` write log and its undo: every write is recorded, and the
-//! record is enough to put the file back.
+//! The `--apply` write log, and undoing from it.
 
 mod support;
 
@@ -45,7 +44,6 @@ fn indexed(scratch: &Scratch, root: &Path) -> LibraryIndex {
     index
 }
 
-/// A tiny PNG-shaped payload: the log stores bytes, not images.
 fn cover(byte: u8) -> Artwork {
     Artwork {
         data: vec![byte; 2048],
@@ -84,8 +82,6 @@ fn undoing_a_genre_write_puts_the_old_tag_back() {
     );
 }
 
-/// The log has to stay a complete account of what this tool wrote, so an undo
-/// is itself a change.
 #[test]
 fn an_undo_is_logged_like_any_other_write() {
     let scratch = Scratch::new("changes-undo-logged");
@@ -130,12 +126,9 @@ fn a_file_edited_since_it_was_logged_blocks_its_undo() {
 
     assert_eq!(plan.blocked, Some(Blocked::FileChanged));
     assert!(!plan.allowed(false));
-    // A hand edit is the user's call to overrule, so --force may go ahead.
     assert!(plan.allowed(true));
 }
 
-/// Content addressing is what keeps a library-wide `art fetch` affordable: an
-/// album's tracks share one replaced cover, and so one sidecar.
 #[test]
 fn one_cover_replaced_across_two_files_is_stored_once() {
     let scratch = Scratch::new("changes-sidecar");
@@ -239,7 +232,6 @@ fn every_write_in_one_command_shares_a_run() {
     );
 }
 
-/// Write one field and log it the way `tags apply` does.
 fn write_field(
     index: &mut LibraryIndex,
     log: &ChangeLog,
@@ -257,9 +249,7 @@ fn write_field(
 
 #[test]
 fn undoing_one_field_leaves_another_edited_since_alone() {
-    // The reason the log keeps a row per field. A single row covering the whole
-    // tag block would read the album edit as a reason to refuse -- and, forced,
-    // would revert it.
+    // Why the log keeps a row per field: a whole-block row would refuse, or revert, the album edit.
     let scratch = Scratch::new("changes-tag-undo-narrow");
     let root = library(&scratch);
     let track = root.join("ZUN").join("Heian Alien.flac");
@@ -268,7 +258,6 @@ fn undoing_one_field_leaves_another_edited_since_alone() {
     let log = ChangeLog::open(&index, "tags apply", 100.0).expect("a run");
     write_field(&mut index, &log, &track, TagField::Title, "Native Faith");
 
-    // Someone fixes the album by hand afterwards.
     let mut edited = tags::read_tags(&track).expect("readable tags");
     edited.album = "Mountain of Faith".to_owned();
     tags::write_tags(&track, &edited).expect("a hand edit");
@@ -290,8 +279,6 @@ fn undoing_one_field_leaves_another_edited_since_alone() {
 
 #[test]
 fn undoing_a_move_is_blocked_when_something_took_the_old_place() {
-    // Putting the file back would overwrite a different file, which is not
-    // something --force should be able to buy.
     let scratch = Scratch::new("changes-move-taken");
     let root = library(&scratch);
     let from = root.join("ZUN").join("Heian Alien.flac");
@@ -331,8 +318,6 @@ fn measurement(track_gain: &str) -> ReplayGainTags {
     }
 }
 
-/// A library scanned elsewhere carries figures somebody chose, and `--force`
-/// replaces them. The undo has to give them back exactly as they were spelled.
 #[test]
 fn undoing_a_loudness_write_puts_the_previous_scan_back() {
     let scratch = Scratch::new("changes-loudness-undo");
@@ -362,7 +347,6 @@ fn undoing_a_loudness_write_puts_the_previous_scan_back() {
     );
 }
 
-/// A file as a peer leaves it: a comment beside the fields that matter.
 fn commented(scratch: &Scratch) -> PathBuf {
     let track = scratch.join("Music").join("ZUN").join("Commented.flac");
     encode(

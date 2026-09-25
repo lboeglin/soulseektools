@@ -1,11 +1,4 @@
-//! The AcoustID lookup and the release choice, against recorded responses.
-//!
-//! Every response under `tests/data/acoustid` was recorded from the live
-//! service: a print with one recording, one linked to a cover as well as the
-//! original and spread over a decade of compilations, a featured credit with a
-//! joinphrase, an unknown print, and a refused key. The rules in
-//! `identify::choose` are checked against those, so a test that fails here is
-//! a rule that would misfile a real library.
+//! The AcoustID lookup and release choice, against responses recorded from the live service.
 
 mod support;
 
@@ -25,7 +18,6 @@ use stk::models::{LibraryEntry, ReplayGainTags, TrackTags};
 use stk::services::ServiceHttp;
 use stk::tagsheet::Cell;
 
-/// A transport answering every lookup with one recorded body.
 struct Recorded {
     body: Result<Value>,
     posted: RefCell<Vec<Vec<(String, String)>>>,
@@ -96,8 +88,6 @@ fn print(duration_seconds: Option<f64>) -> Fingerprint {
     }
 }
 
-/// An indexed file under `Music/<artist>/...`, resolved the way `describe`
-/// resolves an untagged one: the artist is the folder below the root.
 fn entry(path: &str, album: &str) -> LibraryEntry {
     let path = PathBuf::from(path);
     let folder_artist = path
@@ -173,8 +163,6 @@ fn a_print_without_a_duration_is_refused_before_any_request() {
 
 #[test]
 fn a_compressed_answer_falls_back_to_its_parents_values() {
-    // Under `compress` a release with no title has its group's, and a track
-    // with no title or artists has its recording's.
     let hits = lookup("deja-vu.json");
     let original = hits[0]
         .recordings
@@ -257,8 +245,7 @@ fn a_release_matching_the_folder_name_is_chosen_over_an_earlier_one() {
 
 #[test]
 fn the_recording_credited_to_the_files_artist_beats_a_cover() {
-    // One print, three recordings: the original twice over and a cover by
-    // someone else. The folder says which was meant.
+    // One print, three recordings: the original twice and a cover. The folder decides.
     let found = matched(choose(
         &lookup("deja-vu.json"),
         &entry("Music/Tsuko G./Deja Vu.flac", ""),
@@ -275,8 +262,7 @@ fn the_recording_credited_to_the_files_artist_beats_a_cover() {
 
 #[test]
 fn a_compilation_gives_the_release_artist_beside_the_recordings() {
-    // The hazard from the issue: with the two the wrong way round, `organise`
-    // files everything under Various Artists.
+    // The wrong way round, `organise` would file everything under Various Artists.
     let found = matched(choose(
         &lookup("deja-vu.json"),
         &entry("Music/Dave Rodgers/1.01. DEJA VU.flac", ""),
@@ -294,8 +280,7 @@ fn a_compilation_gives_the_release_artist_beside_the_recordings() {
 
 #[test]
 fn the_original_is_chosen_over_a_compilation_released_the_same_day() {
-    // GHOST and a compilation carrying the same track both came out on
-    // 2016-09-28; the album wins, and the choice is stable across runs.
+    // Same release date; the original album wins, stably.
     let found = matched(choose(
         &lookup("ghost-rule.json"),
         &entry("Music/DECO_27/00 - DECO_27 - Ghost Rule.flac", ""),
@@ -318,8 +303,6 @@ fn the_original_is_chosen_over_a_compilation_released_the_same_day() {
 
 #[test]
 fn a_match_credited_to_someone_else_says_so() {
-    // With --all a tagged file is looked up too, and one print linked only to
-    // a cover is usually the cover; the plan says so rather than refusing.
     let mut tagged = entry("Music/Someone Else/Deja Vu.flac", "");
     tagged.tags.artist = "Someone Else".to_owned();
     let found = matched(choose(&lookup("deja-vu.json"), &tagged, &settings()));
@@ -385,8 +368,6 @@ fn edits_set_what_the_release_says_and_leave_what_it_cannot() {
     assert_eq!(cell(TagField::Artist), Cell::Set("DECO*27".to_owned()));
     assert_eq!(cell(TagField::Album), Cell::Set("GHOST".to_owned()));
     assert_eq!(cell(TagField::TrackNumber), Cell::Set("1".to_owned()));
-    // A solo album names no separate album artist; the file's is left alone
-    // rather than blanked.
     assert_eq!(cell(TagField::AlbumArtist), Cell::Untouched);
     assert!(edits[0]
         .cells

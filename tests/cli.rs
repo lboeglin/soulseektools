@@ -1,7 +1,4 @@
-//! The CLI end to end, run in-process through `cli::run`.
-//!
-//! Tests that touch the environment or the working directory hold one lock,
-//! because a test binary shares both across threads.
+//! The CLI end to end, in-process. Tests touching the environment or cwd hold one lock.
 
 mod support;
 
@@ -10,7 +7,6 @@ use std::sync::{Mutex, MutexGuard, PoisonError};
 
 use support::{committed, encode, noise_source, Encoded, Scratch};
 
-/// The variables secrets are read from, which a test must neither inherit nor leak.
 const SECRETS: &[&str] = &["SLSKD_API_KEY", "DISCOGS_TOKEN", "LASTFM_API_KEY"];
 
 fn exclusive() -> MutexGuard<'static, ()> {
@@ -18,7 +14,6 @@ fn exclusive() -> MutexGuard<'static, ()> {
     LOCK.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
-/// A scratch home with its own config, index and review database.
 struct Harness {
     scratch: Scratch,
     saved: Vec<(String, String)>,
@@ -45,7 +40,6 @@ impl Harness {
         }
     }
 
-    /// Point the config at this harness's own databases and library root.
     fn with_config(&self, root: &Path) {
         let body = format!(
             "[library]\nroot = {}\n\n[index]\npath = {}\n\n[review]\npath = {}\n\n\
@@ -76,19 +70,13 @@ fn quoted(path: &Path) -> String {
     toml::Value::String(path.display().to_string()).to_string()
 }
 
-/// Run the CLI and hand back its exit code.
-///
-/// stdout is not captured -- Rust offers no stable way to redirect it from
-/// in-process -- so assertions here are on exit codes and on the files and
-/// databases a command leaves behind, with the JSON documents themselves checked
-/// by writing them through a command that takes a path.
+/// stdout isn't captured, so tests assert on exit codes and on the files a command leaves.
 fn run(arguments: &[&str]) -> i32 {
     let mut argv: Vec<std::ffi::OsString> = vec!["stk".into()];
     argv.extend(arguments.iter().map(Into::into));
     stk::cli::run(argv)
 }
 
-/// Every row the write log holds, newest first.
 fn logged(harness: &Harness) -> Vec<stk::library::changes::Change> {
     stk::library::index::LibraryIndex::open(&harness.join("library.db"))
         .expect("the index")
@@ -102,7 +90,6 @@ fn genres_of(path: &Path) -> Vec<String> {
         .genres
 }
 
-/// A small library laid out the way the real one is.
 fn library(harness: &Harness) -> PathBuf {
     let root = harness.join("Music");
     encode(
@@ -215,8 +202,6 @@ fn tags_dump_writes_a_csv_with_a_bom() {
     drop(harness);
 }
 
-/// One track filed twice: the FLAC in its artist folder, a stray MP3 of it in
-/// a folder of its own, and an unrelated track beside the FLAC.
 fn duplicated(harness: &Harness) -> (PathBuf, PathBuf, PathBuf) {
     let root = harness.join("Music");
     let tags: &[(&str, &str)] = &[("artist", "DECO*27"), ("title", "Roki")];
@@ -335,8 +320,7 @@ fn genre_apply_writes_and_logs_only_with_the_flag() {
     drop(harness);
 }
 
-/// Every read-only report, in both output modes, over a library with something
-/// in it: the table and JSON renderers are otherwise only reached empty.
+/// The table and JSON renderers are otherwise only reached with nothing to show.
 #[test]
 fn every_report_renders_over_a_populated_library() {
     let _guard = exclusive();
@@ -393,10 +377,7 @@ fn changes_undo_puts_a_genre_back_only_with_apply() {
     drop(harness);
 }
 
-/// A library whose one file the spectral check can actually judge.
-///
-/// The tone `library` writes is too short and too narrow to classify, so it
-/// verifies as ERROR; broadband noise is what produces a real verdict.
+/// Noise, because the short tone in `library` is too narrow to classify.
 fn verifiable_library(harness: &Harness) -> PathBuf {
     let root = harness.join("Music");
     noise_source(&root.join("ZUN").join("Noise.flac"), 8, 44100);
@@ -423,13 +404,10 @@ fn verify_changed_skips_a_file_that_still_carries_its_verdict() {
         0
     );
 
-    // Nothing was analysed, so nothing was reported -- the run said so rather
-    // than writing an empty document.
     assert!(!report.exists());
     drop(harness);
 }
 
-/// A verifiable library holding an upsampled MP3 beside its FLAC.
 fn library_with_an_upsampled_mp3(harness: &Harness) -> PathBuf {
     let root = verifiable_library(harness);
     let mp3 = root.join("ZUN").join("Upsampled.mp3");
@@ -477,10 +455,7 @@ fn a_library_sweep_checks_mp3s_only_when_asked() {
     drop(harness);
 }
 
-/// The round-trip dump, with one cell edited.
-///
-/// `from` and `to` carry their surrounding commas, so the substitution lands on
-/// the cell and not on the same words inside the file's own path.
+/// `from` and `to` include their commas, so only the cell is replaced, not the path.
 fn edited_dump(harness: &Harness, from: &str, to: &str) -> PathBuf {
     let sheet = round_trip_dump(harness);
     let text = String::from_utf8(std::fs::read(&sheet).expect("a written dump")).expect("UTF-8");
@@ -552,7 +527,6 @@ fn tags_apply_writes_the_edited_field_and_logs_it() {
     assert_eq!(changes[0].command, "tags apply");
     assert_eq!(changes[0].field, "title");
 
-    // The index followed the write, so the next command sees the new title.
     let index =
         stk::library::index::LibraryIndex::open(&harness.join("library.db")).expect("the index");
     assert_eq!(
@@ -569,9 +543,7 @@ fn tags_apply_writes_the_edited_field_and_logs_it() {
 
 #[test]
 fn tags_identify_reports_a_file_it_cannot_fingerprint() {
-    // Opus is taggable and undecodable: the one container that reaches the
-    // command and cannot be looked up. Reported, not fatal, and nothing is
-    // written for it.
+    // Opus can be tagged but not decoded, so it can't be looked up.
     let _guard = exclusive();
     let harness = Harness::new("cli-identify-opus");
     let root = library(&harness);
@@ -600,7 +572,6 @@ fn organise_moves_the_file_and_carries_its_index_row_along() {
 
     assert_eq!(run(&["organise", "--apply"]), 0);
 
-    // The fixture tags this one artist "DECO*27", album "Ghost", no track.
     let moved = root.join("DECO_27").join("Ghost").join("Roki.flac");
     assert!(moved.is_file(), "{}", moved.display());
     assert!(!root.join("DECO_27").join("01 - Roki.flac").exists());
@@ -621,8 +592,7 @@ fn organise_moves_the_file_and_carries_its_index_row_along() {
 
 #[test]
 fn organise_refuses_a_destination_outside_every_root() {
-    // Otherwise the files leave the library and the next scan evicts all of
-    // them, the walk never having seen them again.
+    // Otherwise the moved files leave the library and the next scan evicts them.
     let _guard = exclusive();
     let harness = Harness::new("cli-organise-outside");
     let root = library(&harness);
@@ -683,8 +653,7 @@ fn organise_from_moves_a_download_into_the_library() {
 
 #[test]
 fn an_exported_playlist_keeps_the_export_row_order() {
-    // The order was in the export and nowhere else: the index reads back sorted
-    // by path, which would put DECO_27 before ZUN.
+    // The index reads back sorted by path, which would put DECO_27 before ZUN.
     let _guard = exclusive();
     let harness = Harness::new("cli-playlist-export");
     let root = library(&harness);
@@ -737,7 +706,6 @@ fn wantlist_diff_queues_what_is_missing() {
 
     assert_eq!(run(&["wantlist", "diff", &export.display().to_string()]), 0);
 
-    // Roki is owned; Senbonzakura is not, and is queued.
     let store = stk::review::store::ReviewStore::open(&harness.join("review.db"))
         .expect("the review queue");
     let tracks = store.tracks(&[], None).expect("tracks");
@@ -761,8 +729,7 @@ fn a_lastfm_profile_without_an_api_key_is_refused_before_any_request() {
 
 #[test]
 fn a_track_the_queue_gave_up_on_is_not_reported_as_new_again() {
-    // The point of --new: a FAILED track is still missing from the library, so
-    // a plain diff re-reports it every single run.
+    // A FAILED track is still missing, so a plain diff reports it on every run.
     let _guard = exclusive();
     let harness = Harness::new("cli-wantlist-new-failed");
     let root = library(&harness);
@@ -816,8 +783,7 @@ fn review_pick_refuses_to_run_as_json() {
     let harness = Harness::new("cli-review-pick-json");
     harness.with_config(&harness.join("Music"));
 
-    // `say` writes nothing in JSON mode, so a prompt there would be an invisible
-    // hang in the middle of a pipeline.
+    // In JSON mode the prompt would be invisible, hanging a pipeline.
     assert_eq!(run(&["--json", "review", "pick"]), 1);
     drop(harness);
 }
@@ -828,13 +794,11 @@ fn review_pick_on_an_empty_queue_says_so() {
     let harness = Harness::new("cli-review-pick-empty");
     harness.with_config(&harness.join("Music"));
 
-    // Nothing answers the prompts here, which the picker reads as a quit rather
-    // than as agreement -- so this returns instead of blocking.
+    // No input reads as quit, not agreement, so this returns instead of blocking.
     assert_eq!(run(&["review", "pick"]), 0);
     drop(harness);
 }
 
-/// Two tracks one peer holds in a single folder, waiting to be reviewed.
 fn album_in_review(harness: &Harness) {
     let mut store = stk::review::store::ReviewStore::open(&harness.join("review.db"))
         .expect("the review queue");
@@ -888,7 +852,6 @@ fn approving_an_album_takes_every_track_its_folder_covers() {
     assert!(tracks
         .iter()
         .all(|entry| entry.status == stk::models::TrackStatus::Approved));
-    // Decided tracks leave the album view, so nothing can be approved twice.
     assert_eq!(run(&["review", "approve-album", "1"]), 1);
     drop(harness);
 }
@@ -910,12 +873,10 @@ fn get_accepts_one_track_several_tracks_and_a_list() {
         limit: 5,
     };
 
-    // One.
     let one = wanted_tracks(&args(vec!["DECO*27 - Roki"], None)).expect("one track");
     assert_eq!(one.len(), 1);
     assert_eq!(one[0].query(), "DECO*27 - Roki");
 
-    // Several.
     let several = wanted_tracks(&args(
         vec!["DECO*27 - Roki", "ZUN - Heian Alien", "Ado - Odo"],
         None,
@@ -924,7 +885,6 @@ fn get_accepts_one_track_several_tracks_and_a_list() {
     assert_eq!(several.len(), 3);
     assert_eq!(several[2].query(), "Ado - Odo");
 
-    // A list from a file, with blank lines and comments skipped.
     let list = scratch.join("wanted.txt");
     std::fs::write(
         &list,
@@ -937,7 +897,7 @@ fn get_accepts_one_track_several_tracks_and_a_list() {
     assert_eq!(from_file[0].query(), "DECO*27 - Roki");
     assert_eq!(from_file[1].query(), "ZUN - Heian Alien");
 
-    // Arguments and a list combine rather than one replacing the other.
+    // Arguments and a list combine.
     let both = wanted_tracks(&args(vec!["Ado - Odo"], Some(list))).expect("both");
     assert_eq!(both.len(), 3);
 }
@@ -948,8 +908,6 @@ fn gain_of(path: &Path) -> Option<String> {
         .track_gain
 }
 
-/// A library where one album holds two tracks and one file stands alone, so
-/// both halves of the album rule are exercised.
 fn levelled_library(harness: &Harness) -> PathBuf {
     let root = harness.join("Music");
     for (name, title) in [
@@ -996,8 +954,6 @@ fn loudness_with_the_flag_writes_a_gain_and_logs_it() {
     drop(harness);
 }
 
-/// A library scanned elsewhere is not re-measured out from under whoever owns
-/// it -- that is what `--force` is for.
 #[test]
 fn loudness_leaves_a_file_that_already_carries_a_gain_alone() {
     let _guard = exclusive();
@@ -1025,9 +981,7 @@ fn loudness_leaves_a_file_that_already_carries_a_gain_alone() {
     drop(harness);
 }
 
-/// The count printed after `--apply` is what was written, not the plan less
-/// every failure: a file that could not be measured never became a plan entry,
-/// so subtracting it once underflowed and printed a number near `u64::MAX`.
+/// Regression: failed files were subtracted from the plan twice and the count underflowed.
 #[test]
 fn loudness_reports_what_it_wrote_when_most_files_could_not_be_read() {
     let _guard = exclusive();
@@ -1036,7 +990,6 @@ fn loudness_reports_what_it_wrote_when_most_files_could_not_be_read() {
     harness.with_config(&root);
     run(&["library", "scan"]);
 
-    // More unreadable files than readable ones, which is what underflowed.
     for name in ["x.flac", "y.flac", "z.flac", "w.flac"] {
         std::fs::write(root.join("ZUN").join(name), b"not audio").expect("a written file");
     }
@@ -1048,9 +1001,6 @@ fn loudness_reports_what_it_wrote_when_most_files_could_not_be_read() {
     drop(harness);
 }
 
-/// An album gain describes a whole record, so naming one track of one gets a
-/// track gain and no album gain -- a figure measured from that track alone
-/// would tell a player the record is as loud as its loudest song.
 #[test]
 fn loudness_gives_no_album_gain_to_one_track_of_a_record() {
     let _guard = exclusive();
@@ -1072,7 +1022,6 @@ fn loudness_gives_no_album_gain_to_one_track_of_a_record() {
     drop(harness);
 }
 
-/// `--album` takes one album, and refuses a list before it opens a socket.
 #[test]
 fn get_album_takes_one_album_and_not_a_list() {
     let _guard = exclusive();
@@ -1099,8 +1048,6 @@ fn get_album_takes_one_album_and_not_a_list() {
     drop(harness);
 }
 
-/// A library, a config naming a download directory, and an export in which
-/// Roki is owned and Senbonzakura is not.
 fn sync_harness(name: &str) -> (Harness, PathBuf, PathBuf) {
     let harness = Harness::new(name);
     let root = library(&harness);
@@ -1125,7 +1072,6 @@ fn sync_harness(name: &str) -> (Harness, PathBuf, PathBuf) {
     (harness, downloads, export)
 }
 
-/// A finished download as a fetch leaves it, peer's filename and all.
 fn fetched(downloads: &Path) -> PathBuf {
     encode(
         &downloads.join("ZUN").join("01 peer name.flac"),

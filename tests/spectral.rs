@@ -1,5 +1,4 @@
-//! The transcode and upsample detector, on synthesised signals with known
-//! cutoffs and edge shapes.
+//! The transcode and upsample detector, on synthesised signals.
 #![allow(
     clippy::cast_precision_loss,
     clippy::cast_possible_truncation,
@@ -35,7 +34,6 @@ fn noise(sample_rate: u32, seconds: f64) -> Vec<f32> {
         .collect()
 }
 
-/// Re-synthesise `samples` with a per-frequency gain applied.
 fn shape_spectrum(samples: &[f32], sample_rate: u32, gain: impl Fn(f64) -> f64) -> Vec<f32> {
     let length = samples.len();
     let mut planner = RealFftPlanner::<f64>::new();
@@ -54,15 +52,13 @@ fn shape_spectrum(samples: &[f32], sample_rate: u32, gain: impl Fn(f64) -> f64) 
     let mut shaped = inverse.make_output_vec();
     inverse.process(&mut spectrum, &mut shaped).unwrap();
 
-    // The inverse transform is unnormalised, but every caller normalises to the
-    // peak anyway, so the scale factor cancels.
+    // The inverse transform is unnormalised; normalising to the peak cancels it.
     let peak = shaped
         .iter()
         .fold(0.0_f64, |best, value| best.max(value.abs()));
     shaped.iter().map(|value| (value / peak) as f32).collect()
 }
 
-/// A lossy encoder's low-pass: full level, then nothing.
 fn brickwall(cutoff_hz: f64, sample_rate: u32, seconds: f64) -> Vec<f32> {
     let samples = noise(sample_rate, seconds);
     shape_spectrum(&samples, sample_rate, |frequency| {
@@ -70,7 +66,6 @@ fn brickwall(cutoff_hz: f64, sample_rate: u32, seconds: f64) -> Vec<f32> {
     })
 }
 
-/// A mastering roll-off: level falls away smoothly above the knee.
 fn gradual_rolloff(knee_hz: f64, db_per_khz: f64, sample_rate: u32) -> Vec<f32> {
     let samples = noise(sample_rate, DURATION_SECONDS);
     shape_spectrum(&samples, sample_rate, |frequency| {
@@ -113,8 +108,7 @@ fn find_cutoff_locates_a_brickwall_within_a_band_width() {
 
 #[test]
 fn a_silent_file_is_not_mistaken_for_genuine_lossless() {
-    // Normalising a silent spectrum to its own peak puts every band at 0 dB,
-    // which reads as content all the way to Nyquist unless silence is caught.
+    // Silence normalised to its own peak reads 0 dB everywhere, which looks lossless.
     let silence = vec![vec![0.0_f32; SAMPLE_RATE as usize * 2]];
 
     assert!(average_spectrum_db(&silence, SAMPLE_RATE, FFT_SIZE).is_none());
@@ -147,8 +141,7 @@ fn a_steep_cutoff_at_an_unknown_frequency_is_only_suspect() {
 
 #[test]
 fn a_gradual_rolloff_is_accepted_even_when_it_starts_low() {
-    // The failure mode the steepness test exists to prevent: a loud master
-    // rolling off at 16 kHz is not a transcode.
+    // A loud master rolling off at 16 kHz is not a transcode.
     let (verdict, detail) = classify(16000.0, 9.0, SAMPLE_RATE, 25.0, 1500);
 
     assert_eq!(verdict, Verdict::Ok);
@@ -157,9 +150,7 @@ fn a_gradual_rolloff_is_accepted_even_when_it_starts_low() {
 
 #[test]
 fn audio_too_band_limited_to_judge_is_not_called_lossless() {
-    // A pure tone, or anything else whose content stops far below every encoder
-    // cutoff, carries no evidence either way. Saying it looks genuinely lossless
-    // would claim more than the spectrum supports.
+    // Content stopping far below every cutoff is no evidence either way.
     let (verdict, detail) = classify(400.0, 0.0, SAMPLE_RATE, 25.0, 1500);
 
     assert_eq!(verdict, Verdict::Error);
@@ -224,9 +215,7 @@ fn a_wall_at_or_above_where_the_header_bitrate_puts_it_is_accepted() {
 
 #[test]
 fn a_vbr_average_is_discounted_before_it_is_held_to_a_tier() {
-    // 260 kbps is a dense V0 encode, whose low-pass sits in the 160-192 band's
-    // neighbour rather than at 320's; held to the average undiscounted it would
-    // be flagged.
+    // 260 kbps V0 held undiscounted to the 320 band would be flagged.
     assert_eq!(
         classify_lossy(18700.0, 100.0, SAMPLE_RATE, 260, true, 25.0, 1500).0,
         Verdict::Ok
@@ -262,7 +251,6 @@ fn a_lossy_claim_is_judged_by_its_bitrate_not_as_a_transcode() {
     assert_eq!(claimed(320), Verdict::Upsampled);
 }
 
-/// Bands across a whole spectrum, each at the level `shape` gives its lower edge.
 fn shaped_bands(sample_rate: u32, shape: impl Fn(f64) -> f64) -> Bands {
     let lower_edges_hz: Vec<f64> = (0..(sample_rate as usize / 2).div_ceil(BAND_WIDTH_HZ))
         .map(|band| (band * BAND_WIDTH_HZ) as f64)
@@ -271,7 +259,6 @@ fn shaped_bands(sample_rate: u32, shape: impl Fn(f64) -> f64) -> Bands {
     Bands { lower_edges_hz, db }
 }
 
-/// A sharp resampler: full level, then silence from `wall_hz` up.
 fn walled(sample_rate: u32, wall_hz: f64) -> Bands {
     shaped_bands(
         sample_rate,
@@ -290,8 +277,7 @@ fn every_rate_that_could_have_left_an_edge_is_named() {
 
 #[test]
 fn a_soft_resamplers_tail_past_the_nyquist_is_found_at_the_deeper_floor() {
-    // ffmpeg's default: a gentle slope through the old Nyquist that the
-    // ordinary floor calls a roll-off, then a steep drop to silence 3 kHz on.
+    // ffmpeg's default: a gentle slope past the old Nyquist, then silence 3 kHz on.
     let soft = shaped_bands(96000, |edge| match edge {
         edge if edge < 21000.0 => -20.0,
         edge if edge < 24500.0 => -20.0 - (edge - 21000.0) / 1000.0 * 12.0,
@@ -307,8 +293,7 @@ fn a_soft_resamplers_tail_past_the_nyquist_is_found_at_the_deeper_floor() {
 
 #[test]
 fn a_hi_res_master_fading_into_its_converters_noise_is_not_an_upsample() {
-    // Genuine 96 kHz recordings of material with nothing above 22 kHz exist:
-    // the content rolls off, and the converter's noise carries on to Nyquist.
+    // Genuine 96 kHz recordings roll off, with converter noise carrying on to Nyquist.
     let genuine = shaped_bands(96000, |edge| {
         (-20.0 - (edge - 15000.0).max(0.0) / 1000.0 * 6.0).max(-75.0)
     });
@@ -318,8 +303,7 @@ fn a_hi_res_master_fading_into_its_converters_noise_is_not_an_upsample() {
 
 #[test]
 fn only_a_hi_res_claim_is_judged_by_its_spectrum() {
-    // A 48 kHz file shows too little past 44.1 kHz's Nyquist to tell a
-    // resampler from a mastering low-pass, and 48 kHz is no inflated claim.
+    // 48 kHz shows too little past 22.05 kHz to judge, and isn't an inflated claim.
     assert_eq!(
         resampled_from(&walled(48000, 21300.0), 48000, &tuning()),
         None
@@ -337,7 +321,7 @@ fn only_a_hi_res_claim_is_judged_by_its_spectrum() {
 
 #[test]
 fn a_hi_res_wall_in_a_lossy_band_is_still_a_transcode() {
-    // A lossy source resampled up is worse than a lossless one: it keeps FAKE.
+    // A lossy source resampled up keeps FAKE.
     let samples = brickwall(19800.0, 96000, DURATION_SECONDS);
     let result =
         analyse(&[samples], 96000, Claim::Lossless, &tuning()).expect("an analysable spectrum");

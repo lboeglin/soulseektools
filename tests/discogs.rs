@@ -1,9 +1,4 @@
-//! Reading a Discogs collection export, against recorded responses.
-//!
-//! Every release under `tests/data/discogs` was recorded from the live API:
-//! a plain vinyl album, a compilation whose tracks carry their own artists --
-//! one of them disambiguated as `Care Company (2)`, one joined by `Presents` --
-//! and a classical record whose concertos are indexes over their movements.
+//! Reading a Discogs collection, against responses recorded from the live API.
 
 mod support;
 
@@ -23,10 +18,8 @@ const HEADER: &str = "Catalog#,Artist,Title,Label,Format,Rating,Released,release
                       CollectionFolder,Date Added,Collection Media Condition,\
                       Collection Sleeve Condition,Collection Notes";
 
-/// A URL asked for, and the query parameters it was asked with.
 type Request = (String, Vec<(String, String)>);
 
-/// A transport answering each release URL with its recorded body.
 #[derive(Default)]
 struct Recorded {
     releases: HashMap<String, Value>,

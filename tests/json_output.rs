@@ -1,10 +1,4 @@
-//! The shape of every `--json` document, pinned so a script depending on one
-//! learns about a renamed field from this suite rather than from breaking.
-//!
-//! Each command runs as the real binary, because a document is only usable if
-//! it is all that reaches stdout -- which the in-process harness in `cli.rs`
-//! cannot capture. Each runs against its own empty library, since an empty
-//! result is exactly where a command is most tempted to print nothing at all.
+//! The top-level shape of every `--json` document, from the real binary on an empty library.
 
 mod support;
 
@@ -16,15 +10,11 @@ use stk::models::{Candidate, ScoredCandidate, Track};
 use stk::review::store::ReviewStore;
 use support::{transcode_to_flac, Scratch};
 
-/// What a document is at its top level.
 enum Shape {
-    /// A list of rows, each carrying these keys when there are any rows.
     Rows(&'static [&'static str]),
-    /// An object with exactly these keys.
     Object(&'static [&'static str]),
 }
 
-/// A home with an empty library, and nothing listening where slskd would be.
 struct Home {
     scratch: Scratch,
 }
@@ -57,7 +47,6 @@ impl Home {
         Self { scratch }
     }
 
-    /// Two tracks one peer holds in a single folder, waiting to be reviewed.
     fn with_album_in_review(self) -> Self {
         let mut store =
             ReviewStore::open(&self.scratch.join("review.db")).expect("the review queue");
@@ -99,7 +88,6 @@ impl Home {
         self.scratch.path()
     }
 
-    /// Run `stk --json` with `arguments`, handing back the exit code, stdout and stderr.
     fn stk(&self, arguments: &[&str]) -> (i32, String, String) {
         let mut command = Command::new(env!("CARGO_BIN_EXE_stk"));
         command
@@ -187,13 +175,7 @@ const SETTINGS: &[&str] = &[
     "loudness", "artwork", "identify", "genres", "organise", "dupes", "wantlist",
 ];
 
-/// Every command whose document can be produced with no slskd to talk to, the
-/// exit code it gives on an empty library, and the shape of what it prints.
-///
-/// Three cannot: `fetch download`, and `get` for one track or one album, each
-/// talk to slskd before there is anything to report, and fail with a message
-/// on stderr and exit 1 when it is not there. `review pick` refuses `--json`
-/// outright, since it asks a question per track.
+/// Not listed: `fetch download` and `get` need slskd; `review pick` refuses `--json`.
 const DOCUMENTS: &[(&[&str], i32, Shape)] = &[
     (&["config", "show"], 0, Shape::Object(SETTINGS)),
     (&["config", "path"], 0, Shape::Object(&["path"])),
@@ -319,8 +301,7 @@ fn every_command_prints_its_document_on_an_empty_library() {
 
 #[test]
 fn verify_fails_a_fake_file_under_json_as_it_does_without() {
-    // The document was emitted and the run returned 0 before the FAKE check,
-    // so a script reading --json saw success where a person saw failure.
+    // Regression: the document was printed, and 0 returned, before the FAKE check.
     let home = Home::new("json-verify-fake");
     let faked = transcode_to_flac(&home.scratch, "fake", "128k");
     let target = faked.display().to_string();

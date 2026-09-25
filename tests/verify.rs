@@ -107,8 +107,7 @@ fn a_128kbps_mp3_re_encoded_as_vbr_is_caught_despite_the_wider_tolerance() {
     assert!(result.detail.contains("VBR"), "{}", result.detail);
 }
 
-/// The shape most upsampled FLACs have, from ffmpeg's default resampler: it
-/// fades through 22.05 kHz on a slope the ordinary floor calls a roll-off.
+/// ffmpeg's default resampler fades through 22.05 kHz, which the ordinary floor calls a roll-off.
 #[test]
 fn a_hi_res_file_made_by_ffmpegs_default_resampler_is_caught() {
     let result = verify_file(
@@ -152,7 +151,6 @@ fn genuine_hi_res_audio_passes() {
 
 #[test]
 fn a_transcode_padded_to_24_bits_stays_a_transcode() {
-    // A lossy source is the graver finding; the padding adds nothing to it.
     let scratch = Scratch::new("verify-padded-transcode");
     let fake = hi_res_flac(
         &scratch.join("fake.flac"),

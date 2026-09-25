@@ -83,7 +83,6 @@ fn reads_a_flat_table() {
 
 #[test]
 fn artists_match_on_their_normalised_name() {
-    // A "DECO*27" entry has to cover the "DECO_27" folder it is filed under.
     let scratch = Scratch::new("genres-normalised");
     let path = write_map(&scratch, "\"DECO*27\" = \"Vocaloid\"\n");
     let genre_map = load_genre_map(&path).expect("a genre map");
@@ -147,7 +146,6 @@ Prismatic = \"J-Pop\"
 
 #[test]
 fn an_artist_with_a_slash_in_their_name_is_still_one_override_key() {
-    // A composite "Artist/Album" key could not tell which slash separated.
     let scratch = Scratch::new("genres-override-slash");
     let path = write_map(
         &scratch,
@@ -191,9 +189,7 @@ fn an_album_override_is_planned_for_the_files_it_names() {
 
 #[test]
 fn a_flat_map_that_grows_an_override_section_is_refused_rather_than_emptied() {
-    // The trap the sections open: without [artists] the whole document is the
-    // artist table, so adding [albums] would otherwise drop every artist in it
-    // without a word and turn `genre apply` into a silent no-op.
+    // Without [artists], adding [albums] would silently drop every artist in the file.
     let scratch = Scratch::new("genres-flat-plus-override");
     let path = write_map(
         &scratch,

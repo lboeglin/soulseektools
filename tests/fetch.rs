@@ -1,5 +1,4 @@
-//! Search, enqueue, collect, stall retry and the download wait, against a fake
-//! `SoulseekClient`.
+//! Search, enqueue, collect, stall retry and the download wait, against a fake client.
 
 mod support;
 
@@ -25,7 +24,6 @@ struct FakeClient {
     transfers: Vec<Transfer>,
     search_error: Option<String>,
     enqueue_error: Option<String>,
-    // `Mutex` because searches fan out, so the client has to be `Sync`.
     searched: Mutex<Vec<String>>,
     enqueued: Mutex<Vec<(String, String)>>,
     cancelled: Mutex<Vec<(String, String)>>,
@@ -138,13 +136,10 @@ fn store(scratch: &Scratch) -> ReviewStore {
     ReviewStore::open(&scratch.join("review.db")).expect("a store")
 }
 
-/// The index a collect logs its tag writes against, beside the review store.
 fn index(settings: &Settings) -> LibraryIndex {
     LibraryIndex::open(&settings.index.path).expect("an index")
 }
 
-/// `fetch::collect` with the library it needs opened from `settings`, so a
-/// test about transfers does not have to spell the tag step out.
 fn collect(
     store: &mut ReviewStore,
     client: &dyn SoulseekClient,
@@ -167,7 +162,6 @@ fn roki() -> Track {
     Track::new("DECO*27", "Roki")
 }
 
-/// A track searched, approved and queued, ready for `collect`.
 fn queued(store: &mut ReviewStore, settings: &Settings) -> i64 {
     store.add(&[roki()]).expect("an added track");
     let client = FakeClient::with_candidates(vec![candidate("@@peerA\\Music\\Roki.flac")]);
@@ -376,8 +370,6 @@ fn a_downloaded_transcode_is_recorded_against_the_track() {
     assert!(entry.detail.contains("FAKE"), "{}", entry.detail);
 }
 
-/// A lossy file queued under `filename`, then reported downloaded with
-/// `arrived` copied to where slskd would have put it.
 fn lossy_download(
     scratch: &Scratch,
     settings: &Settings,
@@ -404,7 +396,6 @@ fn lossy_download(
         .remove(0)
 }
 
-/// A peer shipping upsampled MP3s is caught on the first one.
 #[test]
 fn a_downloaded_upsampled_mp3_is_caught_and_counts_as_going_wrong() {
     let scratch = Scratch::new("fetch-mp3-upsampled");
@@ -451,17 +442,13 @@ fn downloaded_path_keeps_only_the_filename() {
     );
 }
 
-/// Checked by rendezvous rather than by timing: each search blocks until a
-/// second joins it, which a slow CI runner cannot fake and serial code cannot
-/// satisfy.
+/// By rendezvous, not timing: each search blocks until a second one joins it.
 #[test]
 fn searches_run_concurrently_rather_than_one_after_another() {
     use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
     use std::sync::Condvar;
 
-    /// Long enough for a loaded runner to get a second thread in, short enough
-    /// that a genuinely serial fan-out fails the suite rather than hanging it.
-    /// Paid once: the first search to wait it out settles the question.
+    /// Long enough for a loaded runner, short enough that serial code fails rather than hangs.
     const RENDEZVOUS: std::time::Duration = std::time::Duration::from_secs(5);
 
     const WORKERS: usize = 4;
@@ -537,16 +524,12 @@ fn searches_run_concurrently_rather_than_one_after_another() {
         peak > 1,
         "no two searches ever overlapped: the fan-out ran one at a time"
     );
-    // The pool is built with exactly this many threads, so the ceiling is not a
-    // timing observation -- it is the bound `search_concurrency` promises.
     assert!(
         peak <= WORKERS,
         "{peak} searches ran at once, above the configured {WORKERS}"
     );
 }
 
-/// Results still line up with the tracks they came from, whatever order the
-/// threads finished in.
 #[test]
 fn concurrent_results_stay_matched_to_their_tracks() {
     let scratch = Scratch::new("fetch-concurrent-order");
@@ -564,8 +547,6 @@ fn concurrent_results_stay_matched_to_their_tracks() {
     let client = FakeClient::with_candidates(vec![candidate(r"@@peerA\\Music\\Roki.flac")]);
     let outcomes = fetch::search_pending(&mut store, &client, &settings, None).expect("a search");
 
-    // Only Roki matches the one candidate offered, so the pairing is visible in
-    // the results themselves rather than assumed.
     let by_query: std::collections::HashMap<&str, usize> = outcomes
         .iter()
         .map(|outcome| (outcome.query.as_str(), outcome.found))
@@ -574,8 +555,7 @@ fn concurrent_results_stay_matched_to_their_tracks() {
     assert_eq!(by_query["ZUN - Heian Alien"], 0);
 }
 
-/// A transfer nobody is uploading never reaches
-/// `collect`, because slskd does not consider it finished.
+/// slskd never reports a transfer nobody uploads as finished, so `collect` never sees it.
 #[test]
 fn a_stalled_transfer_is_cancelled_and_the_next_candidate_promoted() {
     let scratch = Scratch::new("fetch-stalled");
@@ -643,10 +623,7 @@ fn a_transfer_still_inside_its_grace_period_is_left_alone() {
     );
 }
 
-/// A client whose shortlist depends on which track is being searched for.
-///
-/// The shape the batch pass exists for needs a *different* peer winning each
-/// track on its own merits; one shared shortlist cannot express that.
+/// Each track needs a different winning peer, which one shared shortlist can't express.
 struct PerTrackClient {
     lists: Vec<(String, Vec<Candidate>)>,
 }
@@ -683,9 +660,7 @@ impl SoulseekClient for PerTrackClient {
     }
 }
 
-/// A candidate that differs from its neighbours only in availability, so every
-/// gap between them sits inside the uploader window and none of them is a
-/// difference of codec, master or content.
+/// Differs only in availability, so every gap is inside the uploader window.
 fn from_peer(username: &str, title: &str, queue_length: u32, free_upload_slots: bool) -> Candidate {
     Candidate {
         username: username.to_owned(),
@@ -708,7 +683,6 @@ fn batch_tracks() -> Vec<Track> {
         .collect()
 }
 
-/// Each track won by its own peer, with `bulk` a close second on every one.
 fn batch_client(extra_fillers: bool) -> PerTrackClient {
     PerTrackClient {
         lists: BATCH
@@ -717,8 +691,7 @@ fn batch_client(extra_fillers: bool) -> PerTrackClient {
             .map(|(index, title)| {
                 let mut list = vec![from_peer(&format!("solo{index}"), title, 0, true)];
                 if extra_fillers {
-                    // Named per track, so only `bulk` covers the batch -- and
-                    // placed above it, so `bulk` falls past a cap of two.
+                    // Only `bulk` covers the batch, and falls past a cap of two.
                     list.push(from_peer(&format!("fillerA{index}"), title, 300, true));
                     list.push(from_peer(&format!("fillerB{index}"), title, 600, true));
                 }
@@ -753,9 +726,7 @@ fn a_peer_holding_most_of_the_batch_is_offered_first_for_all_of_them() {
 
 #[test]
 fn the_batch_pass_sees_candidates_below_the_review_cap() {
-    // The regression the restructure exists for: ranking used to truncate to
-    // `candidates_per_track` before anything looked across the batch, so a peer
-    // holding most of it was invisible on every track where they placed fourth.
+    // Regression: ranking truncated per track before the batch pass could see `bulk`.
     let scratch = Scratch::new("fetch-prefer-deep");
     let mut settings = settings(&scratch);
     settings.review.candidates_per_track = 2;
@@ -770,9 +741,7 @@ fn the_batch_pass_sees_candidates_below_the_review_cap() {
     }
 }
 
-/// The batch the group-stall tests start from each track won by its own
-/// `solo` peer, `bulk` a close second on every one and so preferred for all of
-/// them, and `bulk2` a slightly further third on the tracks named in `second`.
+/// `bulk` a close second on every track; `bulk2` a further third on those in `second`.
 fn steered_client(second: &[&str]) -> PerTrackClient {
     PerTrackClient {
         lists: BATCH
@@ -792,8 +761,6 @@ fn steered_client(second: &[&str]) -> PerTrackClient {
     }
 }
 
-/// The batch searched, every track approved at its first candidate -- `bulk`'s
-/// -- and the first `first` of them queued at 1000, the rest at `later`.
 fn steered_and_queued(
     store: &mut ReviewStore,
     settings: &Settings,
@@ -892,8 +859,7 @@ fn a_preferred_peer_stalling_on_every_file_moves_its_whole_group_together() {
     assert_eq!(stalled.tracks.len(), 3);
     for (outcome, id) in stalled.tracks.iter().zip(&ids) {
         assert_eq!(outcome.peer_group, "bulk");
-        // The tried `bulk` row is renumbered first, so the move lands on rank 2
-        // and the positional lookup still finds the file it names.
+        // The tried `bulk` row is renumbered first, so the move lands on rank 2.
         assert_eq!(outcome.retried_with_rank, Some(2));
         let approved = approved_candidate(&store, *id);
         assert_eq!(approved.candidate.username, "bulk2");
@@ -986,8 +952,6 @@ fn a_moved_group_never_goes_back_to_the_peer_that_stalled() {
     )
     .expect("a retry");
 
-    // `bulk2` stalls in turn: only each track's own `solo` peer is left, and
-    // none of them covers two tracks, so the group scatters as it must.
     fetch::enqueue_approved(&mut store, &FakeClient::default(), None, first).expect("an enqueue");
     let second = stalled_after(&settings, first);
     let stalled = fetch::retry_stalled(
@@ -1004,8 +968,7 @@ fn a_moved_group_never_goes_back_to_the_peer_that_stalled() {
         assert_eq!(approved_peer(&store, *id), format!("solo{index}"));
     }
 
-    // And once those stall too there is nothing left: `bulk` is never offered
-    // back.
+    // `bulk` is never offered back.
     fetch::enqueue_approved(&mut store, &FakeClient::default(), None, second).expect("an enqueue");
     let solos = FakeClient::with_transfers(
         BATCH
@@ -1033,8 +996,6 @@ fn a_moved_group_never_goes_back_to_the_peer_that_stalled() {
     }
 }
 
-/// A candidate already scored, so an album can be assembled without a search
-/// deciding the ranks for it.
 fn from_folder(username: &str, remote_path: &str, score: i64) -> ScoredCandidate {
     ScoredCandidate {
         candidate: Candidate {
@@ -1052,7 +1013,6 @@ fn from_folder(username: &str, remote_path: &str, score: i64) -> ScoredCandidate
     }
 }
 
-/// Two tracks one peer holds in a single folder, each with a fallback elsewhere.
 fn album_in_review(store: &mut ReviewStore) {
     for title in ["Roki", "Ghost Rule"] {
         store
@@ -1077,8 +1037,6 @@ fn album_in_review(store: &mut ReviewStore) {
     }
 }
 
-/// A folder approved as one decision is still one `remote_path` per track, so
-/// queueing, collecting and retrying stay per-track.
 #[test]
 fn an_album_approval_queues_and_collects_each_track_on_its_own() {
     let scratch = Scratch::new("fetch-album");
@@ -1100,8 +1058,6 @@ fn an_album_approval_queues_and_collects_each_track_on_its_own() {
 
     assert_eq!(queued.len(), 2);
     assert!(queued.iter().all(|outcome| outcome.queued));
-    // One call per track, into the artist folder `downloaded_path` rebuilds to
-    // find the finished file.
     assert_eq!(
         *enqueuer.enqueued.lock().expect("the fake"),
         vec![("bulk".to_owned(), "DECO_27".to_owned()); 2]
@@ -1122,16 +1078,13 @@ fn an_album_approval_queues_and_collects_each_track_on_its_own() {
     let outcomes = collect(&mut store, &client, &settings, false).expect("a collect");
 
     assert_eq!(outcomes.len(), 2);
-    // Still `<download dir>/<artist>/<filename>`: the album changed which files
-    // were chosen, not where any of them lands.
     assert_eq!(
         outcomes[0].local_path,
         Some(scratch.join("downloads").join("DECO_27").join("Roki.flac"))
     );
     let stored = store.tracks(&[], None).expect("tracks");
     assert_eq!(stored[0].status, TrackStatus::Downloaded);
-    // Only the file that failed falls back, and to its own next candidate
-    // rather than to anything the album decided.
+    // Only the failed file falls back, to its own next candidate.
     assert_eq!(stored[1].status, TrackStatus::Approved);
     assert_eq!(
         stored[1]
@@ -1143,8 +1096,6 @@ fn an_album_approval_queues_and_collects_each_track_on_its_own() {
     );
 }
 
-/// The file as a peer typically leaves it: junk in the fields that matter,
-/// a comment beside them, and a cover.
 fn peer_tagged(path: &std::path::Path) {
     encode(
         path,
@@ -1178,8 +1129,6 @@ fn roki_with_album() -> Track {
     }
 }
 
-/// Roki searched, approved and queued, with the file already on disk as the
-/// peer tagged it.
 fn arrived(store: &mut ReviewStore, settings: &Settings, track: &Track) -> (i64, PathBuf) {
     store
         .add(std::slice::from_ref(track))
@@ -1356,7 +1305,6 @@ fn a_download_inside_the_library_is_reindexed_after_the_write() {
     assert_eq!(entry.tags.title, "Roki");
 }
 
-/// A backend whose transfer list the test rewrites between polls.
 #[derive(Default)]
 struct LiveClient {
     transfers: Mutex<Vec<Transfer>>,
@@ -1399,8 +1347,7 @@ impl SoulseekClient for LiveClient {
     }
 }
 
-/// Time that passes only when the wait sleeps, calling back on every sleep so
-/// the test can change what the backend reports.
+/// Time passes only when the wait sleeps, so the test decides what each poll sees.
 struct TickingClock<'a> {
     now: f64,
     sleeps: usize,
@@ -1441,7 +1388,6 @@ fn from_user(username: &str, title: &str) -> Candidate {
     }
 }
 
-/// Roki, finished, from this peer.
 fn arrived_from(username: &str) -> Transfer {
     Transfer {
         username: username.to_owned(),
@@ -1453,7 +1399,6 @@ fn arrived_from(username: &str) -> Transfer {
     }
 }
 
-/// A track searched and approved, with these peers' files as its candidates.
 fn approved(store: &mut ReviewStore, settings: &Settings, track: &Track, peers: &[&str]) -> i64 {
     store
         .add(std::slice::from_ref(track))

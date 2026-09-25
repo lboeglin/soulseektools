@@ -1,4 +1,4 @@
-//! Reading exports in every supported format, and diffing them against the library.
+//! Reading exports in every format, and diffing them against the library.
 
 mod support;
 
@@ -34,7 +34,6 @@ fn entry(artist: &str, title: &str) -> LibraryEntry {
 
 fn write_csv(scratch: &Scratch, body: &str) -> PathBuf {
     let path = scratch.join("export.csv");
-    // Exports written by Excel carry a BOM.
     let mut bytes = b"\xef\xbb\xbf".to_vec();
     bytes.extend_from_slice(body.as_bytes());
     std::fs::write(&path, bytes).expect("a written export");
@@ -88,7 +87,7 @@ fn a_file_without_the_needed_columns_is_rejected() {
 
 #[test]
 fn a_kanji_title_matches_its_romanised_file() {
-    // Without romaji these share not a single character.
+    // Without romaji these share no characters.
     let result = split(
         &wanted("Hatsune Miku", "\u{5343}\u{672c}\u{685c}"),
         &[entry("Hatsune Miku", "Senbonzakura")],
@@ -99,7 +98,7 @@ fn a_kanji_title_matches_its_romanised_file() {
 
 #[test]
 fn an_uncertain_match_stays_in_the_wantlist() {
-    // Deliberate: a duplicate download costs megabytes, a dropped track is lost.
+    // An uncertain match stays missing: a duplicate download is cheaper than a lost track.
     let result = split(
         &wanted("DECO*27", "Roki"),
         &[entry("Some Other Artist", "A Different Song Entirely")],
@@ -213,7 +212,6 @@ fn keeping_played_tracks_collapses_repeats_and_drops_the_rare_ones() {
     assert_eq!(keep_played(plays.to_vec(), 1).len(), 3);
 }
 
-/// An iTunes library in the shape Apple writes it, one `<dict>` per item.
 fn write_library(scratch: &Scratch, items: &str) -> PathBuf {
     let path = scratch.join("Library.xml");
     let body = format!(

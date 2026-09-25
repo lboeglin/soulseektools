@@ -1,4 +1,4 @@
-//! Reading and writing tags, covers, loudness tags and extras per container.
+//! Reading and writing tags, covers, loudness tags and extras, per container.
 
 mod support;
 
@@ -24,11 +24,7 @@ fn artwork(repeats: usize) -> Artwork {
     }
 }
 
-/// Against tags an independent writer produced.
-///
-/// The committed `tagged.*` fixtures carry what ffmpeg wrote into each
-/// container; a fixture this suite tagged itself would be checking `lofty`
-/// against `lofty` and would agree whatever either of them did.
+/// Against tags ffmpeg wrote, so this isn't `lofty` checking `lofty`.
 #[test]
 fn read_tags_returns_the_same_fields_for_every_container() {
     for suffix in TAGGABLE {
@@ -140,8 +136,7 @@ fn writing_one_field_leaves_the_others_where_they_were() {
 
 #[test]
 fn an_empty_value_removes_the_key_rather_than_writing_a_blank() {
-    // A file whose title was cleared has to read back the way one that never
-    // had a title does, or "is this tagged" gets two different answers.
+    // A cleared title must read back like one that never existed.
     let scratch = Scratch::new("tags-write-clear");
     let path = encode(&scratch.join("t.flac"), &Encoded::default());
     tags::write_tags(&path, &full_tags()).expect("written tags");
@@ -170,9 +165,7 @@ fn writing_tags_leaves_the_embedded_cover_alone() {
 
 #[test]
 fn a_total_after_the_track_number_survives_a_write_that_keeps_the_number() {
-    // `read_tags` keeps only the leading digits of "3/12", so a write that
-    // rewrote the field regardless would drop the total across a whole album
-    // for anyone editing only a title.
+    // Rewriting the field would drop the total across an album.
     let scratch = Scratch::new("tags-write-track");
     let path = encode(
         &scratch.join("t.flac"),
@@ -204,10 +197,7 @@ fn a_total_after_the_track_number_survives_a_write_that_keeps_the_number() {
 
 #[test]
 fn a_tag_this_project_does_not_manage_survives_a_write() {
-    // ReplayGain is the case that matters: a library scanned in foobar2000
-    // carries four of these per file, and `write_tags` replaces six item keys
-    // rather than the tag block, so everything else has to come through
-    // untouched. Losing them would mean rescanning the whole library.
+    // ReplayGain written by other tools must survive a tag write.
     let scratch = Scratch::new("tags-foreign");
     let path = encode(
         &scratch.join("t.flac"),
@@ -274,8 +264,6 @@ fn a_loudness_measurement_round_trips_through_every_container() {
     }
 }
 
-/// Opus keeps its gain in the comment header as `R128_TRACK_GAIN`, and that is
-/// what players read there.
 #[test]
 fn an_opus_file_carries_r128_alongside_the_standard_tags() {
     let scratch = Scratch::new("tags-loudness-opus");
@@ -300,7 +288,6 @@ fn an_opus_file_carries_r128_alongside_the_standard_tags() {
     );
 }
 
-/// What a Soulseek peer's tagger typically leaves beside the fields that matter.
 fn peer_block() -> Encoded<'static> {
     Encoded {
         metadata: &[

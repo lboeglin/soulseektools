@@ -1,4 +1,4 @@
-//! The slskd wire format, against recorded responses in place of the daemon.
+//! The slskd wire format, against recorded responses.
 
 use std::collections::HashMap;
 use std::sync::Mutex;
@@ -14,7 +14,6 @@ use stk::soulseek::slskd::{state_from, Http, SlskdClient};
 struct Recorded {
     responses: HashMap<String, Value>,
     failures: HashMap<String, String>,
-    // `Mutex` rather than `RefCell`: `Http` is `Sync` now that searches fan out.
     calls: Mutex<Vec<(String, String, Option<Value>)>>,
 }
 
@@ -52,8 +51,7 @@ impl Http for Recorded {
         if let Some(message) = self.failures.get(&key) {
             return Err(Error::SoulseekClient(message.clone()));
         }
-        // A search id is generated per call, so the routes that carry one are
-        // matched by prefix the way `respx`'s url regexes are.
+        // Search ids are generated per call, so those routes match by prefix.
         for (route, response) in &self.responses {
             if route == &key || matches_search_route(route, &key) {
                 return Ok(Some(response.clone()));
@@ -63,11 +61,7 @@ impl Http for Recorded {
     }
 }
 
-/// `GET /searches/*/responses` against `GET /searches/<id>/responses`.
-///
-/// The wildcard stands for exactly one path segment. Letting it span a `/` would
-/// make `/searches/*` also match `/searches/<id>/responses`, and which of the
-/// two won would depend on hash order.
+/// The wildcard spans one path segment, or `/searches/*` would also match `/responses`.
 fn matches_search_route(route: &str, key: &str) -> bool {
     let Some((prefix, suffix)) = route.split_once('*') else {
         return false;
@@ -183,8 +177,6 @@ fn a_zero_bitrate_is_treated_as_unknown_not_as_zero() {
     assert_eq!(flac.bitrate, None);
 }
 
-/// The key is read from the environment, never from the config file, and this
-/// is the only place it reaches the wire.
 #[test]
 fn the_api_key_is_sent_as_a_header() {
     let settings = SlskdSettings {
@@ -282,8 +274,7 @@ fn transfers_are_flattened_across_users_and_folders() {
 
 #[test]
 fn soulseek_state_flags_collapse_to_one_outcome() {
-    // slskd passes through Soulseek.NET's flag-like state strings; a "Completed"
-    // that errored is a failure, not a completion.
+    // "Completed, Errored" is a failure, not a completion.
     for (raw, expected) in [
         ("Completed, Succeeded", TransferState::Completed),
         ("Completed, Errored", TransferState::Failed),

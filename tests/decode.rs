@@ -1,8 +1,4 @@
 //! Reading audio out of real files.
-//!
-//! `spectral.rs` covers the classifier on synthesised spectra and `verify.rs`
-//! covers the verdicts; this covers the decoder underneath both, which is the
-//! part that used to be two subprocesses.
 #![allow(clippy::cast_precision_loss)]
 
 mod support;
@@ -23,7 +19,6 @@ fn a_stream_reports_its_properties() {
     let audio = Audio::open(&track).expect("an opened file");
     let stream = audio.stream();
 
-    // Codec names are spelled the way ffprobe spells them.
     assert_eq!(stream.codec, "flac");
     assert_eq!(stream.sample_rate, 44100);
     assert_eq!(stream.channels, 2);
@@ -34,8 +29,6 @@ fn a_stream_reports_its_properties() {
 
 #[test]
 fn a_container_with_no_decoder_is_reported_as_unsupported() {
-    // Opus is taggable here and undecodable, and the two facts have to be
-    // distinguishable to a caller.
     let scratch = Scratch::new("decode-unsupported");
     let track = encode(&scratch.join("a.opus"), &Encoded::default());
 
@@ -45,9 +38,7 @@ fn a_container_with_no_decoder_is_reported_as_unsupported() {
 
 #[test]
 fn a_window_starts_where_it_was_asked_to() {
-    // The regression this guards: a seek that silently landed at the start
-    // would still return the right number of samples, and every probe of a
-    // track would then describe its opening seconds.
+    // A seek that silently landed at the start would still return the right sample count.
     let scratch = Scratch::new("decode-seek");
     let track = encode(
         &scratch.join("swept.flac"),

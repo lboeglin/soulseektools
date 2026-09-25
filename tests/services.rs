@@ -6,7 +6,6 @@ use std::thread::JoinHandle;
 
 use stk::services::{HttpTransport, ServiceHttp};
 
-/// Answer one request with `status` and a JSON `body`, and hand back where.
 fn serve_once(status: &'static str, body: &'static str) -> (String, JoinHandle<()>) {
     let listener = TcpListener::bind("127.0.0.1:0").expect("a loopback port");
     let url = format!("http://{}/2.0/", listener.local_addr().expect("an address"));

@@ -1,7 +1,4 @@
 //! Duplicate detection by title and by audio, grouping, and resolving.
-//!
-//! The fingerprint source is a closure, so a table keyed by filename stands in
-//! for decoding.
 mod support;
 
 use std::collections::HashMap;
@@ -54,11 +51,7 @@ fn by_title(entries: &[LibraryEntry]) -> Vec<DuplicatePair> {
     duplicates::find_by_title(entries, &MatchThresholds::default())
 }
 
-/// A fingerprint whose words are unique to `seed`.
-///
-/// Deliberately not a shift of another one: the alignment search would rightly
-/// call a shifted fingerprint the same audio. Two of these agree on about half
-/// their bits, which is what unrelated tracks score.
+/// Not a shift of another print, which the alignment search would rightly call a match.
 fn print(seed: u64, length: usize) -> Fingerprint {
     let mut state = seed.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1);
     let values = (0..length)
@@ -75,7 +68,6 @@ fn print(seed: u64, length: usize) -> Fingerprint {
     }
 }
 
-/// Fingerprints keyed by filename, so no decoding happens in these tests.
 fn from_table(
     table: HashMap<String, Fingerprint>,
 ) -> impl FnMut(&LibraryEntry) -> Option<Fingerprint> {
@@ -104,8 +96,7 @@ fn table(pairs: &[(&str, Fingerprint)]) -> HashMap<String, Fingerprint> {
 
 #[test]
 fn the_same_song_under_two_artist_spellings_is_found() {
-    // The pairing the whole romaji layer exists for: one producer, two folders,
-    // no shared characters between the spellings.
+    // One producer, two folders, no characters in common.
     let entries = [
         entry("Inabakumori/Lagtrain.flac", "Inabakumori", "Ragutorein"),
         entry(
@@ -201,8 +192,7 @@ fn identical_audio_is_paired_whatever_the_names_say() {
 
 #[test]
 fn different_audio_of_the_same_length_is_not_paired() {
-    // Exactly the coincidence that made a duration-and-size fingerprint
-    // unreliable: same length, same size, different recordings.
+    // Same length and size, different recordings.
     let entries = [
         entry_with("X/a.flac", "One", "Track", 1_000_000, Some(200.0)),
         entry_with("Y/b.flac", "Two", "Other", 1_000_000, Some(200.0)),
@@ -225,8 +215,6 @@ fn an_undecodable_file_is_skipped_rather_than_aborting_the_run() {
         entry("Z/c.flac", "Three", "Third"),
     ];
 
-    // The source reports nothing for the broken file, which is what a decode
-    // failure looks like to `find_by_audio`.
     let shape = print(0, 40);
     let mut source = |entry: &LibraryEntry| {
         let name = entry.path.file_name()?.to_string_lossy().into_owned();

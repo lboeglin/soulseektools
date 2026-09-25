@@ -9,7 +9,6 @@ use stk::library::scan::{iter_audio_files, owning_root, Excludes};
 use stk::library::tags;
 use support::{encode, Encoded, Scratch};
 
-/// A small library laid out the way the real one is: `<root>/<artist>/...`.
 fn library_root(scratch: &Scratch) -> PathBuf {
     let root = scratch.join("Music");
     encode(
@@ -179,8 +178,6 @@ fn entries_round_trip_through_sqlite() {
 
 #[test]
 fn reindex_picks_up_a_tag_this_tool_just_wrote() {
-    // Without this, a command that edits tags leaves the next command reporting
-    // what was true before the edit.
     let scratch = Scratch::new("index-reindex");
     let root = library_root(&scratch);
     let track = root.join("ZUN").join("Nested").join("15 Heian Alien.flac");
@@ -211,13 +208,11 @@ fn reindex_picks_up_a_tag_this_tool_just_wrote() {
     );
 }
 
-/// The oldest schema still in the wild is upgraded in place, not rewritten.
 #[test]
 fn a_v2_database_is_upgraded_in_place_rather_than_rewritten() {
     let scratch = Scratch::new("index-v2");
     let database = scratch.join("v2.db");
 
-    // v2: without the six v3 columns.
     let connection = rusqlite::Connection::open(&database).expect("a database");
     connection
         .execute_batch(
@@ -243,7 +238,6 @@ fn a_v2_database_is_upgraded_in_place_rather_than_rewritten() {
 
     let index = LibraryIndex::open(&database).expect("an upgraded index");
 
-    // The existing row survives, and the new columns read back as absent.
     assert_eq!(index.count().expect("a count"), 1);
     let entry = index
         .entry(Path::new("E:\\Music\\a.flac"))
@@ -256,15 +250,13 @@ fn a_v2_database_is_upgraded_in_place_rather_than_rewritten() {
     assert!(index.snapshots(None).expect("a series").is_empty());
 }
 
-/// Adding a column changes neither size nor mtime, so the next scan has to
-/// backfill it explicitly.
+/// Adding a column changes neither size nor mtime, so nothing else would re-read the row.
 #[test]
 fn an_upgraded_database_fills_its_loudness_columns_at_the_next_scan() {
     let scratch = Scratch::new("index-backfill");
     let root = library_root(&scratch);
     let track = root.join("DECO_27").join("01 - Roki.flac");
 
-    // Scanned by a build that had no loudness columns.
     let mut index = open(&scratch, "index.db");
     refresh(&mut index, &root);
     drop(index);
@@ -283,7 +275,6 @@ fn an_upgraded_database_fills_its_loudness_columns_at_the_next_scan() {
     }
     drop(connection);
 
-    // The file carries a gain all along -- from foobar2000, or an earlier run.
     stk::library::tags::write_replay_gain(
         &track,
         &stk::models::ReplayGainTags {
@@ -304,8 +295,7 @@ fn an_upgraded_database_fills_its_loudness_columns_at_the_next_scan() {
     assert!(entry.is_level_matched());
 }
 
-/// The backfill updates those six columns and nothing else, because `upsert`
-/// replaces a row whole and would throw away the verdict `stk verify` recorded.
+/// `upsert` replaces a whole row and would drop the verdict.
 #[test]
 fn the_backfill_leaves_a_recorded_verdict_where_it_was() {
     let scratch = Scratch::new("index-backfill-verdict");
@@ -334,8 +324,7 @@ fn the_backfill_leaves_a_recorded_verdict_where_it_was() {
     );
 }
 
-/// A refresh deletes what it did not walk, so a per-root loop would make each
-/// root evict the other's rows.
+/// A refresh deletes what it didn't walk, so a per-root loop would evict the other root.
 #[test]
 fn a_second_root_does_not_evict_the_first_roots_files() {
     let scratch = Scratch::new("index-no-evict");
@@ -364,7 +353,6 @@ fn an_exclusion_matches_whatever_the_platform_separator_is() {
     assert!(!exclude.matches(&root, &root.join("ZUN").join("kick.wav")));
 }
 
-/// Roots may nest, and the deeper one is what names the artist.
 #[test]
 fn the_deepest_root_owns_a_file() {
     let outer = PathBuf::from(r"E:\Music");

@@ -1,4 +1,4 @@
-//! Reading an edited `tags dump` back, behind `stk tags apply`.
+//! Reading an edited `tags dump` back.
 
 mod support;
 
@@ -11,8 +11,7 @@ use stk::models::{LibraryEntry, ReplayGainTags, TrackTags};
 use stk::tagsheet::{plan_changes, read_sheet, Blanks, PlannedEdit, Skipped, TagChange};
 use support::{encode, Encoded, Scratch};
 
-/// The planner asks the filesystem whether the file is still there, so a row
-/// standing in for one has to exist.
+/// The planner checks the file still exists, so the stand-in must.
 fn entry(path: &Path, tags: TrackTags) -> LibraryEntry {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).expect("a parent directory");
@@ -55,7 +54,6 @@ fn sheet(scratch: &Scratch, body: &str) -> PathBuf {
     path
 }
 
-/// A sheet naming one file, whose path has to survive CSV quoting.
 fn rows(path: &Path, header: &str, cells: &str) -> String {
     format!("path,{header}\n\"{}\",{cells}\n", path.display())
 }
@@ -82,7 +80,6 @@ fn skips(planned: &[PlannedEdit]) -> Vec<Skipped> {
 
 #[test]
 fn a_dump_applied_unedited_proposes_nothing() {
-    // The round-trip property the whole command rests on.
     let scratch = Scratch::new("sheet-round-trip");
     let path = scratch.join("a.flac");
     let body = rows(
@@ -128,7 +125,6 @@ fn a_blank_cell_clears_the_tag_when_the_run_asks_for_it() {
 
 #[test]
 fn a_column_absent_from_the_sheet_is_never_written() {
-    // What makes a hand-written two-column sheet safe, even with --clear-blanks.
     let scratch = Scratch::new("sheet-absent-column");
     let path = scratch.join("a.flac");
     let body = rows(&path, "genres", "Touhou");
@@ -156,8 +152,7 @@ fn a_row_whose_path_is_not_indexed_is_reported_rather_than_guessed_at() {
 
 #[test]
 fn a_sheet_with_a_byte_order_mark_reads_the_same_as_one_without() {
-    // `tags dump -o` writes a BOM, so without this the dump cannot be fed back
-    // in: the first header would be named "\u{feff}path".
+    // Without this, the dump's BOM would name the first header "\u{feff}path".
     let scratch = Scratch::new("sheet-bom");
     let path = scratch.join("a.flac");
     let body = rows(&path, "title", "Ghost Rule");
@@ -174,8 +169,7 @@ fn a_sheet_with_a_byte_order_mark_reads_the_same_as_one_without() {
 
 #[test]
 fn the_written_tags_are_built_from_the_file_and_not_from_the_index() {
-    // The plan is diffed against a cache. Writing what the cache remembered
-    // would silently revert every field the sheet never mentioned.
+    // Writing what the index cached would revert fields the sheet never mentioned.
     let scratch = Scratch::new("sheet-writes-from-file");
     let path = encode(
         &scratch.join("a.flac"),
@@ -186,7 +180,6 @@ fn the_written_tags_are_built_from_the_file_and_not_from_the_index() {
     );
     let stale = describe(&path, scratch.path()).expect("an entry");
 
-    // The album moved on disk after the index last saw the file.
     let mut on_disk = tags::read_tags(&path).expect("readable tags");
     on_disk.album = "Ghost Rule".to_owned();
     tags::write_tags(&path, &on_disk).expect("an edited album");

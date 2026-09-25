@@ -1,4 +1,4 @@
-//! Laying files out from their tags, behind `stk organise`.
+//! Laying files out from their tags.
 
 mod support;
 
@@ -91,8 +91,6 @@ fn a_tagged_file_lands_under_its_artist_album_and_number() {
 
 #[test]
 fn a_file_with_no_album_loses_the_album_directory() {
-    // Dropped rather than filled in: inventing "Unknown Album" folders is the
-    // mess this command exists to remove.
     assert_eq!(
         rendered("/d/a.flac", tagged("ZUN", "", "Native Faith", Some(5))),
         "ZUN/05 - Native Faith.flac"
@@ -109,8 +107,6 @@ fn a_file_with_no_track_number_loses_the_separator_with_it() {
 
 #[test]
 fn a_slash_in_an_artist_name_does_not_create_a_directory() {
-    // `sanitize_folder_name` runs per component, so a
-    // separator inside a name cannot become one on disk.
     assert_eq!(
         rendered("/d/a.flac", tagged("AC/DC", "", "Back in Black", None)),
         "AC_DC/Back in Black.flac"
@@ -155,8 +151,6 @@ fn plan(entries: &[LibraryEntry], root: &Path) -> Vec<PlannedMove> {
 
 #[test]
 fn two_files_rendering_to_one_name_are_reported_before_anything_moves() {
-    // Caught during planning, so the plan is truthful rather than the second
-    // move discovering it.
     let same = tagged("ZUN", "Faith", "Native Faith", Some(5));
     let planned = plan(
         &[
@@ -193,8 +187,7 @@ fn an_occupied_destination_is_never_overwritten() {
 
 #[test]
 fn a_case_only_rename_is_a_move_and_not_a_collision() {
-    // On NTFS the destination "exists" because it is the same file, and a plain
-    // exists() check would refuse the one rename most worth making.
+    // On NTFS the destination "exists" because it is the same file.
     let scratch = Scratch::new("organise-case");
     let root = scratch.join("Music");
     let source = encode(&root.join("ZUN").join("song.flac"), &Encoded::default());
@@ -213,7 +206,7 @@ fn a_case_only_rename_is_a_move_and_not_a_collision() {
     assert!(planned[0].ready(), "{:?}", planned[0].blocked);
     move_file(&source, &planned[0].destination).expect("a case-only rename");
 
-    // `exists` cannot see the difference on Windows; the directory listing can.
+    // `exists` can't tell them apart on Windows; the directory listing can.
     assert_eq!(
         spelled_on_disk(&planned[0].destination)
             .file_name()
@@ -258,7 +251,6 @@ fn a_move_carries_the_row_and_its_fingerprint_to_the_new_path() {
         .entry(&destination)
         .expect("a lookup")
         .expect("the row at its new home");
-    // Carried, not recomputed: the audio did not change because the file did.
     assert_eq!(
         index
             .fingerprint(&destination, moved.mtime)
@@ -269,7 +261,6 @@ fn a_move_carries_the_row_and_its_fingerprint_to_the_new_path() {
 
 #[test]
 fn a_source_directory_still_holding_a_cover_is_kept() {
-    // `--apply` on a command that moves files did not consent to deleting art.
     let scratch = Scratch::new("organise-prune-cover");
     let root = scratch.join("Music");
     let folder = root.join("Artist");

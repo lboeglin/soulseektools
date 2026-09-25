@@ -1,9 +1,4 @@
-//! Grouping by the folder a peer offers files from.
-//!
-//! The offers are built from a real `ReviewStore` rather than from hand-made
-//! `ReviewTrack` values, because the rank numbering the grouping depends on is
-//! `set_candidates`' business: a fixture that numbered its own ranks could agree
-//! with itself while disagreeing with the database.
+//! Grouping by folder, on a real `ReviewStore` so the rank numbering is the database's.
 
 mod support;
 
@@ -34,7 +29,6 @@ fn scored(username: &str, remote_path: &str, score: i64) -> ScoredCandidate {
     }
 }
 
-/// A track with candidates found and nothing chosen yet.
 fn reviewable(store: &mut ReviewStore, title: &str, candidates: &[ScoredCandidate]) -> i64 {
     store
         .add(&[Track::new("DECO*27", title)])
@@ -52,7 +46,6 @@ fn reviewable(store: &mut ReviewStore, title: &str, candidates: &[ScoredCandidat
     track_id
 }
 
-/// The offers the CLI would show: over tracks awaiting review, and no others.
 fn waiting(store: &ReviewStore, minimum: usize) -> Vec<AlbumOffer> {
     let tracks = store
         .tracks(&[TrackStatus::AwaitingReview], None)
@@ -92,11 +85,7 @@ fn a_folder_one_peer_holds_several_tracks_in_is_one_offer() {
     assert_eq!(offers[0].quality(), "2 flac");
 }
 
-/// `prefer_one_uploader` promotes its peer's candidate to the front before the
-/// ranks are written, so rank 1 is not always the highest-scoring row. Measuring
-/// the sacrifice against the head of the list made it negative for the candidate
-/// that actually scored best, and a negative total sorted a costlier folder to
-/// the top of the listing.
+/// Regression: measured against rank 1, the cost went negative after a batch promotion.
 #[test]
 fn what_a_folder_costs_is_measured_against_the_best_score_not_the_first_rank() {
     let scratch = Scratch::new("albums-promoted-head");
@@ -106,8 +95,7 @@ fn what_a_folder_costs_is_measured_against_the_best_score_not_the_first_rank() {
             &mut store,
             title,
             &[
-                // As the batch pass leaves it: promoted, and scoring lower than
-                // the candidate now sitting behind it.
+                // Promoted, and scoring lower than the candidate behind it.
                 scored("bulk", &format!(r"Music\Best Of\{title}.flac"), 90),
                 scored("solo", &format!(r"Music\Solo\{title}.flac"), 100),
             ],
@@ -173,9 +161,7 @@ fn a_track_already_decided_leaves_the_offer_it_was_part_of() {
     assert!(waiting(&store, 2).is_empty());
 }
 
-/// `ReviewTrack::approved` resolves the choice
-/// positionally by `rank - 1` and `next_candidate` assumes dense `1..n` ranks,
-/// so an album approval must not disturb either or the stall retry breaks too.
+/// Approval resolves by `rank - 1` and the retry assumes dense ranks.
 #[test]
 fn approving_an_album_leaves_every_rank_resolvable() {
     let scratch = Scratch::new("albums-ranks");
@@ -212,9 +198,7 @@ fn approving_an_album_leaves_every_rank_resolvable() {
     }
 }
 
-/// An album takes rank 2 whenever the folder is not the track's own best, and
-/// the retry used to promote `approved_rank + 1` only -- so rank 1, the copy the
-/// scorer preferred, was unreachable and the track failed with it untried.
+/// Regression: the retry promoted only `rank + 1`, so rank 1 was never tried.
 #[test]
 fn a_failed_album_pick_falls_back_to_the_track_it_was_preferred_over() {
     let scratch = Scratch::new("albums-fallback");
@@ -254,7 +238,6 @@ fn a_failed_album_pick_falls_back_to_the_track_it_was_preferred_over() {
         Some(1),
         "the candidate the album was preferred over is still worth trying"
     );
-    // And once both have been tried there is genuinely nothing left.
     assert_eq!(store.next_candidate(track_id).expect("a retry"), None);
     assert_eq!(
         store
@@ -266,8 +249,6 @@ fn a_failed_album_pick_falls_back_to_the_track_it_was_preferred_over() {
     );
 }
 
-/// The share is not a folder: a file a peer offers from the root of their
-/// library yields `@@peer`, which names no album.
 #[test]
 fn a_file_shared_at_a_peers_root_is_not_an_album() {
     let scratch = Scratch::new("albums-share-root");
@@ -286,12 +267,6 @@ fn a_file_shared_at_a_peers_root_is_not_an_album() {
     assert!(waiting(&store, 2).is_empty());
 }
 
-/// Folders grouped straight out of a search, for `stk get --album`.
-///
-/// Nothing here goes through the review queue first: the point of the command
-/// is that an album can be asked for by name, with no tracklist and no rows
-/// waiting. `wanted` is the flattened query, which is what keeps the reject and
-/// penalise terms from being held against an album that contains one.
 fn found(username: &str, remote_path: &str) -> Candidate {
     Candidate {
         username: username.to_owned(),
@@ -351,9 +326,6 @@ fn a_search_becomes_one_offer_per_peer_and_folder() {
     assert_eq!(offers[1].count(), 2);
 }
 
-/// The `.cue`, the `.log` and the scan are what the folder holds, so the
-/// listing counts them -- and they are not what was asked for, so nothing
-/// queues them.
 #[test]
 fn a_folders_paperwork_is_counted_and_never_queued() {
     let mut results = ghost_rule("bulk");
@@ -394,8 +366,7 @@ fn a_folder_becomes_one_row_per_file_with_the_album_and_the_number_on_it() {
     );
 }
 
-/// The queue's key is `artist - title`, so two files reducing to one title
-/// would have the second silently take the first's row.
+/// The queue's key is `artist - title`, so the second would take the first's row.
 #[test]
 fn two_files_giving_the_same_title_yield_one_row() {
     let twice = listing(
@@ -410,8 +381,6 @@ fn two_files_giving_the_same_title_yield_one_row() {
     assert_eq!(rows[0].1.candidate.extension(), "flac");
 }
 
-/// An album asked for as a whole is not a reason to re-queue a transfer already
-/// in flight, or to fetch a second copy of a track that is already here.
 #[test]
 fn a_track_already_on_its_way_is_left_alone() {
     let scratch = Scratch::new("albums-queue-skips");

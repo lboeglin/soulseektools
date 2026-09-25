@@ -32,7 +32,6 @@ fn to_romaji_normalises_text_without_japanese_characters() {
     assert_eq!(to_romaji("DECO*27"), "deco 27");
 }
 
-/// Spaces in the name survive; IPADIC's word boundaries add none.
 #[test]
 fn only_the_spaces_in_the_name_survive() {
     assert_romanises(&[
@@ -41,8 +40,7 @@ fn only_the_spaces_in_the_name_survive() {
     ]);
 }
 
-/// IPADIC reads these as the ordinary words they are spelled like. See
-/// `KNOWN_READINGS`.
+/// IPADIC reads these as ordinary words. See `KNOWN_READINGS`.
 #[test]
 fn name_readings_survive_transliteration() {
     assert_romanises(&[
@@ -57,8 +55,6 @@ fn name_readings_survive_transliteration() {
     ]);
 }
 
-/// IPADIC has no entry for these kanji, so each takes its Unihan reading rather
-/// than being left as it is.
 #[test]
 fn kanji_ipadic_cannot_read_take_their_unihan_reading() {
     assert_romanises(&[("\u{53f7}\u{54ed}", "goukoku"), ("\u{6a02}", "gaku")]);
