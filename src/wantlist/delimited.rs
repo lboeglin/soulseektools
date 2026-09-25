@@ -1,9 +1,4 @@
-//! Delimited exports (Exportify, TuneMyMusic, Last.fm, YouTube Takeout, hand
-//! written), accepting the common spellings of each column.
-//!
-//! A headerless `lastfm-to-csv` log is recognised by the date in its fourth
-//! column. A list with titles but no artist column is split like a `stk get`
-//! query, as a guess.
+//! Delimited exports. A headerless `lastfm-to-csv` log is recognised by its date column.
 
 use std::fs::File;
 use std::path::Path;
@@ -17,10 +12,8 @@ use super::{
 use crate::errors::{Error, Result};
 use crate::models::Track;
 
-/// The columns `lastfm-to-csv` writes, in its order, without a header.
 const SCROBBLE_COLUMNS: [&str; 4] = ["artist", "album", "title", "date"];
 
-/// `lastfm-to-csv`'s timestamp, as in `31 Jan 2021 12:34`.
 static SCROBBLE_DATE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^\d{1,2} [A-Za-z]{3} \d{4},? \d{1,2}:\d{2}$").unwrap());
 

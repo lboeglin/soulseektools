@@ -1,5 +1,4 @@
-//! `stk tags` -- dump the library's metadata, write an edited dump back, and
-//! identify what a dump cannot name.
+//! `stk tags`: dump metadata, write an edited dump back, identify unknown files.
 
 use std::path::{Path, PathBuf};
 
@@ -28,8 +27,6 @@ pub const DUMP_FIELDS: &[&str] = &[
     "duration_seconds",
 ];
 
-/// The columns `stk tags apply` needs to put a row back exactly.
-///
 /// `path` stays first: it is how the sheet is keyed.
 pub const ROUND_TRIP_FIELDS: &[&str] = &[
     "path",
@@ -106,7 +103,6 @@ pub fn run(context: &AppContext, command: TagsCommand) -> Result<i32> {
     }
 }
 
-/// One column's value for one file, stated once so both column sets agree.
 fn cell(entry: &LibraryEntry, column: &str) -> String {
     match column {
         "path" => show(&entry.path),
@@ -254,10 +250,7 @@ fn apply_sheet(context: &AppContext, sheet: &Path, apply: bool, clear_blanks: bo
     Ok(0)
 }
 
-/// Write each planned change, log it, and re-read the file into the index.
-///
-/// A file that refuses the write, including one changed since the plan, is
-/// reported rather than aborting the run.
+/// A failed write, including a file changed since the plan, is reported, not fatal.
 fn write_changes(
     index: &mut LibraryIndex,
     roots: &[PathBuf],
@@ -330,8 +323,7 @@ fn report(
         context.say(&table(&["File", "Field", "From", "To"], &rows));
     }
 
-    // Rows the sheet named that this could not act on. "Already what the sheet
-    // asks for" is the usual answer and says nothing, so it is only counted.
+    // "Already what the sheet asks for" is only counted.
     let mut unchanged = 0;
     for edit in planned {
         if let PlannedEdit::Skip { path, reason } = edit {
@@ -369,10 +361,7 @@ fn report(
     }
 }
 
-/// Look files up on AcoustID and show, or write, what they turn out to be.
-///
-/// Only files missing an artist or title unless `--all`. The result is a plan
-/// written through the same path as `tags apply`.
+/// Only files missing an artist or title unless `--all`.
 fn identify_files(
     context: &AppContext,
     path: Option<&Path>,
@@ -387,8 +376,7 @@ fn identify_files(
         return Ok(0);
     }
 
-    // The index keys files by absolute path, so a folder named from the shell
-    // has to be made absolute before it can select any of them.
+    // The index keys files by absolute path.
     let path = path.map(|path| std::path::absolute(path).unwrap_or_else(|_| path.to_path_buf()));
     let under = |entry: &LibraryEntry| {
         path.as_ref()
@@ -472,9 +460,7 @@ fn identify_files(
     Ok(0)
 }
 
-/// Re-file each written file's print under its new mtime.
-///
-/// Writing tags moves the mtime the cache is keyed on; the audio is unchanged.
+/// Writing tags moves the mtime the fingerprint cache is keyed on; the audio is unchanged.
 fn keep_prints(index: &mut LibraryIndex, changes: &[&TagChange], targets: &[LibraryEntry]) {
     for change in changes {
         let path = &change.edit.path;
@@ -521,7 +507,6 @@ fn unmatched_row(identification: &Identification) -> Option<serde_json::Value> {
     }))
 }
 
-/// One line per file: what it was taken for, and why that release.
 fn report_identifications(context: &AppContext, identifications: &[Identification]) {
     let rows: Vec<Vec<String>> = identifications
         .iter()

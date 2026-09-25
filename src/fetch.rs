@@ -18,7 +18,6 @@ use crate::soulseek::base::{SoulseekClient, Transfer, TransferState};
 use crate::soulseek::ranking;
 use crate::text::normalize::{normalize, sanitize_folder_name, UNKNOWN_ARTIST};
 
-/// What one track's search produced.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SearchOutcome {
     pub track_id: i64,
@@ -29,7 +28,6 @@ pub struct SearchOutcome {
     pub preferred_uploader: String,
 }
 
-/// What happened when an approved candidate was queued.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EnqueueOutcome {
     pub track_id: i64,
@@ -39,7 +37,6 @@ pub struct EnqueueOutcome {
     pub error: String,
 }
 
-/// A finished transfer, and what the file turned out to be.
 #[derive(Debug, Clone, PartialEq)]
 pub struct CollectOutcome {
     pub track_id: i64,
@@ -47,15 +44,12 @@ pub struct CollectOutcome {
     pub state: TransferState,
     pub local_path: Option<PathBuf>,
     pub verdict: Option<VerifyResult>,
-    /// What the file was tagged with from its review row; absent under the
-    /// `keep` policy, or when the file was never found.
+    /// Absent under the `keep` policy, or when the file was never found.
     pub tags: Option<Retagged>,
     pub error: String,
-    /// Set when a failure promoted the next candidate rather than giving up.
     pub retried_with_rank: Option<i64>,
 }
 
-/// Search Soulseek for every track still waiting, and record the candidates.
 pub fn search_pending(
     store: &mut ReviewStore,
     client: &dyn SoulseekClient,
@@ -137,7 +131,6 @@ pub fn search_pending(
     Ok(outcomes)
 }
 
-/// Run every pending track's search at once, bounded by `search_concurrency`.
 fn search_concurrently(
     pending: &[crate::review::store::ReviewTrack],
     client: &dyn SoulseekClient,
@@ -167,35 +160,25 @@ fn search_concurrently(
         )
 }
 
-/// A transfer that sat too long, and what was done about it.
 #[derive(Debug, Clone, PartialEq)]
 pub struct StallOutcome {
     pub track_id: i64,
     pub query: String,
     pub waited_seconds: f64,
-    /// The rank promoted in its place, absent when the candidates ran out.
     pub retried_with_rank: Option<i64>,
     pub error: String,
-    /// The preferred peer whose whole group this track was moved with.
     pub peer_group: String,
 }
 
-/// A preferred peer that went down, and where the tracks steered to it went.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PeerStall {
     pub username: String,
-    /// The peer the group's remaining candidates settled on, if one covered
-    /// enough of it.
     pub moved_to: Option<String>,
-    /// Tracks now approved from `moved_to`.
     pub moved: usize,
-    /// Tracks that fell to their own next candidate instead.
     pub individually: usize,
-    /// Tracks with nothing left to try, now failed.
     pub exhausted: usize,
 }
 
-/// Everything one stall pass gave up on.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Stalled {
     pub tracks: Vec<StallOutcome>,
@@ -287,7 +270,6 @@ pub fn retry_stalled(
     Ok(outcome)
 }
 
-/// The peer the batch pass steered this track to, if its approval is theirs.
 fn preferred_peer(entry: &ReviewTrack) -> Option<&str> {
     entry
         .approved()
@@ -300,28 +282,19 @@ fn preferred_peer(entry: &ReviewTrack) -> Option<&str> {
         .map(|approved| approved.candidate.username.as_str())
 }
 
-/// Whether slskd has failed anything from this peer for being offline.
-///
-/// slskd passes on Soulseek.NET's "User X appears to be offline" as the
-/// transfer's exception; nothing else says so.
+/// slskd reports an offline peer only in a transfer's exception text.
 fn reported_offline(transfers: &[Transfer], username: &str) -> bool {
     transfers.iter().any(|transfer| {
         transfer.username == username && transfer.error.to_lowercase().contains("offline")
     })
 }
 
-/// The queued tracks a stalled preferred peer was steered, as one unit.
 struct Group<'a> {
     username: &'a str,
     tracks: &'a [&'a ReviewTrack],
 }
 
-/// Cancel a stalled peer's whole group and send it on together where the
-/// remaining candidates allow.
-///
-/// The preference is re-run over the group's untried candidates. Any peer
-/// covering two tracks qualifies, since `minimum_coverage` is sized for a whole
-/// batch.
+/// Any peer covering two of the group qualifies; `minimum_coverage` is sized for a batch.
 fn move_group(
     store: &mut ReviewStore,
     client: &dyn SoulseekClient,
@@ -383,8 +356,6 @@ fn move_group(
     Ok(peer)
 }
 
-/// Cancel the transfer still pending for this candidate, returning why that
-/// failed, if it did.
 fn cancel(
     client: &dyn SoulseekClient,
     by_path: &HashMap<&str, &Transfer>,
@@ -397,7 +368,6 @@ fn cancel(
         .map_or_else(String::new, |reason| reason.to_string())
 }
 
-/// Promote the next untried candidate, failing the track when there is none.
 fn retry_next(store: &mut ReviewStore, track_id: i64) -> crate::errors::Result<Option<i64>> {
     let retried = store.next_candidate(track_id)?;
     if retried.is_none() {
@@ -427,7 +397,6 @@ fn stall_outcome(
     }
 }
 
-/// Queue every approved pick, sorting each into a folder named for its artist.
 pub fn enqueue_approved(
     store: &mut ReviewStore,
     client: &dyn SoulseekClient,
@@ -480,7 +449,6 @@ fn enqueue(
             continue;
         }
 
-        // `queued_at` is what makes a stall visible later.
         store.mark_queued(
             entry.id,
             now,
@@ -497,12 +465,7 @@ fn enqueue(
     Ok(outcomes)
 }
 
-/// Update queued tracks from the backend's transfer list, tagging and
-/// verifying what arrived.
-///
-/// A failure promotes the next unused candidate. A completed file is tagged
-/// from its review row under `fetch.tags`, then verified; the tag writes are
-/// logged as one run.
+/// A failure promotes the next untried candidate; an arrival is tagged, then verified.
 pub fn collect(
     store: &mut ReviewStore,
     client: &dyn SoulseekClient,
@@ -588,13 +551,12 @@ pub fn collect(
     Ok(outcomes)
 }
 
-/// Time as the wait for downloads sees it, so a test need not sit through it.
+/// Time as the download wait sees it, so tests don't sleep.
 pub trait Clock {
     fn now(&self) -> f64;
     fn sleep(&mut self, seconds: f64);
 }
 
-/// The wall clock.
 pub struct SystemClock;
 
 impl Clock for SystemClock {
@@ -609,23 +571,20 @@ impl Clock for SystemClock {
     }
 }
 
-/// How long to wait for downloads, and how often to look.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Patience {
     pub timeout_seconds: f64,
     pub poll_seconds: f64,
 }
 
-/// Everything a wait for downloads did, round after round.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Waited {
     pub stalled: Vec<StallOutcome>,
-    /// Preferred peers whose whole group was moved at once.
     pub stalled_peers: Vec<PeerStall>,
     pub queued: Vec<EnqueueOutcome>,
     pub collected: Vec<CollectOutcome>,
     pub rounds: usize,
-    /// Tracks still on their way when the wait ended; nonzero only on a timeout.
+    /// Nonzero only on a timeout.
     pub unfinished: usize,
 }
 
@@ -645,12 +604,7 @@ impl Waited {
     }
 }
 
-/// Queue the approved picks, then keep collecting until every one has arrived
-/// or failed, or `patience` runs out.
-///
-/// Each round collects what finished, retries what stalled and sends what was
-/// promoted. `limit` caps tracks newly sent; tracks already queued are waited
-/// for too. On timeout slskd keeps the transfers for the next collect.
+/// On timeout slskd keeps the transfers, and the next collect records them.
 #[allow(clippy::too_many_arguments)]
 pub fn wait_for_downloads(
     store: &mut ReviewStore,
@@ -712,11 +666,7 @@ pub fn wait_for_downloads(
     }
 }
 
-/// Where the finished file should be on disk.
-///
-/// slskd reports only the remote path, so this rebuilds it from the download
-/// directory, the artist folder it was queued into, and the filename. Must use
-/// the same `sanitize_folder_name` as `enqueue_approved`.
+/// Rebuilt from download dir, artist folder and filename; must match `enqueue_approved`.
 #[must_use]
 pub fn downloaded_path(settings: &Settings, artist: &str, transfer: &Transfer) -> Option<PathBuf> {
     let root = settings.slskd.download_directory.as_ref()?;
@@ -731,8 +681,6 @@ pub fn downloaded_path(settings: &Settings, artist: &str, transfer: &Transfer) -
     )
 }
 
-/// Check whatever arrived that `verify` can judge, so a peer shipping
-/// upsampled MP3s is caught on the first one.
 fn verify_downloaded(local_path: Option<&Path>, settings: &Settings) -> Option<VerifyResult> {
     let path = local_path?;
     if !path.is_file() {

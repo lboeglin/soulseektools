@@ -5,7 +5,6 @@ use std::collections::BTreeMap;
 
 use crate::models::{LibraryEntry, Verdict};
 
-/// One measurement of the library.
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct LibrarySnapshot {
     pub taken_at: f64,
@@ -17,14 +16,10 @@ pub struct LibrarySnapshot {
     pub verified_clean: usize,
     pub flagged: usize,
 
-    /// How many files carry a track gain, new in v6.
-    ///
     /// Absent on a measurement taken before the column existed.
     pub with_replay_gain: Option<usize>,
 }
 
-/// The counted part of a snapshot, which is what decides whether it is new.
-///
 /// Excludes `taken_at`, so two identical scans are one measurement.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Counts {
@@ -54,10 +49,7 @@ impl LibrarySnapshot {
     }
 }
 
-/// Count what an indexed library holds, at `taken_at`.
-///
-/// `lossless` uses the same container rule as `stk verify`. `flagged` is FAKE,
-/// SUSPECT and UPSAMPLED together. `with_replay_gain` counts any scanner's.
+/// `flagged` is FAKE, SUSPECT and UPSAMPLED together.
 #[must_use]
 pub fn measure(
     entries: &[LibraryEntry],
@@ -89,19 +81,15 @@ pub fn measure(
     }
 }
 
-/// The day a measurement was taken, as `YYYY-MM-DD`.
 #[must_use]
 #[allow(clippy::cast_possible_truncation)]
 pub fn date_of(taken_at: f64) -> String {
-    // Bounded by the timestamps SQLite holds -- seconds since 1970, nowhere
-    // near the edge of an `i64` count of days.
     let days = (taken_at / 86_400.0).floor() as i64;
     let (year, month, day) = civil_from_days(days);
     format!("{year:04}-{month:02}-{day:02}")
 }
 
-/// Howard Hinnant's `civil_from_days`, which is the whole of what one column of
-/// one report needs. `chrono` would be a dependency for exactly this.
+/// Howard Hinnant's `civil_from_days`, to avoid a date crate.
 fn civil_from_days(days: i64) -> (i64, u32, u32) {
     let days = days + 719_468;
     let era = days.div_euclid(146_097);

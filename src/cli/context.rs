@@ -1,4 +1,4 @@
-//! Shared plumbing for the command groups: settings, output, exit codes.
+//! Shared plumbing for the commands: settings, output, exit codes.
 
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
@@ -11,7 +11,6 @@ use crate::library::index::LibraryIndex;
 use crate::library::scan::Excludes;
 use crate::review::store::ReviewStore;
 
-/// What every command needs: resolved settings and output verbosity.
 pub struct AppContext {
     pub resolved: Resolved,
     pub verbose: bool,
@@ -45,8 +44,6 @@ impl AppContext {
         )))
     }
 
-    /// The compiled `library.exclude` globs, built in one place so every walk
-    /// skips the same folders.
     pub fn excludes(&self) -> Result<Excludes> {
         Excludes::new(&self.settings().library.exclude)
     }
@@ -59,8 +56,6 @@ impl AppContext {
         ReviewStore::open(&self.settings().review.path)
     }
 
-    /// Print a line of human-readable output.
-    ///
     /// Nothing is written in `--json` mode.
     pub fn say(&self, line: &str) {
         if !self.as_json {
@@ -68,8 +63,6 @@ impl AppContext {
         }
     }
 
-    /// Tell a person there is nothing to do, and say whether to stop here.
-    ///
     /// Under `--json` the run carries on, so an empty document is still printed.
     #[must_use]
     pub fn nothing_to_do(&self, line: &str) -> bool {
@@ -80,7 +73,6 @@ impl AppContext {
         true
     }
 
-    /// Emit the machine-readable document, two-space indented, UTF-8 as-is.
     pub fn emit(&self, value: &Value) {
         let mut stdout = std::io::stdout().lock();
         let _ = serde_json::to_writer_pretty(&mut stdout, value);
@@ -88,7 +80,6 @@ impl AppContext {
     }
 }
 
-/// Wall-clock seconds since the epoch, as both databases store timestamps.
 #[must_use]
 pub fn unix_now() -> f64 {
     std::time::SystemTime::now()
@@ -96,17 +87,13 @@ pub fn unix_now() -> f64 {
         .map_or(0.0, |since| since.as_secs_f64())
 }
 
-/// Print an error and give the exit code.
 #[must_use]
 pub fn fail(message: &str) -> i32 {
     eprintln!("error: {message}");
     1
 }
 
-/// Split a hint off an error message, so both halves land on their own line.
-///
-/// Carrying the hint in the message keeps the error type free of a CLI-only
-/// field.
+/// Splits a `hint:` line off the message, so the error type needs no CLI-only field.
 #[must_use]
 pub fn report(error: &Error) -> i32 {
     let text = error.to_string();
@@ -120,7 +107,6 @@ pub fn report(error: &Error) -> i32 {
     }
 }
 
-/// A size the two copies of a duplicate can actually be compared by.
 #[must_use]
 #[allow(clippy::cast_precision_loss)]
 pub fn human_size(size: u64) -> String {
@@ -131,7 +117,6 @@ pub fn human_size(size: u64) -> String {
     }
 }
 
-/// Render rows as a plain aligned table.
 #[must_use]
 pub fn table(headers: &[&str], rows: &[Vec<String>]) -> String {
     let columns = headers
@@ -175,7 +160,6 @@ pub fn table(headers: &[&str], rows: &[Vec<String>]) -> String {
     lines.join("\n")
 }
 
-/// A path for display.
 #[must_use]
 pub fn show(path: &Path) -> String {
     path.display().to_string()

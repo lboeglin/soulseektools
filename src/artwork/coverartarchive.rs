@@ -10,10 +10,7 @@ use crate::services::{RateLimiter, ServiceHttp};
 pub const SEARCH_URL: &str = "https://musicbrainz.org/ws/2/recording";
 pub const ARCHIVE_URL: &str = "https://coverartarchive.org/release";
 
-/// MusicBrainz enforces one request per second per address, then blocks.
-///
-/// Only the lookup is paced. The cover itself comes from the Internet Archive,
-/// which does not share that budget.
+/// Only the MusicBrainz lookup is paced; the cover comes from the Internet Archive.
 pub const MIN_INTERVAL_SECONDS: f64 = 1.0;
 
 pub struct CoverArtArchiveProvider {
@@ -96,7 +93,6 @@ fn release_title(recording: &Value) -> String {
         .unwrap_or_default()
 }
 
-/// A recording's artist credit is a list of parts, which join into one name.
 fn credited_artist(recording: &Value) -> String {
     recording
         .get("artist-credit")

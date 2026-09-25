@@ -1,8 +1,4 @@
-//! Reading a wantlist and working out what is missing.
-//!
-//! Every format's reader produces the same [`Track`]s, keeping the source's own
-//! columns in `source_row`. A track counts as owned only on a convincing match:
-//! a duplicate download is cheaper than a skipped track.
+//! Reading a wantlist and diffing it against the library; only a convincing match counts as owned.
 
 use std::collections::{HashMap, HashSet};
 use std::fmt;
@@ -24,7 +20,6 @@ pub mod discogs;
 pub mod lastfm;
 mod m3u;
 
-/// The prefix naming a Last.fm user where an export file would go.
 pub const LASTFM_PREFIX: &str = "lastfm:";
 
 pub const ARTIST_COLUMNS: &[&str] = &[
@@ -35,8 +30,7 @@ pub const ARTIST_COLUMNS: &[&str] = &[
     "album artist",
     "artist name 1",
 ];
-/// `track` comes last: Last.fm's own export names the title so, but elsewhere
-/// it is as likely to be a track number.
+/// `track` comes last: Last.fm uses it for the title, elsewhere it is a track number.
 pub const TITLE_COLUMNS: &[&str] = &["track name", "title", "name", "song", "song title", "track"];
 pub const ALBUM_COLUMNS: &[&str] = &["album name", "album", "album title"];
 pub const DURATION_COLUMNS: &[&str] = &[
@@ -45,11 +39,9 @@ pub const DURATION_COLUMNS: &[&str] = &[
     "track duration (ms)",
     "length",
 ];
-/// Not read into a [`Track`] field: it stays in `source_row` and is looked up
-/// when a download is tagged.
+/// Kept in `source_row` and read when a download is tagged.
 pub const TRACK_NUMBER_COLUMNS: &[&str] = &["track number", "track_number", "track no", "track"];
 
-/// A wanted track matched to a file already in the library.
 #[derive(Debug, Clone, PartialEq)]
 pub struct OwnedTrack {
     pub track: Track,
@@ -57,7 +49,6 @@ pub struct OwnedTrack {
     pub score: f64,
 }
 
-/// What an export contains that the library does not.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct WantlistDiff {
     pub missing: Vec<Track>,
@@ -71,16 +62,11 @@ impl WantlistDiff {
     }
 }
 
-/// The shapes a wantlist is read from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Format {
-    /// A delimited export, recognised by its header, or a headerless Last.fm log.
     Csv,
-    /// An Apple Music or iTunes `Library.xml`.
     Apple,
-    /// An M3U or M3U8 playlist.
     M3u,
-    /// A Discogs collection export, one row per release.
     Discogs,
 }
 
@@ -97,7 +83,7 @@ impl Format {
         }
     }
 
-    /// What `path` holds, judged by its content first and its extension second.
+    /// Judged by content first, extension second.
     pub fn detect(path: &Path) -> Result<Self> {
         let failed = |error: std::io::Error| Error::Config(format!("{}: {error}", path.display()));
         let mut opening = Vec::with_capacity(512);
@@ -150,7 +136,6 @@ impl FromStr for Format {
     }
 }
 
-/// Where a wantlist is read from: a file, or a Last.fm user's profile.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Source {
     File(PathBuf),
@@ -171,19 +156,13 @@ impl FromStr for Source {
     }
 }
 
-/// The web services a wantlist may be read through, beyond the file itself.
 pub struct Remote<'a> {
     pub http: &'a dyn ServiceHttp,
     pub discogs: &'a Discogs,
     pub lastfm: &'a LastFm,
 }
 
-/// Read a wantlist from wherever it is, keeping under `min_plays` only what
-/// was played that often.
-///
-/// A file lists a play per row, so `min_plays` counts its repeats. A Last.fm
-/// profile counts its own plays, so there `min_plays` adds the tracks played
-/// that often to the loved ones.
+/// For a file `min_plays` counts repeated rows; for Last.fm it adds tracks played that often.
 pub fn read_source(
     source: &Source,
     format: Option<Format>,
@@ -209,9 +188,7 @@ pub fn read_source(
     }
 }
 
-/// Read a wantlist into tracks, as `format`, or as whatever it looks like.
-///
-/// Only a Discogs collection needs `remote`; read without one, it is refused.
+/// Only a Discogs collection needs `remote`; without one it is refused.
 pub fn read_export(
     path: &Path,
     format: Option<Format>,
@@ -235,7 +212,6 @@ pub fn read_export(
     }
 }
 
-/// The tracks listed at least `min_plays` times, once each, in first-seen order.
 #[must_use]
 pub fn keep_played(tracks: Vec<Track>, min_plays: usize) -> Vec<Track> {
     let key = |track: &Track| track.query().to_lowercase();
@@ -254,7 +230,6 @@ pub fn keep_played(tracks: Vec<Track>, min_plays: usize) -> Vec<Track> {
         .collect()
 }
 
-/// Split wanted tracks into those already owned and those still missing.
 #[must_use]
 pub fn diff(
     tracks: &[Track],
@@ -323,8 +298,6 @@ fn candidates(
 /// Includes en and em dashes, which pasted track names often carry.
 pub const SEPARATORS: &[&str] = &[" - ", " \u{2013} ", " \u{2014} "];
 
-/// Split `artist - title` into its parts, tolerating either being absent.
-///
 /// A query with no separator is treated as a title.
 #[must_use]
 pub fn split_query(query: &str) -> (String, String) {
@@ -336,7 +309,6 @@ pub fn split_query(query: &str) -> (String, String) {
     (String::new(), query.trim().to_owned())
 }
 
-/// Read a duration, accepting both milliseconds and `m:ss`.
 pub(crate) fn parse_duration(raw: &str) -> Option<f64> {
     let text = raw.trim();
     if text.is_empty() {

@@ -55,23 +55,17 @@ CREATE INDEX IF NOT EXISTS candidates_track ON candidates (track_id, rank);
 CREATE INDEX IF NOT EXISTS tracks_status ON tracks (status);
 ";
 
-/// The columns schema v2 adds to `tracks`, for stall detection and retries.
 const V2_COLUMNS: &[(&str, &str)] = &[
     ("queued_at", "REAL"),
     ("attempts", "INTEGER NOT NULL DEFAULT 0"),
 ];
 
-/// The column schema v3 adds to `candidates`. An album approval may pick a
-/// rank other than 1, so the retry has to know which candidates were tried
-/// rather than assume those above the pick were.
+/// An album pick may not be rank 1, so the retry records which candidates were tried.
 const V3_COLUMNS: &[(&str, &str)] = &[("attempted", "INTEGER NOT NULL DEFAULT 0")];
 
-/// The column schema v4 adds to `tracks`: whether the title was guessed from a
-/// filename by `stk get --album`, so `fetch download` won't write it over the
-/// peer's own.
+/// Whether the title was guessed from a filename, so `fetch download` won't write it over the peer's.
 const V4_COLUMNS: &[(&str, &str)] = &[("title_guessed", "INTEGER NOT NULL DEFAULT 0")];
 
-/// A wanted track and everything found for it.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ReviewTrack {
     pub id: i64,
@@ -80,9 +74,7 @@ pub struct ReviewTrack {
     pub detail: String,
     pub candidates: Vec<ScoredCandidate>,
     pub approved_rank: Option<i64>,
-    /// When the track entered `QUEUED`, so a stalled transfer is visible.
     pub queued_at: Option<f64>,
-    /// How many candidates have been tried for it.
     pub attempts: i64,
 }
 
@@ -96,7 +88,6 @@ impl ReviewTrack {
     }
 }
 
-/// Read/write access to the review queue.
 pub struct ReviewStore {
     connection: Connection,
     pub database: PathBuf,
@@ -137,7 +128,6 @@ impl ReviewStore {
         })
     }
 
-    /// Queue tracks for searching, skipping any already present.
     pub fn add(&mut self, tracks: &[Track]) -> Result<usize> {
         let now = now_iso8601();
         let mut added = 0;
@@ -166,7 +156,6 @@ impl ReviewStore {
         Ok(added)
     }
 
-    /// Tracks in the given states, oldest first; all of them when none is given.
     pub fn tracks(
         &self,
         statuses: &[TrackStatus],
@@ -213,9 +202,6 @@ impl ReviewStore {
         row.map(|row| self.hydrate(row)).transpose()
     }
 
-    /// Every track query the queue has ever held, whatever became of it.
-    ///
-    /// Used by `wantlist diff --new` to skip what has been seen before.
     pub fn known_queries(&self) -> Result<HashSet<String>> {
         self.connection
             .prepare("SELECT query FROM tracks")
@@ -245,7 +231,6 @@ impl ReviewStore {
             .collect())
     }
 
-    /// Record what a search found, replacing anything found before.
     pub fn set_candidates(&mut self, track_id: i64, candidates: &[ScoredCandidate]) -> Result<()> {
         let transaction = self
             .connection
@@ -277,14 +262,11 @@ impl ReviewStore {
         transaction.commit().map_err(|error| sqlite_error(&error))
     }
 
-    /// Choose one candidate, clearing any previous choice.
     pub fn approve(&mut self, track_id: i64, rank: i64) -> Result<()> {
         self.approve_all(&[(track_id, rank)])
     }
 
-    /// Choose a candidate for several tracks as one decision, or for none.
-    ///
-    /// Used for album offers: one bad rank leaves the whole offer undecided.
+    /// All or nothing: one bad rank leaves the whole album offer undecided.
     pub fn approve_all(&mut self, picks: &[(i64, i64)]) -> Result<()> {
         let transaction = self
             .connection
@@ -306,10 +288,7 @@ impl ReviewStore {
         self.set_status(track_id, TrackStatus::Rejected, reason)
     }
 
-    /// Take back a decision nothing has acted on yet.
-    ///
-    /// The picker's undo. Clears the `attempted` mark too, since a candidate
-    /// nothing queued was never tried. Only for tracks not yet downloading.
+    /// The picker's undo; clears `attempted` too. Only for tracks not yet downloading.
     pub fn undecide(&mut self, track_id: i64) -> Result<()> {
         self.connection
             .execute(
@@ -324,10 +303,7 @@ impl ReviewStore {
         self.set_status(track_id, status, detail)
     }
 
-    /// Return a track to the queue so it is searched again.
-    ///
-    /// Destructive: it throws away a completed search. [`Self::next_candidate`]
-    /// is the non-destructive counterpart.
+    /// Throws away the search; [`Self::next_candidate`] keeps it.
     pub fn reset(&mut self, track_id: i64) -> Result<()> {
         self.connection
             .execute(
@@ -338,10 +314,7 @@ impl ReviewStore {
         self.set_status(track_id, TrackStatus::Pending, "")
     }
 
-    /// Promote the best candidate nobody has tried yet.
-    ///
-    /// Returns the rank now approved, or `None` (and the track `FAILED`) when
-    /// every candidate has been tried. Keeps the search, unlike [`Self::reset`].
+    /// `None`, and the track `FAILED`, once every candidate has been tried.
     pub fn next_candidate(&mut self, track_id: i64) -> Result<Option<i64>> {
         if self.track(track_id)?.is_none() {
             return Ok(None);
@@ -372,16 +345,11 @@ impl ReviewStore {
         Ok(Some(next))
     }
 
-    /// The candidates nobody has tried yet, best first.
     pub fn untried(&self, track_id: i64) -> Result<Vec<ScoredCandidate>> {
         self.candidate_rows(track_id, "AND attempted = 0")
     }
 
-    /// Put the untried candidates in a new order, behind the tried ones.
-    ///
-    /// The only place ranks are renumbered after being written. Clears every
-    /// approval on the track (renumbering would repoint it), keeps tried rows
-    /// marked, and keeps ranks dense from 1. Approve again only after this.
+    /// The only place ranks are renumbered: clears approvals, keeps tried rows marked, ranks dense.
     pub fn reorder_untried(&mut self, track_id: i64, untried: &[ScoredCandidate]) -> Result<()> {
         let tried = self.candidate_rows(track_id, "AND attempted = 1")?;
         let transaction = self
@@ -413,7 +381,6 @@ impl ReviewStore {
             .map_err(|error| sqlite_error(&error))
     }
 
-    /// Mark a track queued, recording when, so a stall becomes visible.
     pub fn mark_queued(&mut self, track_id: i64, at: f64, detail: &str) -> Result<()> {
         self.connection
             .execute(
@@ -424,7 +391,6 @@ impl ReviewStore {
         Ok(())
     }
 
-    /// Tracks queued longer than `stall_after_seconds`.
     pub fn stalled(&self, now: f64, stall_after_seconds: f64) -> Result<Vec<ReviewTrack>> {
         Ok(self
             .tracks(&[TrackStatus::Queued], None)?
@@ -482,9 +448,6 @@ impl ReviewStore {
     }
 }
 
-/// Add any of `columns` the table does not already carry.
-///
-/// Applied with `ALTER TABLE` at open time, so older databases upgrade in place.
 fn add_missing_columns(
     connection: &Connection,
     table: &str,
@@ -547,10 +510,7 @@ fn insert_candidate(
     Ok(())
 }
 
-/// Select one candidate for one track, inside a transaction the caller owns.
-///
-/// Choosing a candidate also records it as tried, so the retry in
-/// [`ReviewStore::next_candidate`] never offers it back a second time.
+/// Also marks the candidate tried, so the retry never offers it again.
 fn approve_within(transaction: &Transaction<'_>, track_id: i64, rank: i64) -> Result<()> {
     transaction
         .execute(
@@ -634,7 +594,6 @@ fn to_scored(row: &rusqlite::Row<'_>) -> rusqlite::Result<ScoredCandidate> {
     })
 }
 
-/// `source_row` as a JSON object, in the export's column order.
 fn source_row_json(source_row: &[(String, String)]) -> String {
     let map: serde_json::Map<String, serde_json::Value> = source_row
         .iter()
@@ -675,7 +634,6 @@ fn now_iso8601() -> String {
     )
 }
 
-/// Howard Hinnant's `civil_from_days`, so a timestamp needs no date crate.
 fn civil_from_days(days: i64) -> (i64, u32, u32) {
     let z = days + 719_468;
     let era = z.div_euclid(146_097);

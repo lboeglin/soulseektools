@@ -20,7 +20,6 @@ use crate::soulseek::slskd::{HttpTransport, SlskdClient};
 use crate::text::normalize::{flatten, normalize};
 use crate::wantlist::split_query;
 
-// Independent CLI flags, not a state machine.
 #[allow(clippy::struct_excessive_bools)]
 #[derive(Args, Debug)]
 pub struct GetArgs {
@@ -60,10 +59,7 @@ pub struct GetArgs {
     pub limit: usize,
 }
 
-/// Read the wanted tracks from the arguments and from `--from`.
-///
-/// A list is one `Artist - Title` per line. Blank lines and `#` comments are
-/// skipped, so a hand-kept file can carry notes.
+/// Blank lines and `#` comments in a list are skipped.
 pub fn wanted_tracks(args: &GetArgs) -> Result<Vec<Track>> {
     let mut lines: Vec<String> = args.query.clone();
 
@@ -200,11 +196,7 @@ pub fn run(context: &AppContext, args: &GetArgs) -> Result<i32> {
     Ok(0)
 }
 
-/// Take a peer's folder as one decision.
-///
-/// With no tracklist, the folder is what is scored and taken; each audio file
-/// becomes an approved review row. Only one album at a time, since each is an
-/// interactive decision.
+/// With no tracklist, the folder itself is scored and taken, one album at a time.
 fn album(context: &AppContext, args: &GetArgs) -> Result<i32> {
     if args.from.is_some() || args.query.len() != 1 {
         eprintln!("error: --album takes exactly one album name");
@@ -317,7 +309,6 @@ fn album(context: &AppContext, args: &GetArgs) -> Result<i32> {
     Ok(0)
 }
 
-/// The album listing's table rows, pure so the rendering can be tested.
 #[must_use]
 pub fn folder_rows(offers: &[FolderOffer]) -> Vec<Vec<String>> {
     offers
@@ -337,7 +328,6 @@ pub fn folder_rows(offers: &[FolderOffer]) -> Vec<Vec<String>> {
         .collect()
 }
 
-/// What is wrong with a folder, as one line, or nothing when nothing is.
 #[must_use]
 pub fn folder_warnings(offer: &FolderOffer) -> String {
     let mut warnings = offer.flags.clone();
@@ -350,9 +340,6 @@ pub fn folder_warnings(offer: &FolderOffer) -> String {
     warnings.join(", ")
 }
 
-/// Show each folder as a row, then its full remote path and what is inside it.
-///
-/// The files are listed because the folder is taken whole.
 fn print_folders(context: &AppContext, offers: &[FolderOffer]) {
     context.say(&table(
         &["#", "Peer", "Album", "Files", "Quality", "Slot", "Queue"],
@@ -421,11 +408,7 @@ fn print_candidates(context: &AppContext, scored: &[ScoredCandidate]) {
     context.say(&table(&["#", "Detail"], &rows));
 }
 
-/// Ask which candidate to take, or none.
-///
-/// Parsed like the review picker's answers; `r` and `u` are refused. An
-/// exhausted stdin declines rather than taking the default, so nothing
-/// downloads unattended.
+/// An exhausted stdin declines rather than taking the default, so nothing downloads unattended.
 fn ask(count: usize) -> Option<usize> {
     println!("Take which? [1-{count}, or n for none] (1): ");
     let mut answer = String::new();
@@ -462,11 +445,7 @@ fn payload(track: &Track, scored: &[ScoredCandidate]) -> serde_json::Value {
     })
 }
 
-/// Queue several tracks at once.
-///
-/// A list goes straight into the review queue, with no diff against the
-/// library. `--yes` takes the top pick for each; otherwise they wait for
-/// `stk review pick`.
+/// A list goes straight into the review queue, with no diff against the library.
 fn batch(context: &AppContext, args: &GetArgs, tracks: &[Track]) -> Result<i32> {
     let mut settings = context.settings().clone();
     settings.ranking.require_lossless = args.lossless || settings.ranking.require_lossless;

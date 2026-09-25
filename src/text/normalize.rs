@@ -1,6 +1,4 @@
-//! Text normalisation shared by every matcher: featured credits, bracketed
-//! suffixes, punctuation and case are folded away so `DECO*27`, `[DECO-27]` and
-//! `DECO_27` compare equal.
+//! Normalisation shared by every matcher, so `DECO*27`, `[DECO-27]` and `DECO_27` compare equal.
 
 use std::collections::HashMap;
 use std::sync::{Arc, LazyLock, Mutex, PoisonError};
@@ -16,10 +14,8 @@ const ALNUM: &str = r"\p{L}\p{Nd}\p{Nl}\p{No}";
 /// leaves out.
 const SPACE: &str = r"\s\x1C-\x1F";
 
-/// The fallback [`sanitize_folder_name`] uses when nothing survives.
 pub const UNKNOWN_ARTIST: &str = "Unknown Artist";
 
-/// Whether `c` is whitespace. See [`SPACE`].
 pub(crate) fn is_space(c: char) -> bool {
     c.is_whitespace() || ('\u{1c}'..='\u{1f}').contains(&c)
 }
@@ -41,8 +37,6 @@ static LEADING_TRACK_NUMBER: LazyLock<Regex> = LazyLock::new(|| {
     ))
     .unwrap()
 });
-/// The characters a directory name may not contain on Windows.
-///
 /// Includes the backslash, or an artist name could create a nested directory.
 static INVALID_FILENAME_CHARS: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#"[<>:"/\\|?*\x00-\x1F]"#).unwrap());
@@ -55,10 +49,7 @@ fn nfkc(text: &str) -> String {
     text.nfkc().collect()
 }
 
-/// Reduce a name to the lowercase, punctuation-free form used for comparison.
-///
-/// Lowercased before punctuation is stripped: `İ` lowercases to `i` plus a
-/// combining dot, which must then be stripped for the result to be stable.
+/// Lowercased first: `İ` lowercases to `i` plus a combining dot, which must then be stripped.
 #[must_use]
 pub fn normalize(text: &str) -> String {
     let folded = nfkc(text).to_lowercase();
@@ -71,10 +62,7 @@ pub fn normalize(text: &str) -> String {
         .to_owned()
 }
 
-/// Lowercase `text` with punctuation turned to spaces, keeping every word.
-///
-/// Unlike [`normalize`], keeps bracketed content and featured credits, which
-/// is where a path says "(Live)".
+/// Unlike [`normalize`], keeps brackets and featured credits, where a path says "(Live)".
 #[must_use]
 pub fn flatten(text: &str) -> String {
     let folded = nfkc(text);
@@ -85,7 +73,6 @@ pub fn flatten(text: &str) -> String {
         .to_lowercase()
 }
 
-/// Drop a leading track number such as `01 -`, `(06)` or `15.`.
 #[must_use]
 pub fn strip_track_number(name: &str) -> String {
     let stripped = LEADING_TRACK_NUMBER.replacen(name, 1, "");
@@ -97,8 +84,6 @@ pub fn strip_track_number(name: &str) -> String {
     }
 }
 
-/// The track number a leading `01 -`, `(06)`, `15.` or `1-05` names.
-///
 /// `1-05` is track five of disc one.
 #[must_use]
 pub fn track_number(name: &str) -> Option<i64> {
@@ -109,8 +94,6 @@ pub fn track_number(name: &str) -> Option<i64> {
         .and_then(|digits| digits.as_str().parse().ok())
 }
 
-/// Remove a leading artist name from a filename stem, if present.
-///
 /// Matched on the artist's tokens, so a `DECO_27` folder strips `DECO*27 - `.
 #[must_use]
 pub fn strip_artist_prefix(stem: &str, artist: &str) -> String {
@@ -118,8 +101,7 @@ pub fn strip_artist_prefix(stem: &str, artist: &str) -> String {
     let folded = nfkc(artist).replace('_', " ").to_lowercase();
     let tokens: Vec<&str> = WORD.find_iter(&folded).map(|m| m.as_str()).collect();
 
-    // Shorter token runs are tried after the full name so that a "ryo (supercell)"
-    // folder strips both "ryo (supercell) - Melt" and "ryo - Melt".
+    // Shorter runs after the full name, so "ryo (supercell)" also strips "ryo - Melt".
     for count in (1..=tokens.len()).rev() {
         let Some(end) = prefix_end(&name, &tokens[..count]) else {
             continue;
@@ -131,9 +113,7 @@ pub fn strip_artist_prefix(stem: &str, artist: &str) -> String {
     name
 }
 
-/// Where the artist prefix ends in `name`, as a byte offset, if it is there.
 fn prefix_end(name: &str, tokens: &[&str]) -> Option<usize> {
-    // Anything outside L, Nd, Nl and No.
     let joined = tokens
         .iter()
         .map(|token| fancy_regex::escape(token).into_owned())
@@ -151,12 +131,10 @@ fn prefix_end(name: &str, tokens: &[&str]) -> Option<usize> {
         .map(|m| m.end())
 }
 
-/// Compiled prefix patterns, which repeat for every file in an artist's folder.
 fn prefix_pattern(pattern: &str) -> Arc<fancy_regex::Regex> {
     static CACHE: LazyLock<Mutex<HashMap<String, Arc<fancy_regex::Regex>>>> =
         LazyLock::new(|| Mutex::new(HashMap::new()));
 
-    // A cache can't be left inconsistent, so poisoning is ignored.
     let mut cache = CACHE.lock().unwrap_or_else(PoisonError::into_inner);
     cache
         .entry(pattern.to_owned())
@@ -164,7 +142,6 @@ fn prefix_pattern(pattern: &str) -> Arc<fancy_regex::Regex> {
         .clone()
 }
 
-/// Make a name safe to use as a directory component on any supported platform.
 #[must_use]
 pub fn sanitize_folder_name(name: &str, fallback: &str) -> String {
     let cleaned = INVALID_FILENAME_CHARS.replace_all(name, "_");

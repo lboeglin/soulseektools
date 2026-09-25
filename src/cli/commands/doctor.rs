@@ -5,7 +5,6 @@ use serde_json::json;
 use crate::cli::context::{show, table, AppContext};
 use crate::errors::Result;
 
-/// One diagnostic, and what to do when it fails.
 struct Check {
     name: &'static str,
     ok: bool,
@@ -97,7 +96,6 @@ fn checks(context: &AppContext) -> Vec<Check> {
     ]
 }
 
-/// Report whether the environment can run every command.
 pub fn run(context: &AppContext) -> Result<i32> {
     let checks = checks(context);
 

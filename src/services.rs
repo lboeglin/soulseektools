@@ -1,6 +1,4 @@
-//! What the public web services (iTunes, MusicBrainz, Cover Art Archive,
-//! AcoustID, Discogs, Last.fm) share: request pacing, a User-Agent, and a
-//! transport trait so tests use recorded responses.
+//! What the public web services share: pacing, a User-Agent, and a testable transport.
 
 use std::time::{Duration, Instant};
 
@@ -8,9 +6,6 @@ use serde_json::Value;
 
 use crate::errors::{Error, Result};
 
-/// The User-Agent sent to every service.
-///
-/// Names the tool and version, plus `artwork.contact` when set.
 #[must_use]
 pub fn user_agent(contact: &str) -> String {
     let version = crate::VERSION;
@@ -21,8 +16,6 @@ pub fn user_agent(contact: &str) -> String {
     }
 }
 
-/// Holds a caller to a minimum interval between requests.
-///
 /// One per service client, so a slow provider doesn't pace a fast one.
 #[derive(Debug)]
 pub struct RateLimiter {
@@ -39,7 +32,6 @@ impl RateLimiter {
         }
     }
 
-    /// Block until the next request is allowed.
     pub fn wait(&self) {
         if self.min_interval_seconds <= 0.0 {
             return;
@@ -59,20 +51,14 @@ impl RateLimiter {
     }
 }
 
-/// The HTTP a service client needs, so its wire format is testable without
-/// network.
 pub trait ServiceHttp {
-    /// A JSON GET with query parameters.
     fn get_json(&self, url: &str, params: &[(&str, String)]) -> Result<Value>;
 
-    /// A JSON POST of a form-encoded body.
     fn post_form_json(&self, url: &str, form: &[(&str, String)]) -> Result<Value>;
 
-    /// A raw GET, for an image.
     fn get_bytes(&self, url: &str) -> Result<Vec<u8>>;
 }
 
-/// A refusal in the service's own words, where its error body has them.
 fn refused(
     url: &reqwest::Url,
     status: reqwest::StatusCode,
@@ -89,7 +75,6 @@ fn refused(
     }
 }
 
-/// The real transport, shared by every service client.
 pub struct HttpTransport {
     client: reqwest::blocking::Client,
 }
@@ -107,8 +92,7 @@ impl HttpTransport {
 
 impl ServiceHttp for HttpTransport {
     fn get_json(&self, url: &str, params: &[(&str, String)]) -> Result<Value> {
-        // `RequestBuilder::query` needs a feature this build does not carry, so
-        // the query string is built on the URL itself.
+        // The `query` builder needs a reqwest feature this build doesn't enable.
         let url = reqwest::Url::parse_with_params(url, params)
             .map_err(|error| Error::Config(format!("{url}: {error}")))?;
         let response = self

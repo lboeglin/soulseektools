@@ -7,7 +7,6 @@ use std::str::FromStr;
 use crate::errors::Result;
 use crate::models::Candidate;
 
-/// Where a download has got to, collapsed from the backend's own vocabulary.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 pub enum TransferState {
     #[default]
@@ -57,7 +56,6 @@ impl FromStr for TransferState {
     }
 }
 
-/// One download, as the backend currently sees it.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Transfer {
     pub id: String,
@@ -72,7 +70,6 @@ pub struct Transfer {
 }
 
 impl Transfer {
-    /// Progress as a percentage. Sizes are file lengths, well inside an `f64`.
     #[must_use]
     #[allow(clippy::cast_precision_loss)]
     pub fn percent_complete(&self) -> f64 {
@@ -83,14 +80,10 @@ impl Transfer {
     }
 }
 
-/// A Soulseek backend that can search and download.
-///
-/// `Sync`, because `fetch::search_pending` runs searches concurrently.
+/// `Sync`, because searches run concurrently.
 pub trait SoulseekClient: Sync {
-    /// Whether the backend is logged in and able to search.
     fn is_connected(&self) -> bool;
 
-    /// Run one search to completion and return every file offered.
     fn search(
         &self,
         text: &str,
@@ -98,7 +91,6 @@ pub trait SoulseekClient: Sync {
         response_limit: u32,
     ) -> Result<Vec<Candidate>>;
 
-    /// Queue files for download from one peer.
     fn enqueue(
         &self,
         username: &str,
@@ -106,9 +98,7 @@ pub trait SoulseekClient: Sync {
         destination: &str,
     ) -> Result<Vec<Transfer>>;
 
-    /// Every download the backend is tracking.
     fn transfers(&self) -> Result<Vec<Transfer>>;
 
-    /// Abandon one queued or running download.
     fn cancel(&self, username: &str, transfer_id: &str) -> Result<()>;
 }

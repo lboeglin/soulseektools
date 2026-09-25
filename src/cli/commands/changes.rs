@@ -186,7 +186,6 @@ fn undo(
     Ok(0)
 }
 
-/// The rows the flags name, or `None` once the reason has been reported.
 fn wanted(index: &LibraryIndex, id: Option<i64>, last: bool) -> Result<Option<Vec<Change>>> {
     match (id, last) {
         (Some(_), true) => {

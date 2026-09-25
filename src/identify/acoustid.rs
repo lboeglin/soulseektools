@@ -1,9 +1,4 @@
-//! The AcoustID lookup, parsed into the recordings and releases [`super`]
-//! chooses between.
-//!
-//! The response is `compress`ed, leaving out values equal to their parent's;
-//! those are filled back in here. The recording's credit is used rather than a
-//! release's one-off spelling.
+//! The AcoustID lookup, with `compress`ed values filled back in from their parents.
 
 use serde_json::Value;
 
@@ -13,27 +8,20 @@ use crate::services::{RateLimiter, ServiceHttp};
 
 pub const LOOKUP_URL: &str = "https://api.acoustid.org/v2/lookup";
 
-/// AcoustID publishes three requests per second per application.
+/// AcoustID allows three requests per second per application.
 pub const MIN_INTERVAL_SECONDS: f64 = 1.0 / 3.0;
 
-/// The application key AcoustID issued this tool.
-///
-/// Per application rather than per user, and shipped in the binary the way
-/// every AcoustID client ships its own. It is not a secret and not a setting:
-/// it identifies the software, and the contact in the User-Agent identifies
-/// the person.
+/// Per application, not per user, and not a secret: it identifies the software.
 const CLIENT_KEY: &str = "6uSuYbLF5R";
 
 const META: &str = "recordings releasegroups releases tracks compress";
 
-/// One AcoustID track the print matched, with how well.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Hit {
     pub score: f64,
     pub recordings: Vec<Recording>,
 }
 
-/// A MusicBrainz recording, and every release it is on.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Recording {
     pub id: String,
@@ -42,20 +30,18 @@ pub struct Recording {
     pub releases: Vec<Release>,
 }
 
-/// One release a recording appears on, with the track it is there as.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Release {
     pub id: String,
     pub title: String,
-    /// The release's own artist credit: `Various Artists` on a compilation,
-    /// the band on its album. The recording keeps its own credit beside it.
+    /// `Various Artists` on a compilation; the recording keeps its own credit.
     pub artists: Vec<Credit>,
     pub compilation: bool,
     pub date: Option<Date>,
     pub track: Option<Track>,
 }
 
-/// A release date as MusicBrainz knows it, which may stop at the year.
+/// May stop at the year.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Date {
     pub year: u32,
@@ -63,21 +49,18 @@ pub struct Date {
     pub day: u32,
 }
 
-/// Where a recording sits on a release.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Track {
     pub position: Option<i64>,
     pub title: String,
 }
 
-/// One name in an artist credit, with what joins it to the next.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Credit {
     pub name: String,
     pub joinphrase: String,
 }
 
-/// An artist credit as it is written: `Anamanaguchi feat. 初音ミク`.
 #[must_use]
 pub fn credited(credits: &[Credit]) -> String {
     credits
@@ -103,11 +86,7 @@ impl AcoustId {
         }
     }
 
-    /// Every track the print matches, best first.
-    ///
-    /// The duration goes up as whole seconds, which is what the service
-    /// indexes by; a print with no duration cannot be looked up at all, and is
-    /// refused before any request is made.
+    /// The duration goes up in whole seconds; a print without one is refused before any request.
     pub fn lookup(&self, http: &dyn ServiceHttp, fingerprint: &Fingerprint) -> Result<Vec<Hit>> {
         let Some(duration) = fingerprint.duration_seconds else {
             return Err(Error::Audio(
@@ -199,9 +178,7 @@ fn recording(value: &Value) -> Recording {
     }
 }
 
-/// The recording's track on a release, which `tracks` lists once per medium
-/// it is on; a recording twice on one release is the same recording, so the
-/// first is as good as any.
+/// A recording twice on one release is the same recording, so the first is as good as any.
 fn first_track(release: &Value, recording_title: &str) -> Option<Track> {
     list(release.get("mediums"))
         .iter()

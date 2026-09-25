@@ -1,8 +1,4 @@
-//! Scoring Soulseek search results.
-//!
-//! Terms are matched against the whole remote path, because a live recording
-//! or a cover is often only named in its folder. A term the wanted track's own
-//! name contains is ignored.
+//! Scoring search results against the whole remote path, since a live cut is often named only in its folder.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::LazyLock;
@@ -28,7 +24,6 @@ fn audio_extensions() -> &'static HashSet<&'static str> {
     &SET
 }
 
-/// Whether a result is audio at all, by its container.
 #[must_use]
 pub fn is_audio(candidate: &Candidate) -> bool {
     audio_extensions().contains(candidate.extension().as_str())
@@ -47,7 +42,6 @@ const REJECTED_SCORE: i64 = -1;
 
 static SEPARATORS: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"[\\/]+").unwrap());
 
-/// Score and order candidates, best first, dropping the unusable ones.
 #[must_use]
 pub fn rank(
     track: &Track,
@@ -72,7 +66,6 @@ pub fn rank(
     scored
 }
 
-/// Score one candidate, or return `None` when it is not worth offering.
 #[must_use]
 pub fn score(
     candidate: &Candidate,
@@ -144,8 +137,6 @@ pub fn score(
     })
 }
 
-/// Terms appearing in the remote path but not in the track's own name.
-///
 /// A term in the wanted name ("Live and Learn") is not held against a result.
 #[must_use]
 pub fn terms_in(path_text: &str, terms: &[String], wanted: &str) -> Vec<String> {
@@ -161,14 +152,12 @@ pub fn terms_in(path_text: &str, terms: &[String], wanted: &str) -> Vec<String> 
         .collect()
 }
 
-/// Whether a result is lossless, by container or by carrying a bit depth.
 #[must_use]
 pub fn is_lossless(candidate: &Candidate) -> bool {
     LOSSLESS_EXTENSIONS.contains(&format!(".{}", candidate.extension()).as_str())
         || candidate.bit_depth.is_some()
 }
 
-/// Whether a result clears `--lossless` and `--min-bitrate`.
 #[must_use]
 pub fn meets_quality_floor(candidate: &Candidate, options: &RankingSettings) -> bool {
     if is_lossless(candidate) {
@@ -208,25 +197,16 @@ fn quality_score(candidate: &Candidate, prefer_lossless: bool) -> i64 {
     tier + quality * QUALITY_WEIGHT
 }
 
-/// The flag a file carries when it is the part of its folder missing the floor.
 pub const BELOW_QUALITY_FLAG: &str = "below-quality-limit";
 
-/// What a peer's folder is worth, and what is wrong with it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FolderScore {
     pub score: i64,
-    /// The reject and penalise terms its paths carry.
     pub flags: Vec<String>,
-    /// How many of its audio files miss `--lossless` or `--min-bitrate`.
     pub below_quality: usize,
 }
 
-/// Score a peer's folder the way [`score`] scores a file, minus the name match.
-///
-/// Terms are read across every file, since one karaoke track says something
-/// about the whole folder. Quality is the mean, so bonus tracks don't inflate a
-/// folder. `None` when nothing clears the quality floor; a folder that only
-/// partly fails is kept with a warning.
+/// One karaoke track counts against the whole folder. Quality is the mean, not the sum.
 #[must_use]
 pub fn score_folder(
     files: &[Candidate],
@@ -287,9 +267,6 @@ pub fn score_folder(
     })
 }
 
-/// Whether the offered file is a different length from the track wanted.
-///
-/// Catches an edit, an extended mix or a different song sharing a title.
 fn duration_differs(candidate: &Candidate, track: &Track, tolerance_seconds: f64) -> bool {
     let (Some(offered), Some(wanted)) = (candidate.duration_seconds, track.duration_seconds) else {
         return false;
@@ -300,27 +277,16 @@ fn duration_differs(candidate: &Candidate, track: &Track, tolerance_seconds: f64
     (offered - wanted).abs() > tolerance_seconds
 }
 
-/// The peer a batch settled on, and what preferring them cost.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PreferredUploader {
     pub username: String,
-    /// Tracks whose first candidate is now theirs.
     pub covered: usize,
-    /// Total score given up across those tracks.
     pub sacrificed: i64,
 }
 
-/// The flag a promoted candidate carries, so the reordering is not silent.
 pub const PREFERRED_FLAG: &str = "preferred-uploader";
 
-/// Prefer one peer across a whole batch, where doing so costs almost nothing.
-///
-/// One peer for many tracks is one queue position and one consistent rip. The
-/// score window only spans availability and name match, so this never trades
-/// away quality or takes a live version.
-///
-/// Reorders each list in place, and must run before ranks are written: moving
-/// a stored rank would repoint an existing approval.
+/// The window spans only availability and name match. Must run before ranks are stored.
 pub fn prefer_one_uploader(
     batch: &mut [Vec<ScoredCandidate>],
     settings: &UploaderSettings,
@@ -366,8 +332,6 @@ pub fn prefer_one_uploader(
     })
 }
 
-/// Each peer offering this track a candidate close enough to count, and what
-/// taking their best would give up.
 fn within_window<'a>(
     list: &'a [ScoredCandidate],
     settings: &UploaderSettings,
@@ -390,7 +354,6 @@ fn within_window<'a>(
     peers
 }
 
-/// Where this peer's best in-window candidate sits in the list.
 fn best_from(
     list: &[ScoredCandidate],
     username: &str,

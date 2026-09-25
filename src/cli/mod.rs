@@ -108,10 +108,7 @@ pub enum Command {
     Completions(commands::completions::CompletionsArgs),
 }
 
-/// Parse the arguments, resolve the settings once, and run the command.
-///
-/// Returns the process exit code rather than exiting, so the whole CLI is
-/// callable from a test.
+/// Returns the exit code rather than exiting, so the whole CLI runs in tests.
 #[must_use]
 pub fn run(arguments: Vec<std::ffi::OsString>) -> i32 {
     let cli = match Cli::try_parse_from(arguments) {

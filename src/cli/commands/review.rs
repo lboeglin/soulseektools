@@ -153,8 +153,6 @@ fn list(
     let rows: Vec<Vec<String>> = tracks
         .iter()
         .map(|entry| {
-            // A title `get --album` read off a filename is marked, because it
-            // is the one thing in the queue nobody asked for by name.
             let guessed = if entry.track.title_guessed {
                 " (guessed)"
             } else {
@@ -200,8 +198,6 @@ fn list(
     Ok(0)
 }
 
-/// Walk the queue, asking one question per track.
-///
 /// Refused under `--json`, where the prompt would be invisible.
 fn pick(context: &AppContext) -> Result<i32> {
     if context.as_json {
@@ -238,10 +234,7 @@ fn pick(context: &AppContext) -> Result<i32> {
     Ok(0)
 }
 
-/// The album offers the queue currently supports.
-///
-/// Shared by `albums` and `approve-album`, so an index from one works in the
-/// other.
+/// Shared by `albums` and `approve-album`, so an index from one works in the other.
 fn album_offers(context: &AppContext, store: &ReviewStore) -> Result<Vec<AlbumOffer>> {
     let tracks = store.tracks(&[TrackStatus::AwaitingReview], None)?;
     Ok(albums::offers(
@@ -359,9 +352,7 @@ fn approve_album(context: &AppContext, index: usize) -> Result<i32> {
         offer.username,
         offer.name()
     ));
-    // The tracks just decided leave the listing, and every offer sharing one of
-    // them shrinks or goes with them, so an index read before this run no longer
-    // names what it did.
+    // Decided tracks leave the listing, so indexes read before this run are stale.
     if offers.len() > 1 {
         context.say("The remaining offers are renumbered; list them again before taking another.");
     }
@@ -420,7 +411,6 @@ fn reset(context: &AppContext, track_id: i64) -> Result<i32> {
     )
 }
 
-/// Show where a track stands after a decision on it.
 fn report_decided(
     context: &AppContext,
     store: &ReviewStore,
@@ -437,7 +427,6 @@ fn report_decided(
     Ok(0)
 }
 
-/// A track as `review list` shows it, less the candidates the decision settled.
 fn decided_row(entry: &ReviewTrack) -> serde_json::Value {
     json!({
         "id": entry.id,

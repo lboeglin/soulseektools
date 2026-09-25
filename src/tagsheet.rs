@@ -1,7 +1,4 @@
-//! Reading an edited `stk tags dump` back, and working out what it changes.
-//!
-//! Keyed on the `path` column and read by header name, so a hand-written
-//! `path,genres` file works too.
+//! Reading an edited `stk tags dump` back, keyed on `path` and read by header name.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -10,18 +7,13 @@ use crate::errors::{Error, Result};
 use crate::library::tags::{self, TagField};
 use crate::models::{LibraryEntry, TrackTags};
 
-/// What one cell of the sheet asks for.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Cell {
-    /// The sheet had no column for this field.
     Untouched,
-    /// The column was there and empty.
     Clear,
     Set(String),
 }
 
-/// What an empty cell means for one run.
-///
 /// Leaving the tag alone is the default; clearing is asked for per run.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Blanks {
@@ -30,7 +22,6 @@ pub enum Blanks {
     Clear,
 }
 
-/// One row of an edited sheet, before it meets the index.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TagEdit {
     pub path: PathBuf,
@@ -38,7 +29,6 @@ pub struct TagEdit {
 }
 
 impl TagEdit {
-    /// The tags this row asks for, applied to what the file carries now.
     #[must_use]
     pub fn onto(&self, current: &TrackTags) -> TrackTags {
         let mut proposed = current.clone();
@@ -53,7 +43,6 @@ impl TagEdit {
     }
 }
 
-/// One file's proposed writes, against what the index holds.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TagChange {
     pub edit: TagEdit,
@@ -63,7 +52,6 @@ pub struct TagChange {
     pub fields: Vec<TagField>,
 }
 
-/// Why a row of the sheet writes nothing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Skipped {
     NotIndexed,
@@ -83,22 +71,17 @@ impl std::fmt::Display for Skipped {
     }
 }
 
-/// What one row of the sheet comes to.
 #[derive(Debug, Clone, PartialEq)]
 pub enum PlannedEdit {
     Change(Box<TagChange>),
     Skip { path: PathBuf, reason: Skipped },
 }
 
-/// Read an edited dump, keyed by its header row.
-///
 /// A column absent from the header is never written, whatever `blanks` says.
 pub fn read_sheet(sheet: &Path, blanks: Blanks) -> Result<Vec<TagEdit>> {
     let bytes = std::fs::read(sheet)
         .map_err(|error| Error::Config(format!("cannot read {}: {error}", sheet.display())))?;
-    // `tags dump -o` writes a BOM so Excel does not mangle non-ASCII paths, and
-    // the csv crate does not strip one: without this, a dump fails to read back
-    // as its own input, with a header named "\u{feff}path".
+    // The dump writes a BOM for Excel, and the csv crate doesn't strip it.
     let bytes = bytes
         .strip_prefix(b"\xef\xbb\xbf".as_slice())
         .unwrap_or(&bytes);
@@ -161,11 +144,8 @@ fn cell(value: Option<&str>, blanks: Blanks) -> Cell {
     }
 }
 
-/// Diff the edited rows against the index, in the sheet's own order.
 #[must_use]
 pub fn plan_changes(edits: &[TagEdit], entries: &[LibraryEntry]) -> Vec<PlannedEdit> {
-    // Keyed on the same raw string the index stores, so a row either names a
-    // file the index knows or it does not; nothing here guesses at a near miss.
     let indexed: HashMap<&Path, &LibraryEntry> = entries
         .iter()
         .map(|entry| (entry.path.as_path(), entry))
@@ -181,8 +161,7 @@ pub fn plan_changes(edits: &[TagEdit], entries: &[LibraryEntry]) -> Vec<PlannedE
             let Some(entry) = indexed.get(edit.path.as_path()) else {
                 return skip(Skipped::NotIndexed);
             };
-            // Checked here rather than discovered at write time: a dry run that
-            // promises N changes and then fails all N is not a plan.
+            // Checked now, so a dry run doesn't promise changes that will fail.
             if !entry.path.is_file() {
                 return skip(Skipped::FileGone);
             }
@@ -209,7 +188,6 @@ pub fn plan_changes(edits: &[TagEdit], entries: &[LibraryEntry]) -> Vec<PlannedE
         .collect()
 }
 
-/// Whether tags can be written to a file's container.
 #[must_use]
 pub fn taggable(path: &Path) -> bool {
     path.extension()
@@ -219,11 +197,7 @@ pub fn taggable(path: &Path) -> bool {
         })
 }
 
-/// Write one planned change, and report what the file carried before it.
-///
-/// Built from a fresh read, not the index, so unmentioned fields are kept and
-/// the log records what was really there. A field being written that changed
-/// since the plan is refused.
+/// Built from a fresh read, not the index; a field changed since the plan is refused.
 pub fn apply_change(change: &TagChange) -> Result<TrackTags> {
     let before = tags::read_tags(&change.edit.path)?;
     for field in &change.fields {

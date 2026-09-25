@@ -1,8 +1,4 @@
 //! The write log: what `--apply` changed, and how to put it back.
-//!
-//! Every command that writes to a user's files logs each write here. Replaced
-//! covers are stored by SHA-256 under `<index dir>/changes/`, so an album's
-//! tracks sharing one cover share one file.
 
 use std::fmt;
 use std::path::{Path, PathBuf};
@@ -15,10 +11,7 @@ use crate::library::index::LibraryIndex;
 use crate::library::tags::{self, Extra, TagField};
 use crate::models::{Artwork, ReplayGainTags, TrackTags};
 
-/// What a logged row changed about a file.
-///
-/// One variant per field, so undoing a title never checks or reverts a genre
-/// edited since.
+/// One variant per field, so undoing a title never checks or reverts a genre edited since.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ChangeField {
     Genre,
@@ -30,9 +23,7 @@ pub enum ChangeField {
     Album,
     Title,
     TrackNumber,
-    /// Where the file is, rather than what it says.
     Move,
-    /// Every tag item outside the fields above, as one set.
     Extras,
 }
 
@@ -66,7 +57,6 @@ impl ChangeField {
         }
     }
 
-    /// How a logged tag field is written back.
     #[must_use]
     pub fn of(field: TagField) -> Self {
         match field {
@@ -97,8 +87,6 @@ impl FromStr for ChangeField {
     }
 }
 
-/// One logged write.
-///
 /// `old_value` is absent when the field was: no genre tag, no embedded cover.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Change {
@@ -112,7 +100,6 @@ pub struct Change {
     pub new_value: Option<String>,
 }
 
-/// A row on its way into the log.
 #[derive(Debug, Clone, PartialEq)]
 pub struct NewChange {
     pub run_id: i64,
@@ -124,7 +111,6 @@ pub struct NewChange {
     pub new_value: Option<String>,
 }
 
-/// Which rows `stk changes list` wants.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ChangeFilter {
     pub limit: Option<usize>,
@@ -132,8 +118,6 @@ pub struct ChangeFilter {
     pub run: Option<i64>,
 }
 
-/// One `--apply` invocation's worth of rows, sharing a run so an undo can take
-/// the whole command back rather than one file of it.
 pub struct ChangeLog {
     run_id: i64,
     command: String,
@@ -172,7 +156,6 @@ impl ChangeLog {
         })
     }
 
-    /// Log one tag field of one file, as `tags apply` writes them.
     pub fn tag(
         &self,
         index: &mut LibraryIndex,
@@ -196,11 +179,7 @@ impl ChangeLog {
         })
     }
 
-    /// Log a file move, keyed on where the file has ended up.
-    ///
-    /// `path` is the destination, where [`plan_undo`] will look for the file.
-    /// Logged before the rename: a row for a failed rename is harmless, a rename
-    /// with no row is not.
+    /// Keyed on the destination and logged before the rename: a row for a failed rename is harmless.
     pub fn moved(&self, index: &mut LibraryIndex, from: &Path, to: &Path) -> Result<i64> {
         index.record_change(&NewChange {
             run_id: self.run_id,
@@ -213,7 +192,6 @@ impl ChangeLog {
         })
     }
 
-    /// Log a whole loudness measurement, as `stk loudness` writes them.
     pub fn replay_gain(
         &self,
         index: &mut LibraryIndex,
@@ -233,7 +211,6 @@ impl ChangeLog {
         })
     }
 
-    /// Log the unmanaged tag items as one set, as `fetch download` drops them.
     pub fn extras(
         &self,
         index: &mut LibraryIndex,
@@ -252,8 +229,7 @@ impl ChangeLog {
         })
     }
 
-    /// `new` is absent when the cover was removed rather than replaced, which
-    /// is what undoing a first-time embed comes to.
+    /// `new` is `None` when the cover was removed rather than replaced.
     pub fn artwork(
         &self,
         index: &mut LibraryIndex,
@@ -278,14 +254,12 @@ impl ChangeLog {
     }
 }
 
-/// Why a logged change cannot be put back as things stand.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Blocked {
     FileGone,
     FileChanged,
     SidecarGone(PathBuf),
     UnknownField(String),
-    /// Something else now sits where a moved file came from.
     SourceOccupied(PathBuf),
 }
 
@@ -313,7 +287,6 @@ impl fmt::Display for Blocked {
     }
 }
 
-/// What undoing one row would do, and what stands in the way.
 #[derive(Debug, Clone, PartialEq)]
 pub struct UndoPlan {
     pub change: Change,
@@ -327,7 +300,6 @@ impl UndoPlan {
         self.blocked.is_none()
     }
 
-    /// Whether this can be carried out, given whether `--force` was passed.
     #[must_use]
     pub fn allowed(&self, force: bool) -> bool {
         match &self.blocked {
@@ -337,8 +309,6 @@ impl UndoPlan {
     }
 }
 
-/// Work out what putting one change back would mean.
-///
 /// A file edited since the row was written is blocked rather than overwritten.
 pub fn plan_undo(index: &LibraryIndex, change: Change) -> Result<UndoPlan> {
     let Ok(field) = change.field.parse::<ChangeField>() else {
@@ -437,7 +407,6 @@ pub fn plan_undo(index: &LibraryIndex, change: Change) -> Result<UndoPlan> {
     })
 }
 
-/// Put one change back, and log the undo as a change of its own.
 pub fn apply_undo(
     index: &mut LibraryIndex,
     plan: &UndoPlan,
@@ -508,7 +477,6 @@ pub fn apply_undo(
     Ok(())
 }
 
-/// What undoing one tag field would read and what it would say.
 fn planned_tag(change: &Change, field: TagField) -> Result<(Option<String>, String)> {
     let current = field.value(&tags::read_tags(&change.path)?);
     let restored = change.old_value.clone().unwrap_or_default();
@@ -520,7 +488,6 @@ fn planned_tag(change: &Change, field: TagField) -> Result<(Option<String>, Stri
     Ok((Some(current), description))
 }
 
-/// Put one tag field back, leaving the file's other fields where they are.
 fn restore_tag(
     index: &mut LibraryIndex,
     change: &Change,
@@ -539,10 +506,8 @@ fn restore_tag(
     Ok(())
 }
 
-/// The command name an undo logs itself under.
 pub const UNDO_COMMAND: &str = "changes undo";
 
-/// Store bytes beside the index and return the SHA-256 naming them.
 pub fn store_blob(index: &LibraryIndex, bytes: &[u8]) -> Result<String> {
     let sha = digest(bytes);
     let directory = sidecar_directory(index);
@@ -550,7 +515,6 @@ pub fn store_blob(index: &LibraryIndex, bytes: &[u8]) -> Result<String> {
         .map_err(|error| Error::Config(format!("{}: {error}", directory.display())))?;
 
     let destination = directory.join(format!("{sha}.bin"));
-    // Content addressing means an existing file already holds these bytes.
     if !destination.exists() {
         std::fs::write(&destination, bytes)
             .map_err(|error| Error::Config(format!("{}: {error}", destination.display())))?;
@@ -577,7 +541,6 @@ pub fn digest(bytes: &[u8]) -> String {
         })
 }
 
-/// How a genre list is stored, so a value round-trips through the log.
 #[must_use]
 pub fn encode_genres(genres: &[String]) -> String {
     serde_json::to_string(genres).unwrap_or_else(|_| "[]".to_owned())
@@ -590,7 +553,6 @@ pub fn decode_genres(value: Option<&str>) -> Vec<String> {
         .unwrap_or_default()
 }
 
-/// How a set of extras is stored, so each item round-trips through the log.
 #[must_use]
 pub fn encode_extras(extras: &[Extra]) -> String {
     serde_json::to_string(extras).unwrap_or_else(|_| "[]".to_owned())
@@ -603,7 +565,6 @@ pub fn decode_extras(value: Option<&str>) -> Vec<Extra> {
         .unwrap_or_default()
 }
 
-/// How a measurement is stored, so every figure round-trips through the log.
 #[must_use]
 pub fn encode_replay_gain(gain: &ReplayGainTags) -> String {
     serde_json::to_string(gain).unwrap_or_else(|_| "{}".to_owned())
@@ -616,7 +577,6 @@ pub fn decode_replay_gain(value: Option<&str>) -> ReplayGainTags {
         .unwrap_or_default()
 }
 
-/// Whether something else has taken the place a moved file came from.
 fn source_occupied(change: &Change) -> Option<Blocked> {
     let back = PathBuf::from(change.old_value.clone().unwrap_or_default());
     (back.exists() && !crate::organise::same_file(&back, &change.path))

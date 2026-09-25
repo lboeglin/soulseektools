@@ -1,7 +1,4 @@
-//! Fuzzy matching of names, in both normalised and romanised form.
-//!
-//! A strong title match may carry a weak artist match, since artist readings are
-//! the unreliable half, but never the reverse.
+//! Fuzzy name matching. A strong title may carry a weak artist, never the reverse.
 
 use std::collections::{HashMap, HashSet};
 use std::hash::BuildHasher;
@@ -11,15 +8,11 @@ use rapidfuzz::fuzz;
 use crate::text::normalize::normalize;
 use crate::text::romaji::to_romaji;
 
-/// Score awarded when one name is contained in the other.
-///
-/// Truncated and extended filenames ("Senbonzakura" vs "Senbonzakura -Long Ver-")
-/// are the same track far more often than their raw character ratio suggests.
+/// Truncated or extended filenames are the same track more often than their ratio suggests.
 pub const CONTAINMENT_SCORE: f64 = 0.85;
 
 const BLOCKING_GRAM_SIZE: usize = 4;
 
-/// A name in each of the forms the matcher compares.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Hash)]
 pub struct NameForms {
     pub raw: String,
@@ -39,14 +32,12 @@ impl NameForms {
         }
     }
 
-    /// Whether there is anything here to compare. Empty names never match.
     #[must_use]
     pub fn is_present(&self) -> bool {
         !self.normalized.is_empty()
     }
 }
 
-/// Cut-offs deciding whether two names describe the same track.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct MatchThresholds {
     pub artist: f64,
@@ -75,7 +66,6 @@ impl MatchThresholds {
     }
 }
 
-/// The outcome of comparing an (artist, title) pair against another.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct MatchScore {
     pub artist: f64,
@@ -83,8 +73,7 @@ pub struct MatchScore {
     pub combined: f64,
 }
 
-/// The tokens sorted and rejoined, for a `token_sort_ratio` the rapidfuzz crate
-/// doesn't ship.
+/// For `token_sort_ratio`, which the rapidfuzz crate doesn't ship.
 fn token_sort(text: &str) -> String {
     let mut tokens: Vec<&str> = text.split_whitespace().collect();
     tokens.sort_unstable();
@@ -106,11 +95,7 @@ fn pair_ratio(left: &str, right: &str) -> f64 {
     best
 }
 
-/// Best similarity in `[0, 1]` across the normalised and romanised forms.
-///
-/// All four combinations are compared, including romaji against romaji: two
-/// different kanji spellings that share a reading (`稲葉曇` / `いなば くもり`)
-/// only line up once both sides are transliterated.
+/// Romaji against romaji too: two kanji spellings of one reading only match that way.
 #[must_use]
 pub fn similarity(left: &NameForms, right: &NameForms) -> f64 {
     if !left.is_present() || !right.is_present() {
@@ -126,10 +111,7 @@ pub fn similarity(left: &NameForms, right: &NameForms) -> f64 {
     .fold(0.0, f64::max)
 }
 
-/// Score two tracks against each other, or return `None` if they differ.
-///
-/// Returning `None` rather than a low score keeps callers conservative by
-/// construction: an uncertain pair is never silently treated as a match.
+/// `None` rather than a low score, so an uncertain pair is never taken as a match.
 #[must_use]
 pub fn score_track(
     left_artist: &NameForms,
@@ -154,12 +136,7 @@ pub fn score_track(
     })
 }
 
-/// Character n-grams used to avoid comparing every name against every other.
-///
-/// Two names similar enough to pass [`MatchThresholds`] overlap by well over
-/// [`BLOCKING_GRAM_SIZE`] characters, so restricting comparisons to names that
-/// share at least one gram turns a quadratic scan into a near-linear one without
-/// losing matches.
+/// Names similar enough to match share a gram, so comparing only those loses no matches.
 #[must_use]
 pub fn blocking_keys(forms: &[&NameForms]) -> HashSet<String> {
     let mut grams = HashSet::new();
@@ -180,7 +157,6 @@ pub fn blocking_keys(forms: &[&NameForms]) -> HashSet<String> {
     grams
 }
 
-/// Index pairs sharing at least one blocking key, each pair once.
 #[must_use]
 pub fn candidate_pairs<S: BuildHasher>(
     keyed: &[(usize, HashSet<String, S>)],
@@ -194,9 +170,7 @@ pub fn candidate_pairs<S: BuildHasher>(
 
     let mut seen = HashSet::new();
     let mut pairs = Vec::new();
-    // Grams are visited in the order the keys were inserted, which a hash map
-    // does not preserve; the callers all treat the result as a set, and sorting
-    // keeps it reproducible for tests and reports.
+    // Sorted for reproducibility; callers treat the result as a set.
     let mut grams: Vec<&Vec<usize>> = by_gram.values().collect();
     grams.sort_unstable();
     for indices in grams {

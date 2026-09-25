@@ -200,7 +200,7 @@ pub(crate) fn collect_row(outcome: &fetch::CollectOutcome) -> serde_json::Value 
     })
 }
 
-/// The same field triple `tags apply` reports, so a script reads both alike.
+/// The same fields `tags apply` reports, so a script reads both alike.
 fn tags_row(retagged: &Retagged) -> serde_json::Value {
     json!({
         "policy": retagged.policy.as_str(),
@@ -270,7 +270,6 @@ pub(crate) fn report_stalled(
     context.say(&table(&["Stalled", "Waited", "Note", "Error"], &rows));
 }
 
-/// "peer X stalled; N tracks moved to peer Y, M fell back individually".
 fn describe_peer_stall(peer: &fetch::PeerStall) -> String {
     let mut line = format!("{} stalled", peer.username);
     if let Some(to) = peer.moved_to.as_deref().filter(|_| peer.moved > 0) {

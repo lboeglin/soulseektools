@@ -41,7 +41,6 @@ pub fn run(context: &AppContext, command: LibraryCommand) -> Result<i32> {
     }
 }
 
-/// What one scan found, across every root.
 pub(crate) struct Scanned {
     pub roots: Vec<PathBuf>,
     pub result: RefreshResult,
@@ -86,7 +85,6 @@ impl Scanned {
     }
 }
 
-/// Bring the index in line with every root, and measure the result.
 pub(crate) fn refresh(context: &AppContext, full: bool) -> Result<Scanned> {
     let roots = context.require_library_roots()?;
     let exclude = context.excludes()?;
@@ -260,14 +258,11 @@ fn as_row(snapshot: &LibrarySnapshot) -> serde_json::Value {
     })
 }
 
-/// A count a measurement may not have taken at all.
-///
 /// Printed as `-` rather than zero when the measurement predates the column.
 fn optional(now: Option<usize>, before: Option<usize>) -> String {
     now.map_or_else(|| "-".to_owned(), |now| against(now, before))
 }
 
-/// A count, and how it moved since the measurement before it.
 fn against(now: usize, before: Option<usize>) -> String {
     match before {
         Some(before) if before != now => {

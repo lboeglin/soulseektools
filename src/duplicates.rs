@@ -21,7 +21,6 @@ use crate::organise::{self, Applied, Obstacle, PlannedMove};
 pub const DEFAULT_AUDIO_THRESHOLD: f64 = 0.9;
 pub const DEFAULT_DURATION_TOLERANCE_SECONDS: f64 = 2.0;
 
-/// Two files that look like the same recording, and the evidence for it.
 #[derive(Debug, Clone, PartialEq)]
 pub struct DuplicatePair {
     pub left: LibraryEntry,
@@ -31,7 +30,6 @@ pub struct DuplicatePair {
 }
 
 impl DuplicatePair {
-    /// The copy worth keeping, all else being equal.
     #[must_use]
     pub fn larger(&self) -> &LibraryEntry {
         if self.left.size >= self.right.size {
@@ -51,7 +49,6 @@ impl DuplicatePair {
     }
 }
 
-/// Pairs whose artist and title match, across the whole library.
 #[must_use]
 pub fn find_by_title(entries: &[LibraryEntry], thresholds: &MatchThresholds) -> Vec<DuplicatePair> {
     let keyed: Vec<(usize, HashSet<String>)> = entries
@@ -87,11 +84,8 @@ pub fn find_by_title(entries: &[LibraryEntry], thresholds: &MatchThresholds) -> 
     pairs
 }
 
-/// How a fingerprint is obtained, so the caller supplies the cache.
 pub type FingerprintSource<'a> = dyn FnMut(&LibraryEntry) -> Option<Fingerprint> + 'a;
 
-/// Pairs whose audio matches, whatever they are named or tagged.
-///
 /// Duration is only a prefilter; the fingerprint decides.
 pub fn find_by_audio(
     entries: &[LibraryEntry],
@@ -146,7 +140,6 @@ pub fn find_by_audio(
     pairs
 }
 
-/// Best score first, then by path, so equal scores come back in a stable order.
 fn sort_by_score(pairs: &mut [DuplicatePair]) {
     pairs.sort_by(|left, right| {
         right
@@ -184,8 +177,6 @@ fn pairs_within_duration(entries: &[&LibraryEntry], tolerance_seconds: f64) -> V
     pairs
 }
 
-/// A [`FingerprintSource`] that consults the index before computing, and stores
-/// what it computed.
 pub fn cached_fingerprints(
     index: &mut LibraryIndex,
 ) -> impl FnMut(&LibraryEntry) -> Option<Fingerprint> + '_ {
@@ -199,18 +190,13 @@ pub fn cached_fingerprints(
     }
 }
 
-/// Which copy of a duplicated track stays.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Keep {
     Largest,
-    /// A lossless container, then the largest.
-    ///
     /// The default, because the MP3 of a FLAC can be the larger file.
     #[default]
     Lossless,
-    /// The copy in the library first, as far as its `mtime` says.
     Oldest,
-    /// The copy with more of artist, album, title and artwork filled in.
     Tagged,
 }
 
@@ -227,10 +213,7 @@ impl Keep {
         }
     }
 
-    /// What decides between two copies, most important first.
-    ///
-    /// Every policy ends on the same tie-break, so a group resolves the same
-    /// way on every run.
+    /// Every policy ends on the same tie-break, so resolving is deterministic.
     fn criteria(self) -> &'static [Criterion] {
         use Criterion::{Lossless, Mtime, Path, Size, Tags};
         match self {
@@ -273,7 +256,6 @@ enum Criterion {
     Path,
 }
 
-/// The fields `tagged` counts, out of this many.
 const TAG_FIELDS: usize = 4;
 
 fn tag_count(entry: &LibraryEntry) -> usize {
@@ -314,7 +296,6 @@ impl Criterion {
     }
 }
 
-/// Copies of one track, and the pairs that tied them together.
 #[derive(Debug, Clone, PartialEq)]
 pub struct DuplicateGroup {
     pub entries: Vec<LibraryEntry>,
@@ -322,7 +303,6 @@ pub struct DuplicateGroup {
 }
 
 impl DuplicateGroup {
-    /// The weakest link holding the group together.
     #[must_use]
     pub fn lowest_score(&self) -> f64 {
         self.pairs
@@ -332,11 +312,7 @@ impl DuplicateGroup {
     }
 }
 
-/// Merge pairs into groups of copies of one track.
-///
-/// Three copies arrive as three pairs; resolving pair by pair could keep and
-/// move the same file. A pair both finders report counts once, at its stronger
-/// score.
+/// A pair both finders report counts once, at its stronger score.
 #[must_use]
 pub fn group(pairs: impl IntoIterator<Item = DuplicatePair>) -> Vec<DuplicateGroup> {
     let mut strongest: HashMap<(PathBuf, PathBuf), DuplicatePair> = HashMap::new();
@@ -414,21 +390,18 @@ fn root_of(parent: &mut [usize], mut node: usize) -> usize {
     node
 }
 
-/// A copy that is not kept, and why.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Loser {
     pub entry: LibraryEntry,
     pub reason: String,
 }
 
-/// One group decided: the copy that stays and the ones that go.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Resolution {
     pub keeper: LibraryEntry,
     pub losers: Vec<Loser>,
 }
 
-/// Pick the keeper of a group by `keep`, and say why each other copy lost.
 #[must_use]
 pub fn choose(group: &DuplicateGroup, keep: Keep) -> Resolution {
     let criteria = keep.criteria();
@@ -460,11 +433,8 @@ pub fn choose(group: &DuplicateGroup, keep: Keep) -> Resolution {
     }
 }
 
-/// The command a resolve logs its moves under.
 pub const RESOLVE_COMMAND: &str = "dupes resolve";
 
-/// Where one run's losers go: beside the index, a directory per run.
-///
 /// Outside every library root, so a scan never indexes it.
 #[must_use]
 pub fn quarantine_directory(index: &LibraryIndex, run_id: i64) -> PathBuf {
@@ -476,8 +446,6 @@ pub fn quarantine_directory(index: &LibraryIndex, run_id: i64) -> PathBuf {
         .join(run_id.to_string())
 }
 
-/// Where each loser would go, keeping its path below its root.
-///
 /// Never overwrites: two roots can hold the same relative path.
 #[must_use]
 pub fn plan_quarantine(
@@ -522,9 +490,6 @@ pub fn plan_quarantine(
         .collect()
 }
 
-/// Move the losers that are ready into quarantine, logging each under `log`.
-///
-/// The index forgets each file; `changes undo` re-indexes it.
 pub fn quarantine(
     index: &mut LibraryIndex,
     log: &ChangeLog,

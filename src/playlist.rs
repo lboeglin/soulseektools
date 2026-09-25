@@ -3,7 +3,6 @@
 use std::fmt::Write as _;
 use std::path::{Component, Path, PathBuf};
 
-/// One line of a playlist: a file, and what to call it.
 #[derive(Debug, Clone, PartialEq)]
 pub struct PlaylistEntry {
     pub path: PathBuf,
@@ -12,13 +11,9 @@ pub struct PlaylistEntry {
     pub duration_seconds: Option<f64>,
 }
 
-/// What `#EXTINF` carries when the length is not known.
-///
 /// The extended-M3U convention; some players skip a `0`.
 const UNKNOWN_DURATION: i64 = -1;
 
-/// Render an extended M3U. `base` makes every path relative to it.
-///
 /// Paths use forward slashes on every platform.
 #[must_use]
 pub fn render(entries: &[PlaylistEntry], base: Option<&Path>) -> String {
@@ -40,7 +35,6 @@ pub fn render(entries: &[PlaylistEntry], base: Option<&Path>) -> String {
     text
 }
 
-/// A track length as `#EXTINF` wants it: whole seconds, or `-1`.
 #[allow(clippy::cast_possible_truncation)]
 fn duration_of(entry: &PlaylistEntry) -> i64 {
     entry
@@ -53,8 +47,6 @@ fn with_forward_slashes(path: &Path) -> String {
     path.display().to_string().replace('\\', "/")
 }
 
-/// `path` as reached from `base`, or `None` when there is no way to walk there.
-///
 /// `None` across Windows drives, which no `..` can connect.
 #[must_use]
 pub fn relative_to(path: &Path, base: &Path) -> Option<PathBuf> {
@@ -66,7 +58,6 @@ pub fn relative_to(path: &Path, base: &Path) -> Option<PathBuf> {
         .zip(&from)
         .take_while(|(left, right)| left == right)
         .count();
-    // Nothing in common means different volumes, since both are absolute.
     if shared == 0 {
         return None;
     }

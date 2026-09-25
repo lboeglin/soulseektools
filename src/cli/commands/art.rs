@@ -78,9 +78,6 @@ fn check(context: &AppContext) -> Result<i32> {
     Ok(0)
 }
 
-/// A result whose artist does not match the file's is rejected rather than
-/// embedded: the wrong cover is worse than none, and search match quality
-/// outside the mainstream is poor.
 fn fetch(
     context: &AppContext,
     apply: bool,

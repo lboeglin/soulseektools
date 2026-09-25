@@ -1,5 +1,4 @@
-//! Walking the review queue, one track and one keystroke at a time. Input and
-//! output are parameters, so the loop runs against a `Cursor` in tests.
+//! Walking the review queue, one track and one keystroke at a time.
 
 use std::io::{BufRead, Write};
 
@@ -7,10 +6,8 @@ use crate::errors::Result;
 use crate::models::TrackStatus;
 use crate::review::store::{ReviewStore, ReviewTrack};
 
-/// What one answer at the prompt asks for.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Decision {
-    /// Take this candidate, by the rank the listing gives it.
     Approve(i64),
     Reject,
     Skip,
@@ -18,11 +15,7 @@ pub enum Decision {
     Quit,
 }
 
-/// Read one answer, against a listing of `count` candidates.
-///
-/// `None` means the answer named nothing on offer, so ask again. An empty
-/// answer takes the first candidate, if there is one. `n` skips this track
-/// rather than quitting, as it would in `stk get`.
+/// `None` means nothing on offer was named. `n` skips this track rather than quitting.
 #[must_use]
 pub fn parse(answer: &str, count: usize) -> Option<Decision> {
     let answer = answer.trim().to_lowercase();
@@ -44,10 +37,8 @@ pub fn parse(answer: &str, count: usize) -> Option<Decision> {
     }
 }
 
-/// What a run of the picker decided.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct Tally {
-    /// How many tracks were awaiting review when the walk started.
     pub waiting: usize,
     pub approved: usize,
     pub rejected: usize,
@@ -55,10 +46,6 @@ pub struct Tally {
     pub skipped: usize,
 }
 
-/// Offer every track awaiting review, and record what is chosen for each.
-///
-/// Only `AwaitingReview` tracks are walked. Ranks go to the store exactly as
-/// listed; nothing stored is reordered.
 pub fn walk(
     store: &mut ReviewStore,
     input: &mut impl BufRead,
@@ -142,10 +129,6 @@ pub fn walk(
     Ok(tally)
 }
 
-/// Show one track and everything found for it.
-///
-/// Each candidate's full remote path goes on its own line, since the folder is
-/// often what reveals a live recording.
 fn present(output: &mut impl Write, position: usize, total: usize, entry: &ReviewTrack) {
     let _ = writeln!(
         output,
@@ -160,7 +143,6 @@ fn present(output: &mut impl Write, position: usize, total: usize, entry: &Revie
     }
 }
 
-/// One line from the answering end, or `None` once there is nothing left.
 fn read_answer(input: &mut impl BufRead) -> Option<String> {
     let mut answer = String::new();
     match input.read_line(&mut answer) {

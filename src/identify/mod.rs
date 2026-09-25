@@ -1,6 +1,4 @@
-//! Identifying a file from its fingerprint through AcoustID, and choosing which
-//! release to tag it with. Below the confidence threshold nothing is proposed:
-//! a wrongly tagged file is worse than an untagged one.
+//! Identifying a file through AcoustID and choosing a release; below the threshold, nothing.
 
 pub mod acoustid;
 
@@ -17,27 +15,21 @@ use crate::models::{LibraryEntry, TrackTags};
 use crate::services::ServiceHttp;
 use crate::tagsheet::{Cell, TagEdit};
 
-/// A confident identification, and the release it was resolved against.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Match {
     pub score: f64,
     pub recording_id: String,
     pub release_id: String,
     pub year: Option<u32>,
-    /// What the file should say. Genres are carried over untouched, because
-    /// `genre apply` owns them.
+    /// Genres are carried over untouched: `genre apply` owns them.
     pub proposed: TrackTags,
-    /// The rule that chose this release over the others.
     pub reason: String,
 }
 
-/// What a lookup came to.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Outcome {
     Match(Match),
-    /// The service answered, and nothing in the answer was good enough.
     NoMatch(String),
-    /// The file could not be fingerprinted, or the service could not be asked.
     Failed(String),
 }
 
@@ -47,8 +39,6 @@ pub struct Identification {
     pub outcome: Outcome,
 }
 
-/// Look every entry up, one request each.
-///
 /// A failed print or request is reported against its file, not fatal.
 pub fn identify(
     http: &dyn ServiceHttp,
@@ -160,7 +150,6 @@ struct Candidate<'a> {
     rank: Rank,
 }
 
-/// Whether a name the file carries agrees with one the release carries.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 enum Fit {
     Matches,
@@ -177,8 +166,7 @@ impl Fit {
     }
 }
 
-/// Where a release stands under each rule, field order being rule order, so
-/// the derived ordering puts the best candidate first.
+/// Field order is rule order, so the derived ordering puts the best release first.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 struct Rank {
     album: Fit,
@@ -216,7 +204,6 @@ impl Rank {
         }
     }
 
-    /// Equal under every rule but the last.
     fn ties_with(&self, other: &Self) -> bool {
         (
             self.album,
@@ -233,7 +220,6 @@ impl Rank {
         )
     }
 
-    /// The first rule on which this rank beats the runner-up, in words.
     fn reason(&self, runner_up: Option<&Self>, all: &[Candidate<'_>]) -> String {
         let Some(other) = runner_up else {
             return "the only release".to_owned();
@@ -266,8 +252,6 @@ impl Rank {
     }
 }
 
-/// The name of the folder a file sits in, which for a download is usually the
-/// album the peer had it filed under.
 fn folder_name(path: &Path) -> String {
     path.parent()
         .and_then(Path::file_name)
@@ -275,9 +259,6 @@ fn folder_name(path: &Path) -> String {
         .unwrap_or_default()
 }
 
-/// The matches as rows for [`crate::tagsheet::plan_changes`], so the plan, the
-/// stale check and the write are the ones `tags apply` has.
-///
 /// A field the release can't fill is left as it is, not blanked.
 #[must_use]
 pub fn edits(identifications: &[Identification]) -> Vec<TagEdit> {

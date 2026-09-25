@@ -9,7 +9,7 @@ use crate::services::{RateLimiter, ServiceHttp};
 
 pub const SEARCH_URL: &str = "https://itunes.apple.com/search";
 
-/// Apple documents the Search API at roughly 20 calls per minute.
+/// Apple documents roughly 20 calls per minute.
 pub const MIN_INTERVAL_SECONDS: f64 = 3.0;
 
 const THUMBNAIL_SIZE: &str = "100x100bb";
@@ -30,7 +30,6 @@ impl ITunesProvider {
         }
     }
 
-    /// Ask for a full-size image instead of the 100px thumbnail in the response.
     fn upscale(&self, thumbnail_url: &str) -> String {
         let size = format!("{0}x{0}bb", self.preferred_size);
         thumbnail_url.replace(THUMBNAIL_SIZE, &size)

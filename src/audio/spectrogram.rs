@@ -1,5 +1,4 @@
-//! Drawing a file's spectrum over time, for `verify --spectrograms`: a lossy
-//! low-pass shows as a flat horizontal edge.
+//! Drawing a spectrogram for `verify --spectrograms`.
 // Bin indices, pixel coordinates and sample counts are cast between `usize`,
 // `u32` and `f64` throughout, all bounded by an image a thousand pixels wide.
 #![allow(
@@ -15,23 +14,16 @@ use realfft::RealFftPlanner;
 use crate::audio::decode::Audio;
 use crate::errors::{Error, Result};
 
-/// The transform, one column of the image at a time.
 const FFT_SIZE: usize = 2048;
-/// Columns of spectrum, and rows of frequency.
 const WIDTH: usize = 1024;
 const HEIGHT: usize = 512;
-/// Room for the frequency scale on the left and the time scale below.
 const LEFT: usize = 44;
 const BOTTOM: usize = 16;
 const MARGIN: usize = 6;
-/// A glyph is three pixels wide and the pitch leaves one between them.
 const GLYPH_PITCH: usize = 4;
-/// How much quieter than the loudest bin is still drawn.
-///
 /// Relative to the file's own peak, so a quiet transfer is as legible.
 const RANGE_DB: f64 = 100.0;
 
-/// Write a spectrogram of `path` to `destination`.
 pub fn render(path: &Path, destination: &Path) -> Result<PathBuf> {
     let mut audio = Audio::open(path)?;
     let sample_rate = audio.stream().sample_rate;
@@ -66,7 +58,6 @@ pub fn render(path: &Path, destination: &Path) -> Result<PathBuf> {
     Ok(destination.to_path_buf())
 }
 
-/// One column of magnitudes per pixel of width, in dB below the loudest bin.
 fn columns(mono: &[f32]) -> Vec<Vec<f64>> {
     let window = hann(FFT_SIZE);
     let mut planner = RealFftPlanner::<f64>::new();
@@ -137,8 +128,6 @@ fn draw(columns: &[Vec<f64>], sample_rate: u32, seconds: f64) -> image::RgbImage
     image
 }
 
-/// Black through blue and red to white, which is what a spectrum is usually
-/// read in and keeps a faint edge visible against the floor.
 fn colour(level: f64) -> [u8; 3] {
     const STOPS: [[f64; 3]; 5] = [
         [0.0, 0.0, 0.05],
@@ -160,7 +149,6 @@ fn colour(level: f64) -> [u8; 3] {
     pixel
 }
 
-/// Ticks every 2 kHz up the left edge.
 fn label_frequencies(image: &mut image::RgbImage, sample_rate: u32) {
     let nyquist = f64::from(sample_rate) / 2.0;
     let mut khz = 0;
@@ -176,7 +164,6 @@ fn label_frequencies(image: &mut image::RgbImage, sample_rate: u32) {
     }
 }
 
-/// Ticks every quarter of the track along the bottom.
 fn label_time(image: &mut image::RgbImage, seconds: f64) {
     for quarter in 0..=4 {
         let x = LEFT + (WIDTH - 1) * quarter / 4;
@@ -194,8 +181,7 @@ fn label_time(image: &mut image::RgbImage, seconds: f64) {
     }
 }
 
-/// A 3x5 pixel glyph per character, in the handful of characters the two axes
-/// use. A font dependency to write "16k" would be a strange trade.
+/// A 3x5 pixel glyph per character the axes use, rather than a font dependency.
 fn glyph(character: char) -> [u8; 5] {
     match character {
         '0' => [0b111, 0b101, 0b101, 0b101, 0b111],

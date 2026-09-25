@@ -19,7 +19,6 @@ use crate::matching::NameForms;
 use crate::models::{LibraryEntry, ReplayGainTags, TrackTags, Verdict};
 use crate::text::normalize::strip_artist_prefix;
 
-/// Bumped from 5 to 6 by the loudness tags behind `stk loudness`.
 pub const SCHEMA_VERSION: i64 = 6;
 
 /// The oldest version this upgrades in place rather than refusing.
@@ -93,7 +92,6 @@ const MIGRATED_INDEXES: &str = "
 CREATE INDEX IF NOT EXISTS changes_run ON changes (run_id);
 ";
 
-/// The columns schema v3 adds to `files`, all nullable and added in place.
 const V3_COLUMNS: &[(&str, &str)] = &[
     ("codec", "TEXT"),
     ("bitrate", "INTEGER"),
@@ -103,10 +101,8 @@ const V3_COLUMNS: &[(&str, &str)] = &[
     ("verdict_at", "REAL"),
 ];
 
-/// The column schema v4 adds to `changes`, so an undo can revert a whole run.
 const V4_CHANGE_COLUMNS: &[(&str, &str)] = &[("run_id", "INTEGER NOT NULL DEFAULT 0")];
 
-/// The loudness tag columns schema v6 adds to `files`.
 const V6_COLUMNS: &[(&str, &str)] = &[
     ("replay_gain_track_gain", "TEXT"),
     ("replay_gain_track_peak", "TEXT"),
@@ -119,8 +115,7 @@ const V6_COLUMNS: &[(&str, &str)] = &[
 /// Set while the v6 columns still hold nothing for rows an older build wrote.
 const BACKFILL_PENDING: &str = "replay_gain_backfill_pending";
 
-/// The column schema v6 adds to `snapshots`. Nullable, because an older
-/// measurement didn't count this, which isn't the same as counting zero.
+/// Nullable: an older measurement didn't count this, which isn't the same as zero.
 const V6_SNAPSHOT_COLUMNS: &[(&str, &str)] = &[("with_replay_gain", "INTEGER")];
 
 const COLUMNS: &[&str] = &[
@@ -197,7 +192,6 @@ fn stored(count: usize) -> i64 {
     i64::try_from(count).unwrap_or(i64::MAX)
 }
 
-/// What a refresh changed, for reporting and for asserting incrementality.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct RefreshResult {
     pub added: usize,
@@ -214,8 +208,6 @@ impl RefreshResult {
     }
 }
 
-/// Read everything the index stores about one file.
-///
 /// Tags win over the directory layout, which wins over the filename.
 pub fn describe(path: &Path, root: &Path) -> Result<LibraryEntry> {
     let metadata = path
@@ -270,8 +262,6 @@ pub fn describe(path: &Path, root: &Path) -> Result<LibraryEntry> {
     })
 }
 
-/// Bring one table up to date in place, so a database an older build wrote
-/// opens without being rewritten. Reports whether anything was added.
 fn add_missing_columns(
     connection: &Connection,
     table: &str,
@@ -306,7 +296,6 @@ fn modified_seconds(metadata: &std::fs::Metadata) -> f64 {
         .map_or(0.0, |since| since.as_secs_f64())
 }
 
-/// Read/write access to the cached view of a library.
 pub struct LibraryIndex {
     connection: Connection,
     pub database: PathBuf,
@@ -356,7 +345,6 @@ impl LibraryIndex {
         })
     }
 
-    /// The schema version recorded in the file, whoever wrote it last.
     pub fn schema_version(&self) -> Result<i64> {
         let recorded: Option<String> = self
             .connection
@@ -372,10 +360,7 @@ impl LibraryIndex {
             .unwrap_or(SCHEMA_VERSION))
     }
 
-    /// Bring the index in line with the files under every configured root.
-    ///
-    /// Only files whose size or mtime changed are re-read, unless `full`. All
-    /// roots go in one call, because rows the walk didn't see are deleted.
+    /// All roots go in one call, because rows the walk didn't see are deleted.
     pub fn refresh(
         &mut self,
         roots: &[PathBuf],
@@ -450,10 +435,7 @@ impl LibraryIndex {
         Ok(result)
     }
 
-    /// Fill the v6 loudness columns for rows an older build wrote, once.
-    ///
-    /// Adding a column changes neither size nor mtime, so the rows would never be
-    /// re-read. Only these columns are updated: `upsert` would drop verdicts.
+    /// Adding a column changes neither size nor mtime, so old rows need this one-off fill.
     fn backfill_replay_gain(&mut self) -> Result<()> {
         let pending: Option<String> = self
             .connection
@@ -504,7 +486,6 @@ impl LibraryIndex {
         Ok(())
     }
 
-    /// Every indexed file, ordered by path.
     pub fn entries(&self) -> Result<Vec<LibraryEntry>> {
         let query = format!("SELECT {} FROM files ORDER BY path", COLUMNS.join(", "));
         self.connection
@@ -528,7 +509,6 @@ impl LibraryIndex {
             .map_err(|error| sqlite_error(&error))
     }
 
-    /// Number of indexed files per artist folder, largest first.
     pub fn artist_counts(&self) -> Result<Vec<(String, usize)>> {
         self.connection
             .prepare(
@@ -548,7 +528,6 @@ impl LibraryIndex {
             .map_err(|error| sqlite_error(&error))
     }
 
-    /// Re-read one file, after this tool has written to it.
     pub fn reindex(&mut self, path: &Path, roots: &[PathBuf]) -> Result<Option<LibraryEntry>> {
         if !path.is_file() {
             return Ok(None);
@@ -558,8 +537,7 @@ impl LibraryIndex {
         Ok(Some(entry))
     }
 
-    /// Record what `stk verify` concluded, so the next run can skip the file.
-    /// Re-describing a changed file drops it, since `upsert` replaces the row.
+    /// Re-describing a changed file drops the verdict, since `upsert` replaces the row.
     pub fn set_verdict(&mut self, path: &Path, verdict: Verdict, at: f64) -> Result<()> {
         self.connection
             .execute(
@@ -583,8 +561,7 @@ impl LibraryIndex {
         Ok(stored.flatten().and_then(|value| value.parse().ok()))
     }
 
-    /// The stored verdict, but only while the file's `(size, mtime)` still
-    /// matches the row.
+    /// Only while the file's `(size, mtime)` still matches the row.
     pub fn current_verdict(&self, path: &Path) -> Result<Option<Verdict>> {
         let stored: Option<(Option<String>, i64, f64)> = self
             .connection
@@ -612,7 +589,6 @@ impl LibraryIndex {
         Ok(verdict.parse().ok())
     }
 
-    /// A cached fingerprint, or `None` if absent or computed before an edit.
     pub fn fingerprint(&self, path: &Path, mtime: f64) -> Result<Option<Fingerprint>> {
         let row: Option<(String, String, Option<f64>)> = self
             .connection
@@ -637,9 +613,6 @@ impl LibraryIndex {
         }))
     }
 
-    /// A fingerprint for each entry, computed only where the cache has none.
-    ///
-    /// Misses are decoded in parallel and stored for next time.
     pub fn fingerprints(&mut self, entries: &[LibraryEntry]) -> Vec<Result<Fingerprint>> {
         let cached: Vec<Option<Fingerprint>> = entries
             .iter()
@@ -699,10 +672,7 @@ impl LibraryIndex {
         Ok(())
     }
 
-    /// Follow a file this tool moved.
-    ///
-    /// The fingerprint is carried across; the rest of the row is re-derived
-    /// from the new location, and the verdict is dropped.
+    /// The fingerprint is carried across; the verdict is dropped.
     pub fn relocate(
         &mut self,
         from: &Path,
@@ -728,7 +698,6 @@ impl LibraryIndex {
         self.reindex(Path::new(&to), roots)
     }
 
-    /// Forget a file that has been moved away or removed.
     pub fn forget(&mut self, path: &Path) -> Result<()> {
         let path = path.display().to_string();
         self.connection
@@ -740,7 +709,6 @@ impl LibraryIndex {
         Ok(())
     }
 
-    /// How many files carry each verdict `stk verify` has recorded.
     pub fn verdict_counts(&self) -> Result<std::collections::BTreeMap<Verdict, usize>> {
         let rows: Vec<(String, i64)> = self
             .connection
@@ -765,9 +733,7 @@ impl LibraryIndex {
             .collect())
     }
 
-    /// Record a measurement, unless it says exactly what the last one said.
-    ///
-    /// Returns the row written, or `None` when nothing changed.
+    /// `None` when it says exactly what the last one said.
     pub fn record_snapshot(&mut self, snapshot: &LibrarySnapshot) -> Result<Option<i64>> {
         if self
             .snapshots(Some(1))?
@@ -800,7 +766,6 @@ impl LibraryIndex {
         Ok(Some(self.connection.last_insert_rowid()))
     }
 
-    /// Measure what the index holds now and record it, as [`Self::record_snapshot`].
     /// Called at the end of every scan, when the index matches the disk.
     pub fn record_measurement(&mut self, taken_at: f64) -> Result<Option<i64>> {
         let snapshot =
@@ -808,7 +773,6 @@ impl LibraryIndex {
         self.record_snapshot(&snapshot)
     }
 
-    /// Recorded measurements, newest first.
     pub fn snapshots(&self, limit: Option<usize>) -> Result<Vec<LibrarySnapshot>> {
         let mut query = format!("SELECT {SNAPSHOT_COLUMNS} FROM snapshots ORDER BY id DESC");
         if let Some(limit) = limit {
@@ -821,7 +785,6 @@ impl LibraryIndex {
             .map_err(|error| sqlite_error(&error))
     }
 
-    /// The run a fresh `--apply` invocation should stamp its rows with.
     pub fn next_run_id(&self) -> Result<i64> {
         self.connection
             .query_row(
@@ -832,7 +795,6 @@ impl LibraryIndex {
             .map_err(|error| sqlite_error(&error))
     }
 
-    /// The most recent run, which is what `undo --last` means.
     pub fn last_run_id(&self) -> Result<Option<i64>> {
         self.connection
             .query_row("SELECT MAX(run_id) FROM changes", [], |row| row.get(0))
@@ -859,7 +821,6 @@ impl LibraryIndex {
         Ok(self.connection.last_insert_rowid())
     }
 
-    /// Logged writes, newest first.
     pub fn changes(&self, filter: &ChangeFilter) -> Result<Vec<Change>> {
         let mut query = format!("SELECT {CHANGE_COLUMNS} FROM changes");
         let mut conditions = Vec::new();
@@ -998,7 +959,6 @@ fn row_to_entry(row: &rusqlite::Row<'_>) -> rusqlite::Result<LibraryEntry> {
     })
 }
 
-/// The default extension set, as `refresh` wants it.
 #[must_use]
 pub fn default_extensions() -> &'static [&'static str] {
     AUDIO_EXTENSIONS

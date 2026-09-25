@@ -20,7 +20,6 @@ use crate::review::store::{ReviewStore, ReviewTrack};
 use crate::soulseek::base::SoulseekClient;
 use crate::wantlist;
 
-/// How often the wait looks at slskd's transfer list.
 const POLL_SECONDS: f64 = 15.0;
 
 #[derive(Args, Debug)]
@@ -45,7 +44,6 @@ pub struct SyncArgs {
     pub timeout: Option<f64>,
 }
 
-/// What the diff found, and how much of it the queue had not seen.
 struct Diffed {
     total: usize,
     missing: usize,
@@ -53,13 +51,11 @@ struct Diffed {
     queued: usize,
 }
 
-/// Where downloads land, and where organising sends them.
 struct Target {
     downloads: PathBuf,
     destination: PathBuf,
 }
 
-/// The organise step: its plan, and what carrying it out did.
 struct Organised {
     planned: Vec<PlannedMove>,
     applied: Applied,
@@ -71,13 +67,11 @@ impl Organised {
     }
 }
 
-/// The download step: what was waited for, or without `--apply`, what would be.
 enum Download {
     Waited(Waited),
     Would(Vec<ReviewTrack>),
 }
 
-/// Every step's result, reported together once the run is over.
 struct Synced {
     applied: bool,
     scanned: Scanned,
@@ -90,8 +84,7 @@ struct Synced {
 }
 
 pub fn run(context: &AppContext, args: &SyncArgs) -> Result<i32> {
-    // Refused as `review pick` refuses it: under `--json` the prompt would be
-    // invisible and a pipeline would wait on a keystroke nobody knew to give.
+    // Under `--json` the prompt would be invisible.
     if context.as_json && !args.yes {
         eprintln!("error: stk sync asks a question per track and cannot run with --json alone");
         eprintln!("hint: pass --yes to take the best candidate for every track");
@@ -186,8 +179,6 @@ pub fn run(context: &AppContext, args: &SyncArgs) -> Result<i32> {
     Ok(i32::from(synced.went_wrong()))
 }
 
-/// Where the organise step reads from and writes to.
-///
 /// Settled up front, not after an hour of waiting for downloads.
 fn target(context: &AppContext, apply: bool) -> Result<Option<Target>> {
     let Some(downloads) = context.settings().slskd.download_directory.clone() else {
@@ -210,8 +201,6 @@ fn target(context: &AppContext, apply: bool) -> Result<Option<Target>> {
 }
 
 impl Synced {
-    /// A search that failed, a download that failed or is fake, or a file that
-    /// would not move: what `verify` and `fetch` would each own up to.
     fn went_wrong(&self) -> bool {
         self.searched
             .iter()
@@ -249,8 +238,7 @@ impl Synced {
         })
     }
 
-    /// The steps after the pick; the ones before it report as they run, since
-    /// the pick has to come after them on screen.
+    /// The steps before the pick report as they run, since the pick prompts after them.
     fn report(&self, context: &AppContext) {
         match &self.download {
             Download::Waited(waited) => report_download(context, waited),
@@ -287,7 +275,6 @@ impl Synced {
     }
 }
 
-/// Choose a candidate for every track awaiting review, or ask for each.
 fn pick(context: &AppContext, store: &mut ReviewStore, yes: bool) -> Result<usize> {
     if yes {
         let waiting = store.tracks(&[TrackStatus::AwaitingReview], None)?;
@@ -326,8 +313,7 @@ fn wait(
     limit: Option<usize>,
     timeout: f64,
 ) -> Result<Waited> {
-    // A line only when something moved: a poll every few seconds over an hour
-    // saying nothing new is noise.
+    // A line only when something changed.
     let mut last = (usize::MAX, usize::MAX);
     fetch::wait_for_downloads(
         store,
@@ -354,9 +340,6 @@ fn wait(
     )
 }
 
-/// Plan, and with `apply` carry out, moving what is in the download directory.
-///
-/// A download directory that does not exist yet holds nothing to organise.
 fn organise_downloads(
     context: &AppContext,
     index: &mut LibraryIndex,

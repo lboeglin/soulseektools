@@ -94,10 +94,8 @@ pub fn run(context: &AppContext, args: &OrganiseArgs) -> Result<i32> {
     Ok(0)
 }
 
-/// Refuse a destination no library root contains.
 pub(crate) fn inside_a_root(destination: &Path, roots: &[PathBuf]) -> Result<()> {
-    // Otherwise the files leave the library and the next `library scan`
-    // evicts every one of them, the walk never having seen them again.
+    // Otherwise the files leave the library and the next scan evicts them.
     if owning_root(destination, roots).is_none() {
         return Err(Error::Config(format!(
             "organise.destination is outside every library root: {}\n\
@@ -120,10 +118,7 @@ fn loose(context: &AppContext, source: &Path) -> Result<Vec<LibraryEntry>> {
         .map_err(|error| Error::Config(format!("--from: {error}")))
 }
 
-/// Where `--from` sends what it finds.
-///
-/// With several roots and no configured destination this is an error rather
-/// than a guess.
+/// With several roots and no configured destination this is an error, not a guess.
 pub(crate) fn where_to(context: &AppContext, roots: &[PathBuf]) -> Result<PathBuf> {
     if let Some(destination) = context.resolved.resolved_organise_destination() {
         return Ok(destination);
@@ -163,8 +158,7 @@ pub(crate) fn report(
         context.say(&table(&["From", "To"], &rows));
     }
 
-    // "Already in place" is the answer for most of a tidy library and says
-    // nothing, so it is counted rather than listed.
+    // "Already in place" is counted rather than listed.
     let mut settled = 0;
     let mut obstacles: Vec<Vec<String>> = Vec::new();
     for planned in planned {

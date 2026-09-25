@@ -6,37 +6,27 @@ use globset::{Glob, GlobSet, GlobSetBuilder};
 
 use crate::errors::{Error, Result};
 
-/// Containers whose tags can be read and written.
 pub const TAGGABLE_EXTENSIONS: &[&str] = &[".flac", ".mp3", ".m4a", ".mp4", ".ogg", ".opus"];
 
-/// Every container recognised as part of a library, taggable or not.
 pub const AUDIO_EXTENSIONS: &[&str] = &[
     ".aif", ".aiff", ".alac", ".flac", ".m4a", ".mp3", ".mp4", ".ogg", ".opus", ".wav",
 ];
 
-/// Containers that can hold lossless audio, and so are worth verifying.
 pub const LOSSLESS_EXTENSIONS: &[&str] = &[".flac", ".wav", ".aiff", ".aif", ".alac", ".m4a"];
 
-/// The lossy containers `stk verify` can hold to their bitrate: the
-/// cutoffs it knows are LAME's.
+/// The cutoffs `stk verify` knows are LAME's.
 pub const LOSSY_VERIFIED_EXTENSIONS: &[&str] = &[".mp3"];
 
-/// Containers a loudness scan can both decode and write its result to.
-///
-/// [`TAGGABLE_EXTENSIONS`] less Opus, which has no pure-Rust decoder.
+/// Opus has tags but no pure-Rust decoder.
 pub const MEASURABLE_EXTENSIONS: &[&str] = &[".flac", ".m4a", ".mp3", ".mp4", ".ogg"];
 
-/// Folders the scan leaves alone, as configured globs.
-///
-/// Matched case-insensitively against the path relative to its root, with `/`
-/// separators on every platform.
+/// Matched case-insensitively against the path below its root, with `/` separators.
 #[derive(Debug, Default, Clone)]
 pub struct Excludes {
     set: Option<GlobSet>,
 }
 
 impl Excludes {
-    /// Compile the configured patterns, reporting the one that will not parse.
     pub fn new(patterns: &[String]) -> Result<Self> {
         if patterns.is_empty() {
             return Ok(Self::default());
@@ -63,9 +53,7 @@ impl Excludes {
     }
 }
 
-/// The configured root a file belongs to: the longest one that prefixes it.
-///
-/// Roots may nest; the deeper one names the artist.
+/// The longest root that prefixes the path; roots may nest.
 #[must_use]
 pub fn owning_root<'a>(path: &Path, roots: &'a [PathBuf]) -> Option<&'a Path> {
     roots
@@ -75,7 +63,6 @@ pub fn owning_root<'a>(path: &Path, roots: &'a [PathBuf]) -> Option<&'a Path> {
         .map(PathBuf::as_path)
 }
 
-/// Every audio file under `root`, recursively, in a stable order.
 #[must_use]
 pub fn iter_audio_files(root: &Path, extensions: &[&str], exclude: &Excludes) -> Vec<PathBuf> {
     let wanted: Vec<String> = extensions
@@ -131,8 +118,6 @@ fn walk(
     }
 }
 
-/// The artist implied by a file's position in the library.
-///
 /// The first component below the root, or empty for a file in the root itself.
 #[must_use]
 pub fn folder_artist(path: &Path, root: &Path) -> String {

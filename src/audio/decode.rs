@@ -1,5 +1,4 @@
-//! Reading audio out of a file, at its own rate and channel layout: every
-//! caller either needs that or resamples for itself.
+//! Reading audio out of a file, at its own rate and channel layout.
 // Casts between frame counts and offsets are bounded by a track length.
 #![allow(
     clippy::cast_precision_loss,
@@ -30,7 +29,6 @@ use symphonia_common::apple::audio::alac::MagicCookie;
 
 use crate::errors::{Error, Result};
 
-/// The audio stream properties the checks depend on.
 #[derive(Debug, Clone, PartialEq)]
 pub struct StreamInfo {
     pub sample_rate: u32,
@@ -47,18 +45,13 @@ impl StreamInfo {
     }
 }
 
-/// An open audio file, decoded on demand.
 pub struct Audio {
     format: Box<dyn FormatReader>,
     decoder: Box<dyn AudioDecoder>,
     track_id: u32,
     stream: StreamInfo,
-    /// Whether anything has been read yet, which is what decides if a window
-    /// starting at zero has to seek at all.
     read: bool,
-    /// Every sample `window` has read, ORed together as a left-aligned 32-bit
-    /// integer, for [`Audio::bits_used`]. Only kept for a stream deeper than
-    /// 16 bits, the one claim it can expose.
+    /// ORed samples, left-aligned in 32 bits, for [`Audio::bits_used`]; kept only above 16 bits.
     sample_bits: Option<i64>,
 }
 
@@ -138,11 +131,7 @@ impl Audio {
         &self.stream
     }
 
-    /// How many bits of its stated depth the samples `window` has read use.
-    ///
-    /// A 16-bit master padded to 24 bits leaves the low 8 bits zero, which the
-    /// spectrum can't show. `None` for 16 bits or fewer, and until a non-zero
-    /// sample is read. Samples arrive as `f32`, which holds 24 bits exactly.
+    /// A 16-bit master padded to 24 leaves the low 8 bits zero. `None` for 16 bits or fewer.
     #[must_use]
     pub fn bits_used(&self) -> Option<u32> {
         let bits = self.sample_bits.filter(|bits| *bits != 0)?;
@@ -150,11 +139,7 @@ impl Audio {
         Some((32 - bits.trailing_zeros()).min(depth))
     }
 
-    /// Hand every frame to `on_frames`, interleaved, at the file's own rate and
-    /// channel layout.
-    ///
-    /// Streamed, since a whole album decoded at once would run to gigabytes.
-    /// The sample type is the caller's: chromaprint wants exact `i16`.
+    /// Streamed: a whole album decoded at once would run to gigabytes.
     pub fn frames<S: ConvertibleSample>(
         &mut self,
         on_frames: &mut dyn FnMut(&[S]) -> Result<()>,
@@ -168,11 +153,7 @@ impl Audio {
         Ok(())
     }
 
-    /// Mono samples from one window of the track, at the file's own rate.
-    ///
-    /// Channels are summed and scaled by `1/sqrt(count)`, preserving power as
-    /// `ffmpeg -ac 1` does; the thresholds were measured that way. Summing, not
-    /// picking one channel, lets out-of-phase highs cancel as they would heard.
+    /// Summed and scaled by `1/sqrt(count)` as `ffmpeg -ac 1` does; the thresholds were measured so.
     pub fn window(&mut self, start_seconds: f64, seconds: f64) -> Result<Vec<f32>> {
         let wanted = (seconds * f64::from(self.stream.sample_rate))
             .round()
@@ -206,8 +187,7 @@ impl Audio {
         Ok(samples)
     }
 
-    /// Position the reader at `start_seconds`, returning the frames the next
-    /// decode has to drop to land exactly there.
+    /// Returns the frames the next decode has to drop to land exactly there.
     fn seek(&mut self, start_seconds: f64) -> Result<usize> {
         if start_seconds <= 0.0 && !self.read {
             return Ok(0);
@@ -233,8 +213,6 @@ impl Audio {
         Ok(usize::try_from(seeked.required_ts.get() - seeked.actual_ts.get()).unwrap_or(0))
     }
 
-    /// Decode the next packet into `buffer`, or report the end of the stream.
-    ///
     /// A packet that won't decode is skipped, not fatal.
     fn next_frames<S: ConvertibleSample>(&mut self, buffer: &mut Vec<S>) -> Result<Option<()>> {
         loop {
@@ -266,7 +244,6 @@ impl Audio {
     }
 }
 
-/// Windows spread across a track, rather than the whole of it.
 #[must_use]
 pub fn probe_windows(
     total_seconds: Option<f64>,
@@ -294,14 +271,12 @@ pub fn probe_windows(
         .collect()
 }
 
-/// Round an offset to the millisecond, the resolution stored verdicts were
-/// made at. Without it, borderline files can change band between runs.
+/// Stored verdicts were made at millisecond resolution; finer shifts borderline files.
 fn to_milliseconds(seconds: f64) -> f64 {
     format!("{seconds:.3}").parse().unwrap_or(seconds)
 }
 
-/// ffprobe's spelling of a codec, as `verify` reports carry it. Not the same
-/// mapping as [`crate::library::tags`], which names containers.
+/// ffprobe's spelling, as `verify` reports carry it.
 fn codec_name(codec: AudioCodecId) -> &'static str {
     match codec {
         CODEC_ID_FLAC => "flac",
@@ -325,19 +300,12 @@ fn codec_name(codec: AudioCodecId) -> &'static str {
     }
 }
 
-/// What a container this crate has no decoder for looks like to a caller.
-///
-/// `.ape`, `.wv` and `.opus` have tags but no decoder. 32-bit FLAC is refused
-/// too: symphonia decorrelates it through an `i32` too narrow for
-/// `2*mid + side`, and returns noise.
+/// 32-bit FLAC is refused: symphonia decorrelates it through a too-narrow `i32` and returns noise.
 fn unsupported(path: &Path) -> Error {
     Error::UnsupportedFormat(format!("{}: no decoder for this container", path.display()))
 }
 
-/// The depth an ALAC stream states in its own header.
-///
-/// ALAC keeps it in the magic cookie, which symphonia reads without copying
-/// the depth onto the codec parameters.
+/// symphonia reads ALAC's magic cookie but doesn't copy the depth onto the codec parameters.
 fn alac_bit_depth(parameters: &AudioCodecParameters) -> Option<u32> {
     if parameters.codec != CODEC_ID_ALAC {
         return None;

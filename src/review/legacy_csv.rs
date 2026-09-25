@@ -10,15 +10,12 @@ use crate::review::store::ReviewStore;
 
 const CANDIDATES_PER_ROW: usize = 3;
 
-/// What an import changed: tracks added, and approvals carried over.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct ImportResult {
     pub added: usize,
     pub approvals: usize,
 }
 
-/// Load a legacy review CSV into the store.
-///
 /// Tracks already in the store are left untouched.
 pub fn import_csv(path: &Path, store: &mut ReviewStore) -> Result<ImportResult> {
     let mut reader = csv::Reader::from_path(path)
@@ -118,7 +115,6 @@ fn candidates(row: &HashMap<String, String>) -> Vec<ScoredCandidate> {
         .collect()
 }
 
-/// A number the old plugin may have written as a float, truncated.
 fn number(row: &HashMap<String, String>, key: &str) -> Option<i64> {
     let text = field(row, key);
     if text.is_empty() {

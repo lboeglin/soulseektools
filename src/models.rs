@@ -10,7 +10,6 @@ use serde::{Deserialize, Serialize};
 use crate::library::scan::LOSSLESS_EXTENSIONS;
 use crate::matching::NameForms;
 
-/// The metadata fields this project reads or writes, container-independent.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct TrackTags {
     pub artist: String,
@@ -37,7 +36,6 @@ pub struct ReplayGainTags {
 }
 
 impl ReplayGainTags {
-    /// Whether the file carries a track gain, in either spelling.
     #[must_use]
     pub fn is_scanned(&self) -> bool {
         self.track_gain.is_some() || self.r128_track_gain.is_some()
@@ -49,7 +47,6 @@ impl ReplayGainTags {
     }
 }
 
-/// An embedded cover image.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Artwork {
     pub data: Vec<u8>,
@@ -84,10 +81,8 @@ pub struct LibraryEntry {
     pub duration_seconds: Option<f64>,
     pub artwork_bytes: u64,
 
-    /// The loudness tags the file carries.
     pub replay_gain: ReplayGainTags,
 
-    /// Stream properties from the container header.
     pub codec: String,
     pub bitrate: Option<u32>,
     pub sample_rate: Option<u32>,
@@ -117,7 +112,6 @@ impl LibraryEntry {
     }
 }
 
-/// A track wanted from a streaming-service export.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Track {
     pub artist: String,
@@ -162,7 +156,6 @@ impl Track {
     }
 }
 
-/// One file offered by a Soulseek peer, as the search results describe it.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Candidate {
     pub username: String,
@@ -183,7 +176,6 @@ impl Candidate {
         Self::split_path(&self.remote_path).1
     }
 
-    /// The remote directory holding the file, which often says what it really is.
     #[must_use]
     pub fn folder(&self) -> &str {
         Self::split_path(&self.remote_path).0
@@ -210,7 +202,6 @@ impl Candidate {
     }
 }
 
-/// A candidate with its ranking, and any warnings raised about it.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ScoredCandidate {
     pub candidate: Candidate,
@@ -271,7 +262,6 @@ impl ScoredCandidate {
     }
 }
 
-/// Where a wanted track has got to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum TrackStatus {
     Pending,
@@ -379,7 +369,6 @@ impl FromStr for Verdict {
     }
 }
 
-/// What the spectral check concluded about one file, and why.
 #[derive(Debug, Clone, PartialEq)]
 pub struct VerifyResult {
     pub path: PathBuf,

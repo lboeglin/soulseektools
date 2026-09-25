@@ -14,7 +14,6 @@ const MIME_BY_MAGIC: &[(&[u8], &str)] = &[
     (b"\xff\xd8\xff", "image/jpeg"),
 ];
 
-/// Why a file needs artwork, or why it does not.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ArtworkStatus {
     pub entry: LibraryEntry,
@@ -22,7 +21,6 @@ pub struct ArtworkStatus {
     pub reason: String,
 }
 
-/// The outcome of looking artwork up for one file.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ArtworkResult {
     pub entry: LibraryEntry,
@@ -38,7 +36,6 @@ impl ArtworkResult {
     }
 }
 
-/// Instantiate the configured providers, in the configured order.
 pub fn build_providers(settings: &ArtworkSettings) -> Result<Vec<Box<dyn ArtProvider>>> {
     settings
         .providers
@@ -65,10 +62,7 @@ pub fn build_providers(settings: &ArtworkSettings) -> Result<Vec<Box<dyn ArtProv
         .collect()
 }
 
-/// Classify each file as having usable artwork, or needing some.
-///
-/// Artwork smaller than `min_bytes` counts as missing: a cover that small is a
-/// broken download or a placeholder, not an image.
+/// A cover under `min_bytes` counts as missing: a broken download or a placeholder.
 #[must_use]
 pub fn audit(entries: &[LibraryEntry], settings: &ArtworkSettings) -> Vec<ArtworkStatus> {
     entries
@@ -92,7 +86,6 @@ pub fn audit(entries: &[LibraryEntry], settings: &ArtworkSettings) -> Vec<Artwor
         .collect()
 }
 
-/// Search each provider in turn and download the first verified match.
 pub fn find_artwork(
     entry: &LibraryEntry,
     providers: &[Box<dyn ArtProvider>],
@@ -154,7 +147,7 @@ pub fn find_artwork(
     }
 }
 
-/// Fetch an image, taking its type from the bytes rather than the headers.
+/// The type comes from the bytes, not the headers.
 pub fn download(http: &dyn ServiceHttp, url: &str) -> Result<Artwork> {
     let data = http.get_bytes(url)?;
     Ok(Artwork {
@@ -171,7 +164,6 @@ pub fn detect_mime(data: &[u8]) -> &'static str {
         .map_or("image/jpeg", |(_, mime)| *mime)
 }
 
-/// Write a verified cover into its file.
 pub fn embed(result: &ArtworkResult) -> Result<()> {
     let Some(artwork) = &result.artwork else {
         return Err(Error::Tag(format!(

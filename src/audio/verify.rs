@@ -11,9 +11,6 @@ use crate::errors::{Error, Result};
 use crate::library::tags;
 use crate::models::{Verdict, VerifyResult};
 
-/// Decide whether a file really holds what its container claims.
-///
-/// An MP3 is judged against its header bitrate, anything else as lossless.
 /// Decoding failures become [`Verdict::Error`], so one file can't abort a run.
 #[must_use]
 pub fn verify_file(path: &Path, settings: &VerifySettings) -> VerifyResult {
@@ -72,10 +69,7 @@ pub fn verify_file(path: &Path, settings: &VerifySettings) -> VerifyResult {
     }
 }
 
-/// What the file says it is.
-///
-/// Only an MP3 is held to its bitrate: the cutoffs [`spectral`] knows are
-/// LAME's, and an AAC or Vorbis encoder places its low-pass elsewhere.
+/// Only an MP3 is held to its bitrate: the known cutoffs are LAME's.
 fn claim(path: &Path, stream: &StreamInfo) -> Result<Claim> {
     if stream.codec != "mp3" {
         return Ok(Claim::Lossless);
@@ -90,10 +84,7 @@ fn claim(path: &Path, stream: &StreamInfo) -> Result<Claim> {
     })
 }
 
-/// Fold a padded bit depth into the spectrum's verdict.
-///
-/// Padding is an upsample whatever the spectrum said, except that a transcode
-/// is the graver finding and stays one.
+/// Padding is an upsample, unless the spectrum already found a transcode.
 fn padded(verdict: Verdict, detail: String, claimed: u32, used: u32) -> (Verdict, String) {
     let padding = format!("{claimed}-bit container holding {used}-bit audio");
     match verdict {
@@ -106,8 +97,6 @@ fn padded(verdict: Verdict, detail: String, claimed: u32, used: u32) -> (Verdict
     }
 }
 
-/// The stream's properties, a few windows of its audio, and how many bits
-/// those windows used, from one open.
 fn sample(
     path: &Path,
     settings: &VerifySettings,
@@ -139,8 +128,6 @@ fn round_half_even_to(value: f64, digits: usize) -> f64 {
     format!("{value:.digits$}").parse().unwrap_or(value)
 }
 
-/// Verify many files, in parallel.
-///
 /// Results come back in the order the paths were given.
 #[must_use]
 pub fn verify_files(paths: &[PathBuf], settings: &VerifySettings) -> Vec<VerifyResult> {

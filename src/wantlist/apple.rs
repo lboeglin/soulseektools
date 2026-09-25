@@ -9,7 +9,6 @@ use super::parse_duration;
 use crate::errors::{Error, Result};
 use crate::models::Track;
 
-/// Flags Apple sets on an item that is not a song.
 const NOT_MUSIC: &[&str] = &["Podcast", "Movie", "TV Show", "Music Video"];
 
 pub(super) fn read(path: &Path) -> Result<Vec<Track>> {
@@ -56,7 +55,6 @@ fn track(item: &Dictionary) -> Option<Track> {
         artist,
         title,
         album: text(item, "Album"),
-        // Milliseconds, which `parse_duration` already tells from seconds.
         duration_seconds: parse_duration(&text(item, "Total Time")),
         title_guessed: false,
         source_row: item
@@ -73,7 +71,6 @@ fn text(item: &Dictionary, key: &str) -> String {
         .unwrap_or_default()
 }
 
-/// A field as a CSV cell would hold it; data and nested values have none.
 fn scalar(value: &Value) -> Option<String> {
     match value {
         Value::String(text) => Some(text.clone()),

@@ -16,9 +16,6 @@ pub const API_KEY_HEADER: &str = "X-API-Key";
 const POLL_INTERVAL: Duration = Duration::from_secs(1);
 const SEARCH_GRACE: Duration = Duration::from_secs(5);
 
-/// slskd reports the underlying Soulseek.NET transfer states, which are
-/// flag-like strings such as "Completed, Succeeded" or "Completed, Errored".
-///
 /// Order matters: "Completed, Errored" is a failure, not a success.
 const TERMINAL_STATES: &[(&str, TransferState)] = &[
     ("succeeded", TransferState::Completed),
@@ -28,14 +25,10 @@ const TERMINAL_STATES: &[(&str, TransferState)] = &[
     ("rejected", TransferState::Failed),
 ];
 
-/// The HTTP calls the client makes, so the wire format can be tested without a
-/// daemon.
 pub trait Http: Sync {
-    /// Perform one request, returning the parsed body, or `None` for an empty one.
     fn request(&self, method: &str, path: &str, body: Option<&Value>) -> Result<Option<Value>>;
 }
 
-/// Talks to a slskd daemon over its REST API.
 pub struct SlskdClient<H: Http> {
     pub settings: SlskdSettings,
     http: H,
@@ -54,8 +47,7 @@ impl<H: Http> SlskdClient<H> {
         self.http.request("POST", path, Some(body))
     }
 
-    /// A search slskd has already cleaned up is not a failure worth surfacing
-    /// over the results it produced.
+    /// A search slskd already cleaned up is not an error.
     fn delete(&self, path: &str) {
         let _ = self.http.request("DELETE", path, None);
     }
@@ -219,7 +211,6 @@ impl<H: Http> SoulseekClient for SlskdClient<H> {
     }
 }
 
-/// A search id slskd will accept, without pulling in a uuid crate for one call.
 fn new_search_id() -> String {
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -289,7 +280,6 @@ fn transfer_from(item: &Value, username: &str) -> Transfer {
     }
 }
 
-/// Collapse a comma-separated Soulseek.NET state into one outcome.
 #[must_use]
 pub fn state_from(raw: &str) -> TransferState {
     let parts: Vec<String> = raw
@@ -324,15 +314,13 @@ fn text_of(value: Option<&Value>) -> String {
     }
 }
 
-/// A zero means "unknown" throughout slskd's search payloads, not "zero".
+/// Zero means "unknown" in slskd's search payloads.
 fn optional_u32(value: Option<&Value>) -> Option<u32> {
     let number = match value? {
         Value::Number(number) => number.as_f64()?,
         Value::String(text) => text.parse().ok()?,
         _ => return None,
     };
-    // slskd sends these as JSON numbers; anything outside `u32` is not a
-    // bitrate, a sample rate or a bit depth.
     #[allow(clippy::cast_possible_truncation)]
     let number = number as i64;
     u32::try_from(number).ok().filter(|value| *value != 0)
@@ -348,14 +336,11 @@ fn optional_f64(value: Option<&Value>) -> Option<f64> {
 }
 
 impl<H: Http> SlskdClient<H> {
-    /// Hand back the transport, so a test can inspect what was sent.
     pub fn into_http(self) -> H {
         self.http
     }
 }
 
-/// The headers every request carries.
-///
 /// The only place the API key reaches the wire.
 #[must_use]
 pub fn headers_for(settings: &SlskdSettings) -> Vec<(String, String)> {
@@ -366,7 +351,6 @@ pub fn headers_for(settings: &SlskdSettings) -> Vec<(String, String)> {
     headers
 }
 
-/// The real transport: slskd over HTTP.
 pub struct HttpTransport {
     client: reqwest::blocking::Client,
     base_url: String,

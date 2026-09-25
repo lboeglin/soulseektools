@@ -1,5 +1,4 @@
-//! M3U and M3U8 playlists. Each entry is described by the file's tags when it
-//! is on this machine, else its `#EXTINF` line, else its filename.
+//! M3U playlists: each entry described by its tags, else `#EXTINF`, else its filename.
 
 use std::path::Path;
 use std::sync::LazyLock;
@@ -11,11 +10,9 @@ use crate::errors::{Error, Result};
 use crate::library::tags::{read_duration, read_tags};
 use crate::models::Track;
 
-/// A track number in front of a filename, as in `01 - Roki` or `01. Roki`.
 static TRACK_NUMBER: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^\d{1,3}(?:\.|\s+-)\s+").unwrap());
 
-/// What an `#EXTINF` line says about the entry after it.
 struct Extinf {
     seconds: Option<f64>,
     display: String,
@@ -24,8 +21,7 @@ struct Extinf {
 pub(super) fn read(path: &Path) -> Result<Vec<Track>> {
     let bytes = std::fs::read(path)
         .map_err(|error| Error::Config(format!("{}: {error}", path.display())))?;
-    // Latin-1 is common in a `.m3u` from an older player; a mangled character
-    // costs one track's match, refusing the file costs all of them.
+    // Older players write Latin-1; a mangled character costs one match, refusing costs all.
     let text = String::from_utf8_lossy(&bytes);
     let base = path.parent().unwrap_or_else(|| Path::new(""));
 
@@ -41,7 +37,6 @@ pub(super) fn read(path: &Path) -> Result<Vec<Track>> {
     Ok(tracks)
 }
 
-/// `#EXTINF:<seconds> [attributes],<display>`; `-1` means unknown.
 fn extinf(info: &str) -> Extinf {
     let (length, display) = info.split_once(',').unwrap_or((info, ""));
     Extinf {
@@ -100,8 +95,7 @@ fn entry(base: &Path, location: &str, info: Option<Extinf>) -> Option<Track> {
     Some(track)
 }
 
-/// The filename without its extension, whichever slash the playlist was
-/// written with: one from Windows read elsewhere still names its files.
+/// Either slash, so a playlist from Windows read elsewhere still names its files.
 fn stem(location: &str) -> String {
     let name = location.rsplit(['/', '\\']).next().unwrap_or(location);
     name.rsplit_once('.')

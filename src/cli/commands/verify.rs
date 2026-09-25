@@ -26,7 +26,6 @@ pub const REPORT_FIELDS: &[&str] = &[
     "steepness_db_per_khz",
 ];
 
-// Independent switches, each typed on its own, as `get.rs` explains.
 #[allow(clippy::struct_excessive_bools)]
 #[derive(Args, Debug)]
 pub struct VerifyArgs {
@@ -54,10 +53,7 @@ pub struct VerifyArgs {
     pub lossy: bool,
 }
 
-/// Analyse the frequency spectrum of every file in scope and report the verdicts.
-///
-/// A library sweep covers lossless files unless `--lossy`; a named file or
-/// folder is checked whatever it holds. Only FAKE fails the run.
+/// A sweep covers lossless files unless `--lossy`. Only FAKE fails the run.
 pub fn run(context: &AppContext, args: &VerifyArgs) -> Result<i32> {
     let all = targets(context, args.target.as_deref(), args.lossy)?;
     if all.is_empty() && context.nothing_to_do("No files to check.") {
@@ -119,8 +115,6 @@ pub fn run(context: &AppContext, args: &VerifyArgs) -> Result<i32> {
     Ok(i32::from(any_fake))
 }
 
-/// Whether `--changed` may skip a file.
-///
 /// An `ERROR` verdict is always retried.
 fn already_judged(index: &LibraryIndex, path: &Path) -> Result<bool> {
     Ok(matches!(
@@ -176,9 +170,7 @@ fn render_spectrograms(context: &AppContext, results: &[VerifyResult]) {
     }
 }
 
-/// Write the CSV report.
-///
-/// Written with a BOM, or Excel mangles every non-ASCII path.
+/// Written with a BOM, or Excel mangles non-ASCII paths.
 fn write_report(destination: &Path, results: &[VerifyResult]) -> Result<()> {
     if let Some(parent) = destination.parent() {
         if !parent.as_os_str().is_empty() {

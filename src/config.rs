@@ -10,7 +10,6 @@ use crate::audio::spectral;
 use crate::matching::MatchThresholds;
 use crate::retag::TagPolicy;
 
-/// Thresholds deciding when two names describe the same track.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, default)]
 pub struct MatchingSettings {
@@ -135,7 +134,6 @@ impl Default for UploaderSettings {
     }
 }
 
-/// Tuning for the transcoded-lossless check.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, default)]
 pub struct VerifySettings {
@@ -170,7 +168,6 @@ impl VerifySettings {
     }
 }
 
-/// Tuning for the ReplayGain scan.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, default)]
 pub struct LoudnessSettings {
@@ -228,7 +225,6 @@ impl Default for SlskdSettings {
     }
 }
 
-/// Where the music lives and what counts as part of it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, default)]
 pub struct LibrarySettings {
@@ -256,7 +252,6 @@ impl Default for LibrarySettings {
 }
 
 impl LibrarySettings {
-    /// Every configured root, however it was spelled.
     #[must_use]
     pub fn all_roots(&self) -> Vec<PathBuf> {
         if self.roots.is_empty() {
@@ -302,7 +297,6 @@ impl Default for ReviewSettings {
     }
 }
 
-/// Cover-art lookup and the guard against embedding the wrong artist's art.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, default)]
 pub struct ArtworkSettings {
@@ -335,7 +329,6 @@ impl Default for ArtworkSettings {
     }
 }
 
-/// Identifying a file from its audio through AcoustID.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, default)]
 pub struct IdentifySettings {
@@ -391,7 +384,6 @@ impl Default for WantlistSettings {
     }
 }
 
-/// How files are laid out on disk.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, default)]
 pub struct OrganiseSettings {
@@ -399,10 +391,8 @@ pub struct OrganiseSettings {
     /// directories. The extension always comes from the file.
     pub pattern: String,
 
-    /// How many digits a track number is padded to.
     pub track_number_width: usize,
 
-    /// Remove the directories a move emptied.
     pub remove_empty_directories: bool,
 
     /// Where organised files go. Unset means each stays under its own root.
@@ -420,7 +410,6 @@ impl Default for OrganiseSettings {
     }
 }
 
-/// What `stk dupes resolve` is sure enough about to act on.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, default)]
 pub struct DupesSettings {
@@ -437,7 +426,6 @@ impl Default for DupesSettings {
     }
 }
 
-/// What happens to a download's tags once it has arrived.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, default)]
 pub struct FetchSettings {
@@ -461,7 +449,6 @@ impl Default for GenreSettings {
     }
 }
 
-/// The complete resolved configuration.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, default)]
 pub struct Settings {
@@ -551,7 +538,6 @@ pub fn find_config_file(start: Option<&Path>) -> Option<PathBuf> {
     user.is_file().then_some(user)
 }
 
-/// Windows' extended-length path prefixes, which `canonicalize` introduces.
 const VERBATIM_PREFIX: &str = r"\\?\";
 const VERBATIM_UNC_PREFIX: &str = r"\\?\UNC\";
 
@@ -571,11 +557,9 @@ pub struct Overrides {
     pub library_root: Option<PathBuf>,
 }
 
-/// The settings, plus where they came from.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Resolved {
     pub settings: Settings,
-    /// The config file the values came from, if there was one.
     pub source_path: Option<PathBuf>,
 }
 
@@ -690,7 +674,6 @@ fn secret(name: &str) -> Option<String> {
     std::env::var(name).ok().filter(|value| !value.is_empty())
 }
 
-/// Parse a TOML file, reporting a malformed one as a configuration error.
 pub fn read_toml(path: &Path) -> Result<toml::Table> {
     let text = std::fs::read_to_string(path)
         .map_err(|error| Error::Config(format!("cannot read {}: {error}", path.display())))?;
@@ -718,7 +701,6 @@ fn apply_environment(table: &mut toml::Table) {
     }
 }
 
-/// An environment variable is a string; TOML wants the typed value.
 fn parse_scalar(value: &str) -> toml::Value {
     if let Ok(parsed) = value.parse::<i64>() {
         return toml::Value::Integer(parsed);
@@ -749,13 +731,11 @@ fn apply_overrides(table: &mut toml::Table, overrides: &Overrides) {
     }
 }
 
-/// Serialise settings back to TOML. Secrets are `#[serde(skip)]`.
 pub fn render_toml(settings: &Settings) -> Result<String> {
     toml::to_string_pretty(settings)
         .map_err(|error| Error::Config(format!("cannot render configuration: {error}")))
 }
 
-/// Write a config file, refusing to clobber one that already exists.
 pub fn write_config(path: &Path, settings: &Settings) -> Result<PathBuf> {
     if path.exists() {
         return Err(Error::Config(format!(
@@ -779,7 +759,6 @@ pub fn write_config(path: &Path, settings: &Settings) -> Result<PathBuf> {
 }
 
 impl LibrarySettings {
-    /// Accept `FLAC` and `.Mp3` alike.
     fn normalise_extensions(&mut self) {
         self.extensions = self
             .extensions

@@ -83,7 +83,6 @@ pub fn run(context: &AppContext, command: PlaylistCommand) -> Result<i32> {
     }
 }
 
-/// One file's line, described by the file rather than by whatever asked for it.
 fn line(entry: &LibraryEntry) -> PlaylistEntry {
     PlaylistEntry {
         path: entry.path.clone(),
@@ -93,9 +92,6 @@ fn line(entry: &LibraryEntry) -> PlaylistEntry {
     }
 }
 
-/// The export's own rows, in its own order, for the ones the library holds.
-///
-/// `wantlist::diff` preserves the export order in `owned`.
 fn exported(context: &AppContext, export: &ExportArgs) -> Result<Option<Vec<PlaylistEntry>>> {
     let tracks = match export.read(context.settings()) {
         Ok(tracks) => tracks,
@@ -130,8 +126,7 @@ fn matching(
 }
 
 fn write(context: &AppContext, entries: &[PlaylistEntry], output: &OutputArgs) -> Result<i32> {
-    // Checked before the JSON branch, or a script -- the one caller most likely
-    // to pass both -- would be the only one the flag was silently ignored for.
+    // Checked before the JSON branch, or a script would have the flag silently ignored.
     if output.relative && output.output.is_none() {
         return Err(Error::Config(
             "--relative needs --output: the paths are relative to the playlist file".to_owned(),
@@ -151,8 +146,7 @@ fn write(context: &AppContext, entries: &[PlaylistEntry], output: &OutputArgs) -
         return Ok(0);
     }
 
-    // Absolute, and only then the parent: `-o list.m3u8` names the working
-    // directory, whose relative spelling is "" and shares nothing with anything.
+    // Absolute first: `-o list.m3u8` has an empty relative parent.
     let base = output
         .relative
         .then_some(output.output.as_deref())
@@ -172,8 +166,7 @@ fn write(context: &AppContext, entries: &[PlaylistEntry], output: &OutputArgs) -
                 .map_err(|error| Error::Config(format!("{}: {error}", parent.display())))?;
         }
     }
-    // No BOM, unlike this project's CSV writers: .m3u8 means UTF-8 by
-    // definition, and a BOM makes several players fail on the first path.
+    // No BOM: .m3u8 is UTF-8 by definition, and a BOM breaks several players.
     std::fs::write(destination, text)
         .map_err(|error| Error::Config(format!("{}: {error}", destination.display())))?;
 

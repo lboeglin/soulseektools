@@ -5,7 +5,6 @@
 //! `ん` is `n` with no apostrophe, which `normalize` would split on. Only the
 //! pairs [`digraph`] names are one syllable, so `ティ` is `tei`.
 
-/// Romanise every kana in `text`, passing anything else through unchanged.
 #[must_use]
 pub fn kana_to_romaji(text: &str) -> String {
     let kana: Vec<char> = text.chars().map(to_hiragana).collect();
@@ -59,12 +58,10 @@ fn is_small(kana: char) -> bool {
     )
 }
 
-/// Whether a `っ` before `kana`, read as `syllable`, doubles its consonant.
 fn doubles(kana: char, syllable: &str) -> bool {
     !is_small(kana) && syllable.starts_with(|c: char| !is_vowel(c) && !matches!(c, 'n' | 'm' | 'w'))
 }
 
-/// The syllable `kana` starts with, and how many kana it spans.
 fn syllable_at(kana: &[char]) -> Option<(String, usize)> {
     let first = *kana.first()?;
     if let Some(pair) = kana.get(1).and_then(|&small| digraph(first, small)) {

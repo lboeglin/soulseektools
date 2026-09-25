@@ -13,7 +13,6 @@ use crate::models::Track;
 use crate::services::HttpTransport;
 use crate::wantlist::{self, lastfm, Discogs, Format, LastFm, Remote, Source, WantlistDiff};
 
-/// Where the wanted tracks come from, shared by every command that reads them.
 #[derive(Args, Debug)]
 pub struct ExportArgs {
     /// A streaming-service or Last.fm CSV, a YouTube Takeout, an Apple Music Library.xml, an M3U playlist, a Discogs collection CSV, or lastfm:<user> for a Last.fm user's loved tracks.
@@ -91,8 +90,6 @@ pub fn run(context: &AppContext, command: WantlistCommand) -> Result<i32> {
     }
 }
 
-/// An uncertain match is reported as missing rather than owned: a duplicate
-/// download costs a few megabytes, a track dropped by mistake is simply gone.
 fn diff(
     context: &AppContext,
     export: &ExportArgs,
@@ -112,8 +109,7 @@ fn diff(
     let entries = context.open_index()?.entries()?;
     let mut result = wantlist::diff(&tracks, &entries, &context.settings().matching.thresholds());
 
-    // Counted before the queue is touched, since adding them is what stops them
-    // being new.
+    // Counted before the queue is touched, since queueing is what stops them being new.
     let known = if only_new {
         context.open_review()?.known_queries()?
     } else {
@@ -125,8 +121,7 @@ fn diff(
         queued = context.open_review()?.add(&result.missing)?;
     }
 
-    // Held across the filter below: `total` and the missing count both describe
-    // the export, and reporting only the new ones must not restate its size.
+    // `total` describes the whole export, even when only new tracks are reported.
     let total = result.total();
     let found = result.missing.len();
     if only_new {
@@ -210,8 +205,7 @@ fn diff(
     Ok(0)
 }
 
-/// The missing list keeps the export's own columns, so it can be fed straight
-/// back into whatever produced it.
+/// Keeps the export's own columns, so it can be fed back into whatever produced it.
 fn write_missing(destination: &Path, result: &WantlistDiff) -> Result<()> {
     let headers: Vec<String> = result
         .missing

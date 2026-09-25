@@ -1,7 +1,4 @@
-//! Turning a loudness measurement into ReplayGain track and album tags.
-//!
-//! An album is `(album artist or artist, album)` from the tags, as players
-//! group it. A file with no album tag gets a track gain only.
+//! ReplayGain tags from a loudness measurement. An album is `(album artist or artist, album)`.
 
 use std::collections::{HashMap, HashSet};
 use std::hash::BuildHasher;
@@ -12,21 +9,16 @@ use crate::config::LoudnessSettings;
 use crate::models::{LibraryEntry, ReplayGainTags, TrackTags};
 use crate::text::normalize::flatten;
 
-/// What the Opus header measures against, fixed by the format.
 const R128_REFERENCE_LUFS: f64 = -23.0;
 
-/// A file a scan is about to look at.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Target {
     pub path: PathBuf,
     pub tags: TrackTags,
     pub current: ReplayGainTags,
-    /// Whether this container keeps an `R128_*` field as well.
     pub r128: bool,
 }
 
-/// The files a scan decides on, measures and levels together.
-///
 /// One record, or one file that names none.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Group {
@@ -35,14 +27,12 @@ pub struct Group {
     pub targets: Vec<Target>,
 }
 
-/// A group with what the scan found in it.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Scanned {
     pub album: Option<Loudness>,
     pub tracks: Vec<(Target, Option<Loudness>)>,
 }
 
-/// What one file would gain, and what it carries now.
 #[derive(Debug, Clone, PartialEq)]
 pub struct GainChange {
     pub path: PathBuf,
@@ -57,18 +47,13 @@ impl GainChange {
     }
 }
 
-/// The records a run will measure, and the ones an existing scan already
-/// covers.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Selection {
     pub wanted: Vec<Group>,
     pub skipped: Vec<Target>,
 }
 
-/// The album a file belongs to, or `None` when its tags name none.
-///
-/// Compared through [`flatten`], not `normalize`, which would merge "Ghost
-/// Rule (Deluxe Edition)" into "Ghost Rule".
+/// `flatten`, not `normalize`, which would merge "Ghost Rule (Deluxe Edition)" into "Ghost Rule".
 #[must_use]
 pub fn album_key(tags: &TrackTags) -> Option<(String, String)> {
     let album = flatten(&tags.album);
@@ -83,8 +68,6 @@ pub fn album_key(tags: &TrackTags) -> Option<(String, String)> {
     Some((flatten(artist), album))
 }
 
-/// Gather files into the records they belong to, keeping the order they came in.
-///
 /// With `album_gain` off (`--track-only`), every file is its own group.
 #[must_use]
 pub fn group(targets: Vec<Target>, album_gain: bool) -> Vec<Group> {
@@ -108,7 +91,6 @@ pub fn group(targets: Vec<Target>, album_gain: bool) -> Vec<Group> {
     groups
 }
 
-/// How many files the library holds for each record it knows about.
 #[must_use]
 pub fn album_counts(entries: &[LibraryEntry]) -> HashMap<(String, String), usize> {
     let mut counts = HashMap::new();
@@ -120,10 +102,7 @@ pub fn album_counts(entries: &[LibraryEntry]) -> HashMap<(String, String), usize
     counts
 }
 
-/// The records this run holds only part of.
-///
-/// These get no album gain, which would describe only the tracks present.
-/// A record the index doesn't know is taken as complete.
+/// These get no album gain. A record the index doesn't know is taken as complete.
 #[must_use]
 pub fn partial_records<S: BuildHasher>(
     groups: &[Group],
@@ -139,8 +118,6 @@ pub fn partial_records<S: BuildHasher>(
         .collect()
 }
 
-/// Decide what to measure, never overwriting a scan somebody else already ran.
-///
 /// A fully scanned record is left alone; one with any gap is measured entire.
 #[must_use]
 pub fn select(groups: Vec<Group>, force: bool) -> Selection {
@@ -160,9 +137,6 @@ pub fn select(groups: Vec<Group>, force: bool) -> Selection {
     selection
 }
 
-/// Work out the tags every measured file would carry.
-///
-/// A file the scan could not measure yields nothing.
 #[must_use]
 pub fn plan(scanned: &[Scanned], settings: &LoudnessSettings) -> Vec<GainChange> {
     scanned
@@ -202,13 +176,11 @@ pub fn plan(scanned: &[Scanned], settings: &LoudnessSettings) -> Vec<GainChange>
         .collect()
 }
 
-/// How far a player has to move a file to reach the reference level.
 #[must_use]
 pub fn gain_db(integrated_lufs: f64, reference_lufs: f64) -> f64 {
     reference_lufs - integrated_lufs
 }
 
-/// A gain the way every other scanner spells it.
 #[must_use]
 pub fn format_gain(db: f64) -> String {
     format!("{db:.2} dB")
@@ -219,10 +191,7 @@ pub fn format_peak(amplitude: f64) -> String {
     format!("{amplitude:.6}")
 }
 
-/// The Opus header's own spelling of a gain: Q7.8 fixed point against
-/// -23 LUFS, whatever reference the `REPLAYGAIN_*` figures were measured to.
-///
-/// Saturates rather than wrapping, which would flip the sign of the gain.
+/// Q7.8 fixed point against -23 LUFS, saturating rather than wrapping.
 #[must_use]
 #[allow(clippy::cast_possible_truncation)]
 pub fn format_r128(gain_db: f64, reference_lufs: f64) -> String {

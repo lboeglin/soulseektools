@@ -1,7 +1,4 @@
 //! Laying files out on disk from what their tags say.
-//!
-//! Planning works on indexed entries alone and moves nothing; [`apply_moves`]
-//! carries a plan out.
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -14,7 +11,6 @@ use crate::library::scan::{iter_audio_files, owning_root, Excludes};
 use crate::models::LibraryEntry;
 use crate::text::normalize::{sanitize_folder_name, UNKNOWN_ARTIST};
 
-/// A field a pattern can name.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Placeholder {
     Artist,
@@ -40,10 +36,7 @@ impl Placeholder {
             .map(|(_, placeholder)| placeholder)
     }
 
-    /// The value for one file.
-    ///
-    /// `artist` and `title` use the index's resolved forms. An absent artist
-    /// becomes `Unknown Artist`, as `fetch` files it.
+    /// An absent artist becomes `Unknown Artist`, as `fetch` files it.
     fn value(self, entry: &LibraryEntry, settings: &OrganiseSettings) -> String {
         match self {
             Self::Artist => artist_of(entry),
@@ -77,8 +70,7 @@ enum Segment {
     Field(Placeholder),
 }
 
-/// A validated layout: every placeholder is one this knows, and the shape is
-/// one that cannot escape the root it is joined to.
+/// Known placeholders only, and a shape that cannot escape its root.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Pattern {
     components: Vec<Vec<Segment>>,
@@ -93,7 +85,6 @@ impl std::str::FromStr for Pattern {
 }
 
 impl Pattern {
-    /// Parse a pattern, naming whatever in it is not one.
     pub fn parse(text: &str) -> Result<Self> {
         let bad = |detail: &str| Err(Error::Config(format!("organise.pattern: {detail}")));
 
@@ -166,10 +157,7 @@ fn parse_component(text: &str) -> Result<Vec<Segment>> {
 /// Characters left stranded when a placeholder renders empty.
 const STRANDED: &[char] = &['-', '_', '.', '(', ')', '[', ']', ' '];
 
-/// Render one component, dropping what an absent field leaves behind.
-///
-/// An empty placeholder takes the following literal with it, so `{track} -
-/// {title}` without a track number is `Title`, not ` - Title`.
+/// An empty placeholder takes the next literal with it: `{track} - {title}` gives `Title`.
 fn render_component(
     segments: &[Segment],
     entry: &LibraryEntry,
@@ -216,7 +204,6 @@ fn render_component(
         .to_owned()
 }
 
-/// Where a file belongs under `root`, or `None` when it cannot be named.
 #[must_use]
 pub fn render(
     pattern: &Pattern,
@@ -248,7 +235,6 @@ pub fn render(
     Some(relative.join(name))
 }
 
-/// Why a planned move cannot be carried out.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Obstacle {
     AlreadyInPlace,
@@ -273,7 +259,6 @@ impl std::fmt::Display for Obstacle {
     }
 }
 
-/// Where one file should sit, and what stands in the way.
 #[derive(Debug, Clone, PartialEq)]
 pub struct PlannedMove {
     pub entry: LibraryEntry,
@@ -288,10 +273,7 @@ impl PlannedMove {
     }
 }
 
-/// Work out where every file should go, and which moves collide.
-///
-/// `destination` consolidates everything into one place. Left unset, each file
-/// stays under its own root.
+/// Without `destination`, each file stays under its own root.
 #[must_use]
 pub fn plan_moves(
     entries: &[LibraryEntry],
@@ -340,9 +322,6 @@ pub fn plan_moves(
         .collect()
 }
 
-/// Files under a directory that is not part of the library.
-///
-/// Described from disk, since nothing outside a root is indexed.
 pub fn loose_entries(
     source: &Path,
     extensions: &[&str],
@@ -360,16 +339,13 @@ pub fn loose_entries(
         .collect())
 }
 
-/// What carrying out a plan did.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Applied {
     pub moved: usize,
     pub pruned: usize,
-    /// The file that stayed where it was, and why.
     pub failures: Vec<(PathBuf, String)>,
 }
 
-/// Carry out the moves that are ready, logging each under one `organise` run.
 pub fn apply_moves(
     index: &mut LibraryIndex,
     ready: &[&PlannedMove],
@@ -400,18 +376,13 @@ pub fn apply_moves(
     Ok(applied)
 }
 
-/// Whether two paths are spelled the same, separators aside.
-///
 /// Compared by component, because `a/b` and `a\b` are one path on Windows.
 #[must_use]
 pub fn same_path(left: &Path, right: &Path) -> bool {
     spelling(left) == spelling(right)
 }
 
-/// Whether two paths reach the same file.
-///
-/// Unlike [`same_path`], this folds case on Windows and macOS. On Unix the
-/// filesystem is asked when both exist, since case sensitivity is per volume.
+/// Unlike [`same_path`], folds case on Windows and macOS; on Unix asks the filesystem.
 #[must_use]
 pub fn same_file(left: &Path, right: &Path) -> bool {
     match (identity(left), identity(right)) {
@@ -440,10 +411,7 @@ fn spelling(path: &Path) -> String {
         .join("/")
 }
 
-/// A path spelled the way the platform's default filesystem tells names apart.
-///
-/// Folding on a case-sensitive volume only costs a refused move; not folding
-/// on an insensitive one could overwrite a file.
+/// Folding on a case-sensitive volume only costs a refused move.
 fn comparable(path: &Path) -> String {
     let text = spelling(path);
     if cfg!(any(windows, target_os = "macos")) {
@@ -453,10 +421,7 @@ fn comparable(path: &Path) -> String {
     }
 }
 
-/// Move one file, creating the directories it needs.
-///
-/// Across volumes the file is copied then removed, and the copy is cleaned up
-/// if that fails.
+/// Across volumes, copies then removes, cleaning up the copy on failure.
 pub fn move_file(from: &Path, to: &Path) -> Result<()> {
     if let Some(parent) = to.parent() {
         std::fs::create_dir_all(parent)
@@ -482,7 +447,6 @@ fn crosses_devices(error: &std::io::Error) -> bool {
 
 fn copy_across(from: &Path, to: &Path) -> Result<()> {
     let failed = |error: std::io::Error| {
-        // Leaving half a file behind would be worse than not moving at all.
         let _ = std::fs::remove_file(to);
         Error::Config(format!("{} -> {}: {error}", from.display(), to.display()))
     };
@@ -500,10 +464,7 @@ fn copy_across(from: &Path, to: &Path) -> Result<()> {
     std::fs::remove_file(from).map_err(failed)
 }
 
-/// Remove the directories a move emptied, up to but never including `root`.
-///
-/// `remove_dir` refuses a non-empty directory, so a folder still holding
-/// `cover.jpg` stays.
+/// `remove_dir` refuses a non-empty directory, so one holding `cover.jpg` stays.
 pub fn prune_empty(from: &Path, root: &Path) -> Vec<PathBuf> {
     let mut removed = Vec::new();
     let mut directory = from.parent().map(Path::to_path_buf);
@@ -521,10 +482,7 @@ pub fn prune_empty(from: &Path, root: &Path) -> Vec<PathBuf> {
     removed
 }
 
-/// The path as the filesystem spells it, which need not be what was asked for.
-///
-/// `create_dir_all("zun")` reuses an existing `ZUN` on Windows, and the index
-/// needs the real spelling.
+/// `create_dir_all("zun")` reuses an existing `ZUN` on Windows.
 #[must_use]
 pub fn spelled_on_disk(path: &Path) -> PathBuf {
     let (Some(parent), Some(name)) = (path.parent(), path.file_name()) else {

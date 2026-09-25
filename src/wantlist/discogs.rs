@@ -1,9 +1,4 @@
-//! Discogs collection exports: one row per release, each release's tracklist
-//! fetched from the API and cached, since it never changes.
-//!
-//! The row's `Artist` and `Title` name the release, so they become `album
-//! artist` and `album`. In a tracklist a `heading` is not a song, and an
-//! `index`'s movements are prefixed with the work's title.
+//! Discogs collections: one row per release, each tracklist fetched once and cached.
 
 use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
@@ -24,14 +19,11 @@ pub const MIN_INTERVAL_SECONDS: f64 = 60.0 / 25.0;
 /// And 60 with one.
 pub const MIN_INTERVAL_WITH_TOKEN_SECONDS: f64 = 1.0;
 
-/// The column a collection export is recognised by.
 pub const RELEASE_COLUMN: &str = "release_id";
 
-/// Discogs tells two artists of one name apart as `Care Company (2)`, and
-/// marks a name printed differently on the sleeve with a trailing `*`.
+/// `Care Company (2)` disambiguates two artists; a trailing `*` marks a sleeve spelling.
 static DISAMBIGUATION: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\s*\(\d+\)$").unwrap());
 
-/// The Discogs client, with the cache of the releases it has fetched.
 pub struct Discogs {
     limiter: RateLimiter,
     token: Option<String>,
@@ -48,7 +40,6 @@ impl Discogs {
         }
     }
 
-    /// The pacing Discogs publishes for a caller with or without a token.
     #[must_use]
     pub fn min_interval_seconds(token: Option<&str>) -> f64 {
         if token.is_some() {
@@ -58,7 +49,6 @@ impl Discogs {
         }
     }
 
-    /// One release, as far as a wantlist needs it: title, artists, tracklist.
     fn release(&self, http: &dyn ServiceHttp, id: &str) -> Result<Value> {
         let params: Vec<(&str, String)> = self
             .token
@@ -71,7 +61,7 @@ impl Discogs {
             .get_json(&format!("{RELEASE_URL}/{id}"), &params)
             .map_err(|error| {
                 let mut message = error.to_string();
-                // The token rides in the query string, which the transport quotes back.
+                // The transport quotes the URL back in errors, token included.
                 if let Some(token) = &self.token {
                     message = message.replace(token.as_str(), "<token>");
                 }
@@ -86,7 +76,6 @@ impl Discogs {
     }
 }
 
-/// Whether a delimited file's header names the column a collection export has.
 pub(super) fn is_collection(header: &str) -> bool {
     header
         .trim_start_matches('\u{feff}')
@@ -220,7 +209,6 @@ fn track(
     })
 }
 
-/// An artist credit as Discogs prints it: `Stacey Pullen Presents Black Odyssey`.
 fn credited(artists: Option<&Value>) -> String {
     let mut text = String::new();
     for artist in list(artists) {
@@ -251,15 +239,13 @@ fn plain_name(name: &str) -> String {
         .to_owned()
 }
 
-/// Every release fetched so far, by ID, as one JSON object on disk.
 struct Cache {
     path: PathBuf,
     releases: Map<String, Value>,
 }
 
 impl Cache {
-    /// A missing cache is an empty one, and so is an unreadable one: all it
-    /// costs is fetching again.
+    /// An unreadable cache is an empty one: it only costs fetching again.
     fn open(path: &Path) -> Self {
         let releases = std::fs::read(path)
             .ok()
@@ -275,8 +261,7 @@ impl Cache {
         self.releases.get(id)
     }
 
-    /// Written through a temporary file, so an interrupted write never leaves
-    /// half a cache behind.
+    /// Through a temporary file, so an interrupted write never leaves half a cache.
     fn insert(&mut self, id: &str, release: Value) -> Result<()> {
         self.releases.insert(id.to_owned(), release);
 

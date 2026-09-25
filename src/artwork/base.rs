@@ -1,12 +1,9 @@
-//! Cover-art providers, and the guard against embedding the wrong artist's art:
-//! a result is accepted only when its artist matches, since no cover is better
-//! than the wrong one.
+//! Cover-art providers, and the guard that rejects a cover whose artist doesn't match.
 
 use crate::errors::Result;
 use crate::matching::{similarity, NameForms};
 use crate::services::ServiceHttp;
 
-/// A cover image a provider believes belongs to the requested track.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ArtCandidate {
     pub url: String,
@@ -23,7 +20,6 @@ impl ArtCandidate {
     }
 }
 
-/// A chosen candidate, or the reason nothing was chosen.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ArtSelection {
     pub candidate: Option<ArtCandidate>,
@@ -45,14 +41,11 @@ impl ArtSelection {
     }
 }
 
-/// A source of cover art.
 pub trait ArtProvider {
     fn name(&self) -> &'static str;
 
-    /// The provider's published request limit, in seconds between calls.
     fn min_interval_seconds(&self) -> f64;
 
-    /// Candidates for one track, best first.
     fn search(
         &self,
         http: &dyn ServiceHttp,
@@ -61,9 +54,7 @@ pub trait ArtProvider {
     ) -> Result<Vec<ArtCandidate>>;
 }
 
-/// Pick the best candidate whose artist matches the one asked for.
-///
-/// With `require_artist_match` disabled the first result wins.
+/// With `require_artist_match` off, the first result wins.
 #[must_use]
 pub fn select(
     candidates: &[ArtCandidate],

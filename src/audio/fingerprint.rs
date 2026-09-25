@@ -1,8 +1,4 @@
-//! Chromaprint fingerprints (as AcoustID uses), computed by `rusty-chromaprint`
-//! and compared locally by bit error rate.
-//!
-//! They agree with `fpcalc` on about 98.5% of bits, not 100%, so [`KIND`] tags
-//! each cached print and one from another backend is recomputed.
+//! Chromaprint fingerprints via `rusty-chromaprint`, compared by bit error rate.
 // Casts between frame counts and offsets are bounded by a track length.
 #![allow(
     clippy::cast_precision_loss,
@@ -19,26 +15,17 @@ use rusty_chromaprint::{Configuration, FingerprintCompressor, Fingerprinter};
 use crate::audio::decode::Audio;
 use crate::errors::{Error, Result};
 
-/// What produced a stored fingerprint.
-///
-/// Stored beside each cached print; an unknown kind is a cache miss.
+/// Stored with each cached print; an unknown kind (from `fpcalc`, say) is a cache miss.
 pub const KIND: &str = "chromaprint-rs";
 
-/// How much of a track is fingerprinted.
-///
-/// `fpcalc`'s default. Releases of one recording differ at the end far more
-/// often than in the first two minutes.
+/// `fpcalc`'s default; releases of one recording mostly differ near the end.
 const LIMIT_SECONDS: u64 = 120;
 
-/// How far two fingerprints may be shifted against each other when comparing.
-///
-/// Rips of the same track routinely differ by a second or two of leading
-/// silence.
+/// Rips of one track often differ by a second or two of leading silence.
 pub const MAX_ALIGNMENT_FRAMES: i64 = 8;
 
 const MIN_COMPARABLE_FRAMES: usize = 8;
 
-/// A comparable summary of a track's audio.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Fingerprint {
     pub values: Vec<u32>,
@@ -56,10 +43,7 @@ impl Fingerprint {
         self.values.is_empty()
     }
 
-    /// The form AcoustID takes, which is what `fpcalc` prints.
-    ///
-    /// Delta-coded, bit-packed, URL-safe base64 without padding. The first byte
-    /// names the algorithm, so it must match what [`fingerprint`] used.
+    /// The form AcoustID takes: delta-coded, bit-packed, unpadded URL-safe base64.
     #[must_use]
     pub fn compressed(&self) -> String {
         let configuration = preset();
@@ -73,7 +57,6 @@ fn preset() -> Configuration {
     Configuration::preset_test2()
 }
 
-/// Compute a track's fingerprint.
 pub fn fingerprint(path: &Path) -> Result<Fingerprint> {
     let mut audio = Audio::open(path)?;
     let stream = audio.stream().clone();
@@ -101,7 +84,6 @@ pub fn fingerprint(path: &Path) -> Result<Fingerprint> {
     })
 }
 
-/// How alike two fingerprints are, in `[0, 1]`.
 #[must_use]
 pub fn similarity(left: &Fingerprint, right: &Fingerprint) -> f64 {
     if left.is_empty() || right.is_empty() {

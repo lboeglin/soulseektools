@@ -32,8 +32,6 @@ pub struct LoudnessArgs {
     pub track_only: bool,
 }
 
-/// Measure every target and show what its loudness tags would become.
-///
 /// A file that already carries a gain is left alone unless `--force`.
 pub fn run(context: &AppContext, args: &LoudnessArgs) -> Result<i32> {
     let paths = targets(context, args.target.as_deref())?;
@@ -77,10 +75,9 @@ pub fn run(context: &AppContext, args: &LoudnessArgs) -> Result<i32> {
     Ok(0)
 }
 
-/// What a run did, as both reports read it.
 struct Outcome {
     changes: Vec<GainChange>,
-    /// Records this run held only part of, which therefore get no album gain.
+    /// Records this run held only part of, which get no album gain.
     partial: HashSet<(String, String)>,
     /// Files actually written, which is not `changes` less `failures`: a file
     /// that could not be measured never became a change in the first place.
@@ -88,8 +85,6 @@ struct Outcome {
     applied: bool,
 }
 
-/// Read what each file says it is and what it already carries.
-///
 /// Read from the file, not the index, so an unindexed folder still scans.
 fn inspect(paths: &[PathBuf]) -> (Vec<Target>, Vec<(String, String)>) {
     let mut targets = Vec::new();
@@ -108,9 +103,6 @@ fn inspect(paths: &[PathBuf]) -> (Vec<Target>, Vec<(String, String)>) {
     (targets, failed)
 }
 
-/// Measure one record at a time.
-///
-/// A record's tracks are scanned together, one record at a time.
 fn scan(
     context: &AppContext,
     selection: &Selection,
@@ -153,7 +145,6 @@ fn scan(
     scanned
 }
 
-/// Write the planned tags, returning how many files were actually written.
 fn apply(
     context: &AppContext,
     changes: &[GainChange],
@@ -177,7 +168,6 @@ fn apply(
     Ok(written)
 }
 
-/// Only the containers a measurement can be both taken from and written to.
 fn targets(context: &AppContext, target: Option<&Path>) -> Result<Vec<PathBuf>> {
     match target {
         None => {

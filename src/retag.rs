@@ -1,5 +1,4 @@
-//! What a fetched file is tagged with: the review row it was fetched for,
-//! under the `fetch.tags` policy, rather than whatever the peer's tagger left.
+//! What a fetched file is tagged with: its review row, under the `fetch.tags` policy.
 
 use std::fmt;
 use std::path::{Path, PathBuf};
@@ -15,17 +14,13 @@ use crate::library::tags::{self, TagField};
 use crate::models::{Track, TrackTags};
 use crate::wantlist::TRACK_NUMBER_COLUMNS;
 
-/// How a download's tags meet the review row it was fetched for.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum TagPolicy {
-    /// The row wins wherever it has a value, and whatever else the peer
-    /// left -- comment, URL, lyrics -- is dropped.
+    /// The row wins wherever it has a value; comments, URLs and lyrics are dropped.
     #[default]
     Replace,
-    /// The row fills only what the peer left empty.
     Fill,
-    /// The file stays as it arrived.
     Keep,
 }
 
@@ -59,8 +54,6 @@ impl FromStr for TagPolicy {
     }
 }
 
-/// What the review row can say about the file: the fields a wantlist export
-/// or an `stk get` query carries. Anything absent here is the peer's to keep.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct RowTags {
     pub artist: String,
@@ -73,8 +66,7 @@ pub struct RowTags {
 }
 
 impl RowTags {
-    /// The track number comes from the export's own columns. Last.fm's `track`
-    /// column is the title, so it is skipped when it holds the title.
+    /// Last.fm's `track` column is the title, so it is skipped when it holds the title.
     #[must_use]
     pub fn of(track: &Track) -> Self {
         let title = track.title.trim();
@@ -91,10 +83,7 @@ impl RowTags {
     }
 }
 
-/// The tags the file should carry, given what it carries now.
-///
-/// Album artist and genres are never written. A blank in the row never blanks
-/// the file. A guessed title only fills a blank, even under `replace`.
+/// Album artist and genres are never written, a blank never blanks, a guessed title only fills.
 #[must_use]
 pub fn plan(policy: TagPolicy, row: &RowTags, current: &TrackTags) -> TrackTags {
     let mut proposed = current.clone();
@@ -124,7 +113,6 @@ pub fn plan(policy: TagPolicy, row: &RowTags, current: &TrackTags) -> TrackTags 
     proposed
 }
 
-/// What tagging one download came to.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Retagged {
     pub policy: TagPolicy,
@@ -144,10 +132,7 @@ impl Retagged {
     }
 }
 
-/// Tag one download from its review row, and log what was written.
-///
-/// Failures are reported in the outcome, not raised. The index is refreshed
-/// only for a file under a library root.
+/// The index is refreshed only for a file under a library root.
 pub fn apply(
     path: &Path,
     policy: TagPolicy,

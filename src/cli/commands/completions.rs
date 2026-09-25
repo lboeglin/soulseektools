@@ -1,7 +1,4 @@
-//! `stk completions` -- a completion script for a shell.
-//!
-//! Generated from the same definitions the parser uses, so a new flag is
-//! completed the moment it exists rather than when someone remembers to add it.
+//! `stk completions`, generated from the parser's own definitions.
 
 use std::io::Write as _;
 
@@ -16,7 +13,7 @@ pub struct CompletionsArgs {
     pub shell: Shell,
 }
 
-/// Print the script. Needs no settings, so a broken config cannot stop it.
+/// Needs no settings, so a broken config cannot stop it.
 #[must_use]
 pub fn run(args: &CompletionsArgs) -> i32 {
     let mut script = Vec::new();

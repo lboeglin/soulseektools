@@ -14,11 +14,9 @@ pub const API_URL: &str = "https://ws.audioscrobbler.com/2.0/";
 /// Last.fm asks for no more than five requests a second.
 pub const MIN_INTERVAL_SECONDS: f64 = 0.25;
 
-/// The most a page may hold.
 const PAGE_SIZE: u32 = 1000;
 
-/// The columns every track carries, loved or played, so `--missing` writes one
-/// header whichever list a track came from.
+/// Every track carries the same columns, so `--missing` writes one header.
 const COLUMNS: [&str; 7] = [
     "artist",
     "title",
@@ -43,8 +41,6 @@ impl LastFm {
         }
     }
 
-    /// The user's loved tracks, then, under `min_plays`, every track played at
-    /// least that often that is not already among them.
     pub fn read(
         &self,
         http: &dyn ServiceHttp,
@@ -94,8 +90,7 @@ impl LastFm {
         Ok(tracks)
     }
 
-    /// Every item of a paged list, stopping under `min_plays` at the first
-    /// played fewer times.
+    /// Stops at the first item played fewer than `min_plays` times.
     fn pages(
         &self,
         http: &dyn ServiceHttp,
@@ -119,7 +114,7 @@ impl LastFm {
 
             self.limiter.wait();
             let body = http.get_json(API_URL, &params).map_err(|error| {
-                // The key rides in the query string, which the transport quotes back.
+                // The transport quotes the URL back in errors, key included.
                 Error::Config(format!(
                     "Last.fm {method}: {}",
                     error.to_string().replace(api_key, "<key>")
@@ -211,7 +206,7 @@ fn plays(item: &Value) -> usize {
         .unwrap_or(0)
 }
 
-/// A list Last.fm writes as an array, or as the one object when it holds one.
+/// Last.fm writes a one-item list as the bare object.
 fn entries(value: Option<&Value>) -> Vec<&Value> {
     match value {
         Some(Value::Array(items)) => items.iter().collect(),
@@ -220,7 +215,6 @@ fn entries(value: Option<&Value>) -> Vec<&Value> {
     }
 }
 
-/// Last.fm writes its numbers as strings.
 fn number(value: Option<&Value>) -> Option<u64> {
     match value? {
         Value::Number(number) => number.as_u64(),

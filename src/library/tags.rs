@@ -15,7 +15,6 @@ use serde::{Deserialize, Serialize};
 use crate::errors::{Error, Result};
 use crate::models::{Artwork, ReplayGainTags, TrackTags};
 
-/// Containers whose tags this module can read and write.
 pub const TAGGABLE_EXTENSIONS: &[&str] = crate::library::scan::TAGGABLE_EXTENSIONS;
 
 fn read_file(path: &Path) -> Result<TaggedFile> {
@@ -30,12 +29,10 @@ fn read_file(path: &Path) -> Result<TaggedFile> {
     })
 }
 
-/// The tag block a reader should consult: the primary one, else whatever exists.
 fn first_tag(file: &TaggedFile) -> Option<&Tag> {
     file.primary_tag().or_else(|| file.first_tag())
 }
 
-/// Read the metadata fields this project cares about.
 pub fn read_tags(path: &Path) -> Result<TrackTags> {
     Ok(tags_of(&read_file(path)?))
 }
@@ -77,22 +74,17 @@ pub fn leading_number(value: &str) -> Option<i64> {
         .and_then(|digits| digits.parse().ok())
 }
 
-/// The track length in seconds, from the container header.
 pub fn read_duration(path: &Path) -> Result<Option<f64>> {
     let file = read_file(path)?;
     let seconds = file.properties().duration().as_secs_f64();
     Ok((seconds != 0.0).then_some(seconds))
 }
 
-/// Codec, bitrate, sample rate and bit depth, from the container header.
 pub fn read_stream_info(path: &Path) -> Result<StreamInfo> {
     Ok(stream_info_of(&read_file(path)?))
 }
 
-/// Whether an MP3 was encoded at a variable bitrate.
-///
-/// A VBR stream opens with a `Xing` or `VBRI` frame; `Info` (the same frame)
-/// or no frame means CBR. lofty parses the frame but doesn't expose which.
+/// VBR opens with a `Xing` or `VBRI` frame; lofty parses it but doesn't say which.
 #[must_use]
 pub fn mp3_is_vbr(path: &Path) -> bool {
     use std::io::Read as _;
@@ -155,8 +147,6 @@ fn stream_info_of(file: &TaggedFile) -> StreamInfo {
     }
 }
 
-/// What a container's header says about its audio stream.
-///
 /// `channels` isn't stored in the index; the loudness scan needs it.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct StreamInfo {
@@ -187,15 +177,13 @@ fn codec_name(file_type: lofty::file::FileType) -> String {
     .to_owned()
 }
 
-/// Everything the index stores about a file, from one parse of its header
-/// rather than one per reader.
+/// Everything the index stores, from one header parse rather than one per reader.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Described {
     pub tags: TrackTags,
     pub stream: StreamInfo,
     pub replay_gain: ReplayGainTags,
     pub artwork_bytes: u64,
-    /// Whether this container keeps an `R128_*` field alongside the rest.
     pub r128: bool,
 }
 
@@ -215,8 +203,7 @@ pub fn describe_file(path: &Path) -> Result<Described> {
     })
 }
 
-/// A metadata field this project can write, and put back. Each is a
-/// `ChangeField` in the write log, so every write can be undone.
+/// Each is a `ChangeField` in the write log, so every write can be undone.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TagField {
     Artist,
@@ -249,7 +236,6 @@ impl TagField {
         }
     }
 
-    /// The field's value as a dump spells it.
     #[must_use]
     pub fn value(self, tags: &TrackTags) -> String {
         match self {
@@ -265,7 +251,7 @@ impl TagField {
         }
     }
 
-    /// Put a dumped value back. An empty one means the field carries nothing.
+    /// An empty value means the field carries nothing.
     pub fn set(self, tags: &mut TrackTags, value: &str) {
         let value = value.trim();
         match self {
@@ -303,13 +289,9 @@ impl FromStr for TagField {
     }
 }
 
-/// How several genres share one cell of a dump.
 pub const GENRE_SEPARATOR: &str = "; ";
 
-/// Replace every metadata field this project writes.
-///
-/// Total rather than a patch, so it round-trips with [`read_tags`]. An empty
-/// value removes the key. Embedded pictures are left alone.
+/// Total rather than a patch: an empty value removes the key. Pictures are left alone.
 pub fn write_tags(path: &Path, tags: &TrackTags) -> Result<()> {
     let mut file = read_file(path)?;
     let tag_type = existing_or_default_tag_type(&file);
@@ -356,7 +338,6 @@ pub fn write_tags(path: &Path, tags: &TrackTags) -> Result<()> {
         .map_err(|error| Error::Tag(format!("{}: {error}", path.display())))
 }
 
-/// Replace the genre tag, creating a tag block if the file has none.
 pub fn write_genres(path: &Path, genres: &[String]) -> Result<()> {
     let values: Vec<&String> = genres.iter().filter(|genre| !genre.is_empty()).collect();
     let mut file = read_file(path)?;
@@ -374,11 +355,7 @@ pub fn write_genres(path: &Path, genres: &[String]) -> Result<()> {
         .map_err(|error| Error::Tag(format!("{}: {error}", path.display())))
 }
 
-/// A tag item outside the fields this project manages: a comment, an encoder
-/// name, a URL, lyrics -- whatever else a peer's tagger left in the block.
-///
-/// `key` is spelled the way the file's tag format spells it (`COMM`, `ENCODER`,
-/// `©too`), so it can be put back by name. `locator` marks an ID3v2/APE URL item.
+/// `key` is the tag format's own spelling (`COMM`, `©too`), so it can be put back by name.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Extra {
     pub key: String,
@@ -408,9 +385,7 @@ fn is_kept(key: &ItemKey) -> bool {
         || *key == unknown_key(R128_ALBUM_GAIN)
 }
 
-/// Every text item a file carries that this project does not manage.
-///
-/// Binary items are skipped. Embedded pictures are never touched.
+/// Binary items are skipped.
 pub fn read_extras(path: &Path) -> Result<Vec<Extra>> {
     Ok(extras_of(&read_file(path)?))
 }
@@ -446,9 +421,6 @@ fn spell_key(key: &ItemKey, tag_type: TagType) -> String {
     }
 }
 
-/// Replace every unmanaged text item with `extras`, so an empty list strips a
-/// peer's comment, encoder and URL fields and leaves nothing else changed.
-///
 /// Total rather than a patch, so an undo puts back exactly what was logged.
 pub fn write_extras(path: &Path, extras: &[Extra]) -> Result<()> {
     let mut file = read_file(path)?;
@@ -468,8 +440,6 @@ pub fn write_extras(path: &Path, extras: &[Extra]) -> Result<()> {
         .map_err(|error| Error::Tag(format!("{}: {error}", path.display())))
 }
 
-/// The keys the four ReplayGain figures live under. lofty maps each for every
-/// tag format.
 const REPLAY_GAIN_KEYS: [ItemKey; 4] = [
     ItemKey::ReplayGainTrackGain,
     ItemKey::ReplayGainTrackPeak,
@@ -477,7 +447,6 @@ const REPLAY_GAIN_KEYS: [ItemKey; 4] = [
     ItemKey::ReplayGainAlbumPeak,
 ];
 
-/// The Opus spelling, which is a key `lofty` has no variant for.
 const R128_TRACK_GAIN: &str = "R128_TRACK_GAIN";
 const R128_ALBUM_GAIN: &str = "R128_ALBUM_GAIN";
 
@@ -485,15 +454,11 @@ fn unknown_key(key: &str) -> ItemKey {
     ItemKey::Unknown(key.to_owned())
 }
 
-/// Whether a container keeps its gain as an `R128_*` header field.
-///
-/// Opus does, relative to a fixed -23 LUFS; both spellings are written.
-/// Decided on the container, not the suffix, because Opus is often named `.ogg`.
+/// Opus does, against -23 LUFS. Decided by container, since Opus is often named `.ogg`.
 fn carries_r128(file: &TaggedFile) -> bool {
     file.file_type() == lofty::file::FileType::Opus
 }
 
-/// The loudness tags a file already carries, if any.
 pub fn read_replay_gain(path: &Path) -> Result<ReplayGainTags> {
     Ok(replay_gain_of(&read_file(path)?))
 }
@@ -513,10 +478,7 @@ fn replay_gain_of(file: &TaggedFile) -> ReplayGainTags {
     }
 }
 
-/// Replace every loudness field, removing the ones the caller left absent.
-///
-/// Total rather than a patch, so an undo never restores a gain without its
-/// peak. Nothing else in the tag block is touched.
+/// Total rather than a patch, so an undo never restores a gain without its peak.
 pub fn write_replay_gain(path: &Path, gain: &ReplayGainTags) -> Result<()> {
     let mut file = read_file(path)?;
     let tag_type = existing_or_default_tag_type(&file);
@@ -575,7 +537,6 @@ fn require_artwork_container(path: &Path) -> Result<()> {
     )))
 }
 
-/// The embedded front cover, or `None` when the file has none.
 pub fn read_artwork(path: &Path) -> Result<Option<Artwork>> {
     require_artwork_container(path)?;
     Ok(artwork_of(&read_file(path)?))
@@ -584,7 +545,6 @@ pub fn read_artwork(path: &Path) -> Result<Option<Artwork>> {
 fn artwork_of(file: &TaggedFile) -> Option<Artwork> {
     let tag = first_tag(file)?;
 
-    // A front cover wins; failing that, whatever image is there.
     let picture = tag
         .pictures()
         .iter()
@@ -599,7 +559,6 @@ fn artwork_of(file: &TaggedFile) -> Option<Artwork> {
     })
 }
 
-/// Size in bytes of the embedded cover, or `0` when there is none.
 #[must_use]
 pub fn artwork_size(path: &Path) -> u64 {
     read_artwork(path)
@@ -608,7 +567,6 @@ pub fn artwork_size(path: &Path) -> u64 {
         .map_or(0, |artwork| artwork.data.len() as u64)
 }
 
-/// Replace the embedded cover, removing any images already present.
 pub fn write_artwork(path: &Path, artwork: &Artwork) -> Result<()> {
     require_artwork_container(path)?;
     let mut file = read_file(path)?;
@@ -634,8 +592,6 @@ pub fn write_artwork(path: &Path, artwork: &Artwork) -> Result<()> {
         .map_err(|error| Error::Tag(format!("{}: {error}", path.display())))
 }
 
-/// Remove every embedded image, which is what undoing a first-time cover
-/// embed comes to.
 pub fn clear_artwork(path: &Path) -> Result<()> {
     require_artwork_container(path)?;
     let mut file = read_file(path)?;
@@ -649,10 +605,7 @@ pub fn clear_artwork(path: &Path) -> Result<()> {
         .map_err(|error| Error::Tag(format!("{}: {error}", path.display())))
 }
 
-/// How a multi-valued genre has to be handed to a tag block.
-///
 /// ID3v2 has one TCON frame, so several genres are NUL-joined inside it.
-/// Vorbis and MP4 repeat the field instead.
 fn genre_items(tag_type: TagType, values: &[&String]) -> Vec<String> {
     if values.is_empty() {
         return Vec::new();
@@ -667,7 +620,6 @@ fn genre_items(tag_type: TagType, values: &[&String]) -> Vec<String> {
     values.iter().map(|genre| (*genre).clone()).collect()
 }
 
-/// The tag block to write into, created when the file carries none.
 fn tag_for_writing(file: &mut TaggedFile, tag_type: TagType) -> &mut Tag {
     if file.tag(tag_type).is_none() {
         file.insert_tag(Tag::new(tag_type));
