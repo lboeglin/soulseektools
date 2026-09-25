@@ -1,197 +1,46 @@
 # Contributing
 
-## Getting set up
+## Build and check
 
 ```bash
 cargo build
-cargo run -- --help
-```
-
-Nothing else needs installing, for the build or for the tests. The first build
-downloads IPADIC, the dictionary romaji is read with, from `lindera.dev` and
-embeds it; pointing `LINDERA_BUILD_DICTIONARY_CACHE_DIR` at a directory keeps the
-download across `cargo clean`, which is what CI does.
-
-## Checks
-
-Everything CI runs, locally:
-
-```bash
 cargo fmt --all -- --check
 cargo clippy --all-targets -- -D warnings
 cargo test
+cargo deny check      # cargo install cargo-deny --locked
 ```
 
-CI runs all three on Linux, macOS and Windows.
+CI runs these on Linux, macOS and Windows. The first build downloads IPADIC;
+set `LINDERA_BUILD_DICTIONARY_CACHE_DIR` to keep it across `cargo clean`.
 
-CI also checks the dependency tree against the RustSec advisory database and
-the licence list in `deny.toml`, so a vulnerable, yanked or unexpectedly
-licensed crate fails the build rather than waiting to be noticed. Locally:
+`cargo bench` times name scoring, fingerprinting and spectral analysis
+(`benches/audio.rs`). CI builds the benchmarks but doesn't run them.
 
-```bash
-cargo install cargo-deny --locked
-cargo deny check
-```
+## Code
 
-A new dependency whose licence is not on the list needs a decision, not just a
-line added to it. Data a crate embeds is not on the list at all: IPADIC is
-under its own NAIST/IPA licence, which permits redistribution with its notice.
+- Comment only a *why* the code can't say: a measured threshold, a protocol
+  quirk. Don't restate the code, narrate history or cite issue numbers.
+- Doc comments on public items, one or two lines.
+- Paths, thresholds and term lists belong in `config.rs`, not in modules.
+- One place per concern: tags in `library/tags.rs`, decoding in
+  `audio/decode.rs`, the slskd wire format in `soulseek/slskd.rs`. Nothing
+  spawns a subprocess.
+- Anything that writes to user files shows a plan, does nothing without
+  `--apply`, and logs through `library/changes.rs` so it can be undone.
 
-## Code as documentation
+## Tests
 
-Write code that explains itself, and reserve prose for what the code cannot say.
-
-- **Clippy runs at `pedantic`, denied.** Where a lint is relaxed it is relaxed in
-  the smallest scope that works, with the reason written down -- the numeric
-  casts in `audio/` are bounded by an FFT size, not by an address space.
-- **Domain types, not dicts.** A `LibraryEntry` beats a dict with
-  `"artist_norm"` and `"title_romaji"` keys; the first version of this project
-  was the second thing, and the keys drifted apart between copies.
-- **Name for intent.** A function whose name explains it needs no comment saying
-  the same thing again.
-- **No comment restates a line.** `# increment the counter` is noise. Comments
-  exist for *why*, where the why is not recoverable from the code: a threshold
-  derived from measurement, a protocol quirk, a deliberate asymmetry. There are
-  a few of those in this codebase and each earns its place.
-- **Docstrings on public API.** A module docstring should say what the module is
-  for and what problem shaped it. Internals get a clear name instead.
-
-## Test everything
-
-No change lands without tests for its behaviour.
-
-- **Test behaviour, not implementation.** Name a test for the property it
-  establishes: `a_strong_title_carries_a_weak_artist`, not `score_2`.
-- **A fixed bug gets a regression test**, named after the failure. Several
-  existing tests are named this way and carry a comment explaining the original
-  failure — `a_silent_file_is_not_mistaken_for_genuine_lossless` is one.
-- **No network in tests.** The Soulseek backend and both HTTP clients are traits,
-  and the flows run against recorded responses. That boundary is what makes the
-  search and download tests runnable with no daemon and no account -- it is not
-  an implementation detail to be optimised away. The real transport itself is
-  tested against a one-shot server on the loopback interface, never a live
-  service.
-- **Audio fixtures are generated where they can be.** `tests/support/mod.rs`
-  writes FLAC and WAV from a signal it synthesises, so no tool has to be
-  installed to run the suite. What it cannot write is committed under
-  `tests/data/audio` instead: there is no pure-Rust encoder for MP3, AAC,
-  Vorbis or Opus, and the transcode check needs audio a real lossy encoder
-  produced, since the brickwall it recognises is LAME's and an authentic one
-  cannot be synthesised. The upsampled MP3s are committed for the same reason:
-  they are LAME's 128 kbps wall under a 320 kbps header. The hi-res fakes are
-  not -- `hi_res_flac` writes 24-bit, padded or brickwalled FLAC at any rate.
-  `scripts/make-fixtures.sh` regenerates the committed files with ffmpeg; no
-  test runs it.
-- **`scripts/unihan_readings.py` generates `src/text/kanji_readings.tsv`**, the
-  reading a kanji IPADIC does not know falls back on, from Unihan's
-  `kJapanese`. It is committed for the same reason, and regenerating it needs
-  only a newer `Unihan_Readings.txt`.
-- **Properties, not only examples, where the input is open-ended.**
-  `tests/properties.rs` holds what must be true of *any* input: an export is
-  read or refused as a configuration error and never panics, a rendered layout
-  path stays inside its root, `normalize` is a normal form and survives
-  respelling, the spectral verdict never improves as an edge gets steeper,
-  and an undone write puts back the tags it started from. The oracle suites
-  skip in CI, so these are what exercise the parsers there. When one fails,
-  proptest prints the smallest input it could shrink the failure to; that
-  input becomes a named regression test next to the fix.
-  `PROPTEST_CASES=20000` runs a deeper sweep than the default 256.
-- **Prefer a pure function you can test directly** over one that has to open a
-  file. The spectral classifier and the table rendering are both pure for this
-  reason.
-
-## Benchmarks
-
-`benches/audio.rs` times the three paths the slow commands spend their time
-in, on the same synthesised audio the tests use:
-
-- `score_track`, behind every name comparison in `wantlist diff`, `dupes
-  titles` and the search ranking;
-- `fingerprint`, behind `dupes content` and `tags identify`;
-- `analyse`, behind `verify`, over the probe windows `verify` itself takes.
-
-```bash
-cargo bench                                # everything
-cargo bench -- fingerprint                 # one of them
-```
-
-CI builds them but does not run them: timings on a shared runner say more
-about the runner than the code. Run them before and after a change to any of
-the three, on an otherwise idle machine; criterion keeps the previous run
-under `target/criterion` and reports the difference.
+- One test per behaviour, named for it (`a_strong_title_carries_a_weak_artist`).
+- A fixed bug gets a regression test.
+- No network. slskd and the HTTP clients are traits, faked in tests.
+- Audio fixtures are synthesised in `tests/support/mod.rs` where possible. The
+  lossy ones are committed under `tests/data/audio` and regenerated by
+  `scripts/make-fixtures.sh`.
+- `tests/properties.rs` holds proptest properties. `PROPTEST_CASES=20000`
+  runs a deeper sweep.
 
 ## Commits
 
-[Conventional commits](https://www.conventionalcommits.org/), one logical change
-each:
-
-```
-feat(matching): add shared romaji-aware fuzzy matching core
-fix(verify): treat a silent file as unanalysable
-docs: rewrite the readme around the cli
-```
-
-Types in use: `feat`, `fix`, `refactor`, `perf`, `test`, `docs`, `chore`, `ci`.
-A `!` after the scope marks a breaking change.
-
-Write the body for someone who was not there: what changed, and what problem it
-solves. If a defect surfaced while writing tests, say what it was.
-
-## Project shape
-
-```
-src/
-  config.rs         layered settings; every tunable lives here
-  models.rs         the domain types shared across layers
-  matching.rs       fuzzy name matching, used by everything
-  organise.rs       the layout pattern, and moving files into it
-  playlist.rs       rendering M3U, so an order can leave the library again
-  replaygain.rs     loudness figures, album grouping, and the tags they become
-  retag.rs          what a fetched file is tagged with, from its review row
-  tagsheet.rs       reading an edited `tags dump` back
-  wantlist/         reading an export into wanted tracks, one reader per
-                    format -- a Discogs collection and a Last.fm profile
-                    through their APIs -- and diffing them against the library
-  identify/         the AcoustID lookup, and choosing a release from its answer
-  text/             normalisation and romaji transliteration
-  library/          scanning, tags, the SQLite index, the --apply write log,
-                    and the per-scan measurements behind `library trend`
-  audio/            decoding, spectral analysis, fingerprinting, the
-                    spectrogram behind `verify --spectrograms`, and the
-                    EBU R 128 loudness scan behind `stk loudness`
-  services.rs       what the public web services share: pacing, identification,
-                    the transport
-  artwork/          providers and the artist-verification guard
-  soulseek/         the client trait, the slskd backend, ranking
-  review/           the review queue, the album view over it -- over the queue,
-                    and over a search for one album -- and the picker that
-                    walks it
-  cli/              one module per command group
-```
-
-There is no `tui/`, and `review/picker.rs` is a prompt loop rather than a
-full-screen app. Every command has `--json` and a meaningful exit code, so the
-tool is scriptable throughout; a full-screen app would reimplement each command's
-presentation and give the project a second place where output is decided. The
-picker takes its input and its transcript as arguments for the same reason the
-spectral classifier is pure: a whole session is then a string of answers in a
-test.
-
-Two rules keep this from drifting back into what it replaced:
-
-1. **One place per concern.** Tags are handled in `library/tags.rs` and nowhere
-   else, audio is decoded in `audio/decode.rs` and nowhere else, and Soulseek's
-   wire format lives in `soulseek/slskd.rs` and nowhere else. Nothing spawns a
-   subprocess: `stk` is one binary and depends on none (#9).
-2. **No literals for things that vary.** Paths, thresholds and term lists are
-   configuration. If you find yourself typing a path into a module, it belongs in
-   `config.rs`.
-
-## Anything that writes to a user's files
-
-Must show its plan and do nothing without `--apply`. A music library is not
-recoverable from a backup nobody made.
-
-It must also log what it wrote, through `library/changes.rs`, so `stk changes
-undo` can put it back. A half-covered log is worse than none: it implies a
-completeness it does not have.
+[Conventional commits](https://www.conventionalcommits.org/), one change each:
+`feat(scope):`, `fix:`, `refactor:`, `perf:`, `test:`, `docs:`, `chore:`,
+`ci:`. The body says what changed and why.
