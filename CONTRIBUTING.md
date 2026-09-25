@@ -41,3 +41,13 @@ set `LINDERA_BUILD_DICTIONARY_CACHE_DIR` to keep it across `cargo clean`.
 [Conventional commits](https://www.conventionalcommits.org/), one change each:
 `feat(scope):`, `fix:`, `refactor:`, `perf:`, `test:`, `docs:`, `chore:`,
 `ci:`. The body says what changed and why.
+
+## Releasing
+
+1. Set `version` in `Cargo.toml`, and rename `[Unreleased]` in the CHANGELOG to
+   `[x.y.z] - YYYY-MM-DD`.
+2. Commit, then `git tag vx.y.z && git push origin main --tags`.
+
+The `Release` workflow checks the tag matches `Cargo.toml`, creates the GitHub
+release from that CHANGELOG section, and attaches binaries for Linux, Windows
+and macOS.

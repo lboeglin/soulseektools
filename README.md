@@ -9,11 +9,16 @@ whatever `--apply` wrote.
 
 ## Install
 
-Needs a Rust toolchain, and [slskd](https://github.com/slskd/slskd) for
-searching and downloading ([setup](docs/slskd-setup.md)).
+Download the archive for your platform from
+[Releases](https://github.com/lboeglin/soulseektools/releases) and put `stk` on
+your PATH. The binaries are unsigned, so macOS and Windows warn on first run.
+To build from source instead, with a Rust toolchain:
+`cargo install --git https://github.com/lboeglin/soulseektools`.
+
+Searching and downloading need [slskd](https://github.com/slskd/slskd)
+([setup](docs/slskd-setup.md)).
 
 ```bash
-cargo install --path .
 stk config init    # writes ./stk.toml; set library.root
 stk doctor         # checks the setup
 ```
