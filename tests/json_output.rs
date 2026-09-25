@@ -54,12 +54,6 @@ impl Home {
         )
         .expect("a written export");
         std::fs::write(scratch.join("sheet.csv"), "path,artist,title\n").expect("a written sheet");
-        std::fs::write(
-            scratch.join("legacy.csv"),
-            "artist,title,cand1_user,cand1_path,approve\n\
-             ZUN,Native Faith,peer,@@peer\\ZUN\\Native Faith.flac,1\n",
-        )
-        .expect("a written legacy review");
         Self { scratch }
     }
 
@@ -304,11 +298,6 @@ const DOCUMENTS: &[(&[&str], i32, Shape)] = &[
     ),
     (&["review", "list"], 0, Shape::Object(&["counts", "tracks"])),
     (&["review", "albums"], 0, Shape::Rows(&[])),
-    (
-        &["review", "import", "legacy.csv"],
-        0,
-        Shape::Object(&["added", "approvals"]),
-    ),
     (&["fetch", "search"], 0, Shape::Rows(SEARCHED)),
     (
         &["sync", "export.csv", "--yes"],

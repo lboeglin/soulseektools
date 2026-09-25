@@ -18,8 +18,7 @@ command, first in Python and then rewritten in Rust.
 - `stk fetch search` and `download` through slskd. Results are ranked on the
   full remote path and scored as a batch that prefers one peer. A stalled peer
   hands its whole group on.
-- `stk review list`, `pick`, `albums` and `approve-album`, and `import` for the
-  old plugin's CSV.
+- `stk review list`, `pick`, `albums` and `approve-album`.
 - `stk sync`, which runs scan, diff, search, pick, download and organise in one
   command.
 - Downloads are tagged from their review row (`fetch.tags`) and verified on

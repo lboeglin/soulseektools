@@ -1,15 +1,13 @@
 //! `stk review`: inspect and decide on the candidates found for each track.
 
-use std::path::PathBuf;
 
 use clap::Subcommand;
 use serde_json::json;
 
-use crate::cli::context::{show, table, AppContext};
+use crate::cli::context::{table, AppContext};
 use crate::errors::Result;
 use crate::models::TrackStatus;
 use crate::review::albums::{self, AlbumOffer};
-use crate::review::legacy_csv::import_csv;
 use crate::review::picker;
 use crate::review::store::{ReviewStore, ReviewTrack};
 
@@ -64,11 +62,6 @@ pub enum ReviewCommand {
         /// Track to search again.
         track_id: i64,
     },
-    /// Load a review CSV written by the Nicotine+ plugin, approvals included.
-    Import {
-        /// A soulseek_review.csv from the old plugin.
-        path: PathBuf,
-    },
 }
 
 #[allow(clippy::needless_pass_by_value)]
@@ -85,7 +78,6 @@ pub fn run(context: &AppContext, command: ReviewCommand) -> Result<i32> {
         ReviewCommand::Approve { track_id, rank } => approve(context, track_id, rank),
         ReviewCommand::Reject { track_id, reason } => reject(context, track_id, &reason),
         ReviewCommand::Reset { track_id } => reset(context, track_id),
-        ReviewCommand::Import { path } => import(context, &path),
     }
 }
 
@@ -436,23 +428,4 @@ fn decided_row(entry: &ReviewTrack) -> serde_json::Value {
         "detail": entry.detail,
         "approved_rank": entry.approved_rank,
     })
-}
-
-fn import(context: &AppContext, path: &std::path::Path) -> Result<i32> {
-    if !path.is_file() {
-        eprintln!("error: no such file: {}", show(path));
-        return Ok(1);
-    }
-
-    let mut store = context.open_review()?;
-    let result = import_csv(path, &mut store)?;
-    if context.as_json {
-        context.emit(&json!({"added": result.added, "approvals": result.approvals}));
-        return Ok(0);
-    }
-    context.say(&format!(
-        "Imported {} new track(s), carrying over {} approval(s)",
-        result.added, result.approvals
-    ));
-    Ok(0)
 }

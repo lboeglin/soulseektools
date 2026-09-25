@@ -1215,30 +1215,6 @@ fn sync_apply_organises_what_arrived_and_scans_it_in() {
 }
 
 #[test]
-fn review_import_reads_a_legacy_csv() {
-    let _guard = exclusive();
-    let harness = Harness::new("cli-review-import");
-    harness.with_config(&harness.join("Music"));
-
-    let csv = harness.join("soulseek_review.csv");
-    std::fs::write(
-        &csv,
-        "artist,title,approve,cand1_user,cand1_path,cand1_size\n\
-         DECO*27,Roki,1,peerA,@@peerA\\Roki.flac,30000000\n",
-    )
-    .expect("a legacy CSV");
-
-    assert_eq!(run(&["review", "import", &csv.display().to_string()]), 0);
-
-    let store = stk::review::store::ReviewStore::open(&harness.join("review.db"))
-        .expect("the review queue");
-    let tracks = store.tracks(&[], None).expect("tracks");
-    assert_eq!(tracks.len(), 1);
-    assert_eq!(tracks[0].approved_rank, Some(1));
-    drop(harness);
-}
-
-#[test]
 fn trend_reports_the_measurements_it_recorded() {
     let _guard = exclusive();
     let harness = Harness::new("cli-trend-report");
