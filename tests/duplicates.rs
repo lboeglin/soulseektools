@@ -243,9 +243,10 @@ fn blocking_does_not_lose_a_match_hidden_in_a_larger_library() {
             .collect();
     assert_eq!(
         found,
-        [duplicated.path.as_path(), Path::new("Elsewhere/copy.flac")]
-            .into_iter()
-            .collect()
+        std::collections::HashSet::from([
+            duplicated.path.as_path(),
+            Path::new("Elsewhere/copy.flac")
+        ])
     );
 }
 
@@ -387,7 +388,10 @@ fn an_undecodable_file_is_skipped_rather_than_aborting_the_run() {
                 .into_owned()
         })
         .collect();
-    assert_eq!(names, ["a.flac".to_owned()].into_iter().collect());
+    assert_eq!(
+        names,
+        std::collections::HashSet::from(["a.flac".to_owned()])
+    );
 }
 
 #[test]

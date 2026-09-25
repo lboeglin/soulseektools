@@ -179,7 +179,7 @@ fn files_from_every_peer_are_returned() {
         .iter()
         .map(|candidate| candidate.username.as_str())
         .collect();
-    assert_eq!(peers, ["peerA", "peerB"].into_iter().collect());
+    assert_eq!(peers, std::collections::HashSet::from(["peerA", "peerB"]));
 }
 
 #[test]
