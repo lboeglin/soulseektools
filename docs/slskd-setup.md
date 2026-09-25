@@ -2,7 +2,13 @@
 
 `stk get`, `fetch` and `sync` search and download through
 [slskd](https://github.com/slskd/slskd), a headless Soulseek client with an
-HTTP API. The other commands work without it.
+HTTP API. The other commands work without it. It has to be running while you
+search or download; `stk` doesn't start it, and fails with "cannot reach
+slskd" when it's down.
+
+slskd runs either as a standalone program (download it from its
+[releases](https://github.com/slskd/slskd/releases), then run `slskd`) or in
+Docker, as below. Either way the API key and `stk` settings are the same.
 
 ## Docker Compose
 
@@ -25,7 +31,8 @@ services:
 
 ## API key
 
-Add a key to `slskd/slskd.yml`, which appears on first run:
+Add a key to slskd's `slskd.yml`, which it creates on first run (in `./slskd`
+with the compose file above):
 
 ```yaml
 web:
