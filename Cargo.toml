@@ -76,7 +76,6 @@ doc_markdown = "allow"
 opt-level = 2
 
 [dev-dependencies]
-criterion = { version = "0.7.0", default-features = false, features = ["cargo_bench_support"] }
 # Writing the audio fixtures this crate has no reason to encode itself.
 flacenc = { version = "0.5.1", default-features = false }
 hound = "3.5.1"
@@ -91,6 +90,3 @@ rusqlite = "0.40.2"
 toml = "1.0.7"
 which = "8.0.6"
 
-[[bench]]
-name = "audio"
-harness = false

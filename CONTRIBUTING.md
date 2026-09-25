@@ -13,9 +13,6 @@ cargo deny check      # cargo install cargo-deny --locked
 CI runs these on Linux, macOS and Windows. The first build downloads IPADIC;
 set `LINDERA_BUILD_DICTIONARY_CACHE_DIR` to keep it across `cargo clean`.
 
-`cargo bench` times name scoring, fingerprinting and spectral analysis
-(`benches/audio.rs`). CI builds the benchmarks but doesn't run them.
-
 ## Code
 
 - Comment only a *why* the code can't say: a measured threshold, a protocol
