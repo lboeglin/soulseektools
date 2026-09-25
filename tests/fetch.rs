@@ -1249,7 +1249,8 @@ fn replace_keeps_what_the_row_cannot_say_and_drops_the_rest() {
     assert_eq!(read.album_artist, "Various");
     assert_eq!(read.track_number, Some(7));
     assert_eq!(read.genres, vec!["Vocaloid".to_owned()]);
-    assert_eq!(tags::artwork_size(&path), 512);
+    let cover = tags::read_artwork(&path).expect("readable tags");
+    assert_eq!(cover.expect("the peer's cover").data.len(), 512);
     assert!(tags::read_extras(&path)
         .expect("readable extras")
         .is_empty());

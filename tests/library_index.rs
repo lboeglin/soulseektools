@@ -4,7 +4,7 @@ mod support;
 
 use std::path::{Path, PathBuf};
 
-use stk::library::index::{default_extensions, describe, LibraryIndex};
+use stk::library::index::{describe, LibraryIndex};
 use stk::library::scan::{iter_audio_files, owning_root, Excludes};
 use stk::library::tags;
 use support::{encode, Encoded, Scratch};
@@ -59,7 +59,13 @@ fn refresh_roots(
     exclude: &Excludes,
 ) -> stk::library::index::RefreshResult {
     index
-        .refresh(roots, default_extensions(), exclude, false, None)
+        .refresh(
+            roots,
+            stk::library::scan::AUDIO_EXTENSIONS,
+            exclude,
+            false,
+            None,
+        )
         .expect("a refresh")
 }
 
@@ -68,7 +74,11 @@ fn scan_walks_nested_album_folders() {
     let scratch = Scratch::new("index-walk");
     let root = library_root(&scratch);
 
-    let found = iter_audio_files(&root, default_extensions(), &Excludes::default());
+    let found = iter_audio_files(
+        &root,
+        stk::library::scan::AUDIO_EXTENSIONS,
+        &Excludes::default(),
+    );
 
     assert!(found.contains(&root.join("ZUN").join("Nested").join("15 Heian Alien.flac")));
     assert_eq!(found.len(), 4);

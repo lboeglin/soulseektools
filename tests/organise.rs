@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 
 use stk::audio::fingerprint::Fingerprint;
 use stk::config::OrganiseSettings;
-use stk::library::index::{default_extensions, describe, LibraryIndex};
+use stk::library::index::{describe, LibraryIndex};
 use stk::library::scan::Excludes;
 use stk::matching::NameForms;
 use stk::models::{LibraryEntry, ReplayGainTags, TrackTags};
@@ -310,8 +310,12 @@ fn a_move_that_fails_is_reported_and_the_rest_carry_on() {
         },
     );
 
-    let entries =
-        loose_entries(&downloads, default_extensions(), &Excludes::default()).expect("entries");
+    let entries = loose_entries(
+        &downloads,
+        stk::library::scan::AUDIO_EXTENSIONS,
+        &Excludes::default(),
+    )
+    .expect("entries");
     let planned = plan_moves(
         &entries,
         &pattern("{artist}/{title}"),

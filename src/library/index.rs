@@ -10,9 +10,7 @@ use rusqlite::{params, params_from_iter, Connection, OptionalExtension};
 use crate::audio::fingerprint::{self, Fingerprint};
 use crate::errors::{Error, Result};
 use crate::library::changes::{Change, ChangeFilter, NewChange};
-use crate::library::scan::{
-    folder_artist, iter_audio_files, owning_root, Excludes, AUDIO_EXTENSIONS,
-};
+use crate::library::scan::{folder_artist, iter_audio_files, owning_root, Excludes};
 use crate::library::stats::LibrarySnapshot;
 use crate::library::tags;
 use crate::matching::NameForms;
@@ -957,9 +955,4 @@ fn row_to_entry(row: &rusqlite::Row<'_>) -> rusqlite::Result<LibraryEntry> {
             r128_album_gain: row.get("r128_album_gain")?,
         },
     })
-}
-
-#[must_use]
-pub fn default_extensions() -> &'static [&'static str] {
-    AUDIO_EXTENSIONS
 }

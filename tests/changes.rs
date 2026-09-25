@@ -6,7 +6,7 @@ mod support;
 use std::path::{Path, PathBuf};
 
 use stk::library::changes::{apply_undo, digest, plan_undo, Blocked, ChangeFilter, ChangeLog};
-use stk::library::index::{default_extensions, LibraryIndex};
+use stk::library::index::LibraryIndex;
 use stk::library::scan::Excludes;
 use stk::library::tags::{self, TagField};
 use stk::models::{Artwork, ReplayGainTags};
@@ -36,7 +36,7 @@ fn indexed(scratch: &Scratch, root: &Path) -> LibraryIndex {
     index
         .refresh(
             std::slice::from_ref(&root.to_path_buf()),
-            default_extensions(),
+            stk::library::scan::AUDIO_EXTENSIONS,
             &Excludes::default(),
             false,
             None,

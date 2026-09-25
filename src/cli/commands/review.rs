@@ -1,6 +1,5 @@
 //! `stk review`: inspect and decide on the candidates found for each track.
 
-
 use clap::Subcommand;
 use serde_json::json;
 

@@ -3,10 +3,18 @@
 mod support;
 
 use std::f64::consts::TAU;
+use std::path::Path;
 
-use stk::audio::loudness::{measure_album, measure_file, measure_samples, Loudness};
+use stk::audio::loudness::{measure_album, measure_samples, Loudness, LoudnessResult};
+
 use stk::config::LoudnessSettings;
 use support::{encode, silence, Encoded, Scratch};
+
+fn measure_file(path: &Path, settings: &LoudnessSettings) -> LoudnessResult {
+    measure_album(&[path.to_path_buf()], settings)
+        .tracks
+        .remove(0)
+}
 
 const RATE: u32 = 48_000;
 

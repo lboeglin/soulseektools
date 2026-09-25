@@ -69,17 +69,6 @@ pub struct Transfer {
     pub error: String,
 }
 
-impl Transfer {
-    #[must_use]
-    #[allow(clippy::cast_precision_loss)]
-    pub fn percent_complete(&self) -> f64 {
-        if self.size == 0 {
-            return 0.0;
-        }
-        100.0 * self.bytes_transferred as f64 / self.size as f64
-    }
-}
-
 /// `Sync`, because searches run concurrently.
 pub trait SoulseekClient: Sync {
     fn is_connected(&self) -> bool;

@@ -31,18 +31,6 @@ pub struct AlbumScan {
     pub album: Option<Loudness>,
 }
 
-#[must_use]
-pub fn measure_file(path: &Path, settings: &LoudnessSettings) -> LoudnessResult {
-    match analyse(path, settings) {
-        Ok(state) => finish(path, &state),
-        Err(error) => LoudnessResult {
-            path: path.to_path_buf(),
-            loudness: None,
-            detail: error.to_string(),
-        },
-    }
-}
-
 /// Analyser state lives only for this call, so memory is bounded by one album.
 #[must_use]
 pub fn measure_album(paths: &[PathBuf], settings: &LoudnessSettings) -> AlbumScan {

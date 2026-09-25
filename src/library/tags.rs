@@ -559,14 +559,6 @@ fn artwork_of(file: &TaggedFile) -> Option<Artwork> {
     })
 }
 
-#[must_use]
-pub fn artwork_size(path: &Path) -> u64 {
-    read_artwork(path)
-        .ok()
-        .flatten()
-        .map_or(0, |artwork| artwork.data.len() as u64)
-}
-
 pub fn write_artwork(path: &Path, artwork: &Artwork) -> Result<()> {
     require_artwork_container(path)?;
     let mut file = read_file(path)?;

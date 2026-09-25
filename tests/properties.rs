@@ -9,7 +9,7 @@ use stk::audio::spectral::classify;
 use stk::config::OrganiseSettings;
 use stk::errors::Error;
 use stk::library::changes::{apply_undo, plan_undo, ChangeFilter, ChangeLog};
-use stk::library::index::{default_extensions, LibraryIndex};
+use stk::library::index::LibraryIndex;
 use stk::library::scan::Excludes;
 use stk::library::tags::{self, TagField};
 use stk::matching::NameForms;
@@ -347,7 +347,7 @@ mod undo {
             index
                 .refresh(
                     std::slice::from_ref(&root),
-                    default_extensions(),
+                    stk::library::scan::AUDIO_EXTENSIONS,
                     &Excludes::default(),
                     false,
                     None,

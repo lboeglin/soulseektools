@@ -359,7 +359,8 @@ fn embeds_a_verified_cover_into_a_real_file() {
 
     embed(&result).expect("an embedded cover");
 
-    assert_eq!(stk::library::tags::artwork_size(&track), 10_000);
+    let embedded = stk::library::tags::read_artwork(&track).expect("readable tags");
+    assert_eq!(embedded.expect("a cover").data.len(), 10_000);
 }
 
 #[test]
