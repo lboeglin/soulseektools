@@ -794,7 +794,15 @@ impl NativeFile {
             }
             _ => return Ok(None),
         };
-        opened.map(Some).map_err(|error| failed(&error))
+        let mut opened = opened.map_err(|error| failed(&error))?;
+        if let (Some(stored), Some(comments)) = (stored_comments(path, kind), opened.comments()) {
+            comments.set_vendor(stored.vendor);
+            comments.take_items().for_each(drop);
+            for (key, value) in stored.items {
+                comments.push(key, value);
+            }
+        }
+        Ok(Some(opened))
     }
 
     /// The Vorbis comments of a FLAC, Ogg or Opus file, created when missing.
@@ -851,8 +859,14 @@ impl NativeFile {
     fn set_track(&mut self, number: Option<i64>) {
         let number = number.and_then(|number| u32::try_from(number).ok());
         if let Some(comments) = self.comments() {
-            let text = number.map(|number| number.to_string()).unwrap_or_default();
-            set_comment(comments, "TRACKNUMBER", &[&text]);
+            // `3/12` and `03` both say track 3; leave them as written.
+            let current = comments
+                .get("TRACKNUMBER")
+                .and_then(|text| text.split('/').next()?.trim().parse::<u32>().ok());
+            if current != number {
+                let text = number.map(|number| number.to_string()).unwrap_or_default();
+                set_comment(comments, "TRACKNUMBER", &[&text]);
+            }
             return;
         }
         let tag: &mut dyn Accessor = if let Some(tag) = self.id3() {
@@ -1058,6 +1072,97 @@ fn set_atom(ilst: &mut lofty::mp4::Ilst, ident: lofty::mp4::AtomIdent<'static>, 
     if let Some(atom) = Atom::from_collection(ident, data) {
         ilst.insert(atom);
     }
+}
+
+struct StoredComments {
+    vendor: String,
+    items: Vec<(String, String)>,
+}
+
+/// The comments exactly as the file stores them. lofty's reader splits
+/// `TRACKNUMBER=3/12`, drops zero padding and re-cases the key, which a save
+/// would then write back. `None` when the block can't be read.
+fn stored_comments(path: &Path, kind: Option<lofty::file::FileType>) -> Option<StoredComments> {
+    use lofty::file::FileType;
+    use std::io::{Read, Seek, SeekFrom};
+
+    let mut file = std::fs::File::open(path).ok()?;
+    let body = match kind? {
+        FileType::Flac => {
+            let mut head = [0_u8; 10];
+            file.read_exact(&mut head).ok()?;
+            if head.starts_with(b"ID3") {
+                let size = head[6..10]
+                    .iter()
+                    .fold(0_u64, |size, byte| (size << 7) | u64::from(byte & 0x7f));
+                let footer = if head[5] & 0x10 == 0 { 0 } else { 10 };
+                file.seek(SeekFrom::Start(10 + size + footer)).ok()?;
+            } else {
+                file.seek(SeekFrom::Start(0)).ok()?;
+            }
+            let mut marker = [0_u8; 4];
+            file.read_exact(&mut marker).ok()?;
+            if &marker != b"fLaC" {
+                return None;
+            }
+            loop {
+                let mut header = [0_u8; 4];
+                file.read_exact(&mut header).ok()?;
+                let length = u32::from_be_bytes([0, header[1], header[2], header[3]]);
+                if header[0] & 0x7f == 4 {
+                    let mut body = vec![0_u8; usize::try_from(length).ok()?];
+                    file.read_exact(&mut body).ok()?;
+                    break body;
+                }
+                if header[0] & 0x80 != 0 {
+                    return None;
+                }
+                file.seek(SeekFrom::Current(i64::from(length))).ok()?;
+            }
+        }
+        FileType::Vorbis | FileType::Opus => {
+            let packets = ogg_pager::Packets::read_count(&mut file, 2).ok()?;
+            let packet = packets.get(1)?;
+            let magic: &[u8] = if kind == Some(FileType::Vorbis) {
+                b"\x03vorbis"
+            } else {
+                b"OpusTags"
+            };
+            packet.strip_prefix(magic)?.to_vec()
+        }
+        _ => return None,
+    };
+    parse_comments(&body)
+}
+
+fn parse_comments(mut data: &[u8]) -> Option<StoredComments> {
+    fn field<'a>(data: &mut &'a [u8]) -> Option<&'a [u8]> {
+        let (length, rest) = data.split_first_chunk::<4>()?;
+        let length = usize::try_from(u32::from_le_bytes(*length)).ok()?;
+        if rest.len() < length {
+            return None;
+        }
+        let (field, rest) = rest.split_at(length);
+        *data = rest;
+        Some(field)
+    }
+
+    let vendor = String::from_utf8_lossy(field(&mut data)?).into_owned();
+    let (count, rest) = data.split_first_chunk::<4>()?;
+    data = rest;
+    let mut items = Vec::new();
+    for _ in 0..u32::from_le_bytes(*count) {
+        let text = std::str::from_utf8(field(&mut data)?).ok();
+        // lofty keeps pictures apart from the other comments, and drops what
+        // isn't UTF-8.
+        let Some((key, value)) = text.and_then(|text| text.split_once('=')) else {
+            continue;
+        };
+        if !key.eq_ignore_ascii_case("METADATA_BLOCK_PICTURE") {
+            items.push((key.to_owned(), value.to_owned()));
+        }
+    }
+    Some(StoredComments { vendor, items })
 }
 
 /// Replace every value under `key` where the first one stood, keeping every

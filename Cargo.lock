@@ -2358,6 +2358,7 @@ dependencies = [
  "image",
  "lindera",
  "lofty",
+ "ogg_pager",
  "plist",
  "proptest",
  "rand 0.9.5",

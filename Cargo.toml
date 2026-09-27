@@ -28,6 +28,8 @@ globset = "0.4.16"
 image = { version = "0.25.9", default-features = false, features = ["png"] }
 lindera = { version = "6.1.0", default-features = false, features = ["embed-ipadic"] }
 lofty = "0.22.2"
+# The raw Ogg comment packet, which lofty only hands back reinterpreted.
+ogg_pager = "0.7.2"
 # Only `plist::Value`, for an Apple Music `Library.xml`; no serde mapping.
 plist = { version = "1.10.1", default-features = false }
 rapidfuzz = "0.5.0"

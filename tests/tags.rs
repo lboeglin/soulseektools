@@ -377,7 +377,7 @@ fn a_vbr_mp3_is_told_from_a_cbr_one_by_its_first_frame() {
     assert!(!tags::mp3_is_vbr(&committed("tagged.mp3")));
 }
 
-/// Alias pairs lofty's generic tag folds into one key, as real files carry them.
+/// Comments lofty would fold together or reformat, as real files carry them.
 const ALIASES: &[(&str, &str)] = &[
     ("LABEL", "KARENT"),
     ("ORGANIZATION", "KARENT"),
@@ -385,6 +385,8 @@ const ALIASES: &[(&str, &str)] = &[
     ("INITIALKEY", "F minor"),
     ("ORIGINALDATE", "2021-06-16"),
     ("ORIGINALYEAR", "2021"),
+    ("tracknumber", "08/12"),
+    ("discnumber", "02"),
 ];
 
 fn vorbis_comments(path: &std::path::Path) -> lofty::ogg::VorbisComments {
@@ -443,7 +445,8 @@ fn set_vorbis_comments(path: &std::path::Path, items: &[(&str, &str)]) {
 #[test]
 fn writes_leave_every_other_vorbis_comment_exactly_as_it_was() {
     // Regression: every write went through lofty's generic tag, which merged
-    // ORGANIZATION into LABEL and KEY into INITIALKEY, and added ENCODER.
+    // ORGANIZATION into LABEL and KEY into INITIALKEY, added ENCODER, and
+    // rewrote TRACKNUMBER=08/12 as 8 plus a TRACKTOTAL.
     let scratch = Scratch::new("tags-vorbis-raw");
     for suffix in ["flac", "ogg", "opus"] {
         let path = encode(&scratch.join(&format!("t.{suffix}")), &Encoded::default());
@@ -470,6 +473,17 @@ fn writes_leave_every_other_vorbis_comment_exactly_as_it_was() {
                 .collect()
         };
         assert_eq!(untouched(&after), untouched(&before), "{suffix}");
+        // lofty's reader reformats some on the way in, so check the bytes too.
+        let bytes = std::fs::read(&path).expect("a readable file");
+        for (key, value) in ALIASES {
+            let stored = format!("{key}={value}");
+            assert!(
+                bytes
+                    .windows(stored.len())
+                    .any(|window| window == stored.as_bytes()),
+                "{suffix}: {stored}"
+            );
+        }
         assert_eq!(after.vendor(), before.vendor(), "{suffix}");
         assert_eq!(after.get("ENCODER"), None, "{suffix}");
         assert_eq!(after.get("TITLE"), Some("Native Faith"), "{suffix}");
