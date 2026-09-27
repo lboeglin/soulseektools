@@ -94,23 +94,35 @@ pub fn find_artwork(
 ) -> ArtworkResult {
     let artist = first_non_empty(&[&entry.tags.artist, &entry.folder_artist, &entry.artist.raw]);
     let title = first_non_empty(&[&entry.tags.title, &entry.title.raw]);
+    // An artist tag crediting several people ("Duca, Puyo Suzuki") finds
+    // nothing where the album artist alone would.
+    let album_artist = &entry.tags.album_artist;
+    let mut artists = vec![artist];
+    if !album_artist.is_empty()
+        && !album_artist.eq_ignore_ascii_case(&artists[0])
+        && !album_artist.eq_ignore_ascii_case("Various Artists")
+    {
+        artists.push(album_artist.clone());
+    }
 
     let mut selection = ArtSelection::none("no providers configured");
-    for provider in providers {
-        match provider.search(http, &artist, &title) {
-            Err(error) => {
-                selection =
-                    ArtSelection::none(&format!("{} unavailable: {error}", provider.name()));
-            }
-            Ok(candidates) => {
-                selection = select(
-                    &candidates,
-                    &artist,
-                    settings.require_artist_match,
-                    settings.artist_match_threshold,
-                );
-                if selection.is_some() {
-                    break;
+    'search: for artist in &artists {
+        for provider in providers {
+            match provider.search(http, artist, &title) {
+                Err(error) => {
+                    selection =
+                        ArtSelection::none(&format!("{} unavailable: {error}", provider.name()));
+                }
+                Ok(candidates) => {
+                    selection = select(
+                        &candidates,
+                        artist,
+                        settings.require_artist_match,
+                        settings.artist_match_threshold,
+                    );
+                    if selection.is_some() {
+                        break 'search;
+                    }
                 }
             }
         }

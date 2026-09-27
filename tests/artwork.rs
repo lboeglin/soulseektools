@@ -27,6 +27,8 @@ struct Recorded {
     json: HashMap<String, Value>,
     bytes: HashMap<String, Vec<u8>>,
     failures: HashMap<String, String>,
+    /// When set, a search for any other term finds nothing.
+    only_term: Option<String>,
     requested: Mutex<Vec<String>>,
 }
 
@@ -60,6 +62,11 @@ impl ServiceHttp for Recorded {
 
         if let Some(message) = self.failures.get(url) {
             return Err(Error::Config(message.clone()));
+        }
+        if let Some(term) = &self.only_term {
+            if !query.contains(&format!("term={term}")) {
+                return Ok(json!({"results": []}));
+            }
         }
         self.json
             .get(url)
@@ -377,4 +384,30 @@ fn a_slow_provider_does_not_pace_a_fast_one() {
     fast.search(&http, "a", "b").expect("a search");
 
     assert!(started.elapsed().as_secs_f64() < 0.05);
+}
+
+#[test]
+fn an_artist_tag_crediting_several_people_falls_back_to_the_album_artist() {
+    let settings = itunes_only();
+    let http = Recorded {
+        only_term: Some("Duca Nekoichi".to_owned()),
+        ..Recorded::default()
+    }
+    .json_at(
+        stk::artwork::itunes::SEARCH_URL,
+        json!({"results": [{
+            "artworkUrl100": "https://is1.test/100x100bb.jpg",
+            "artistName": "Duca", "trackName": "Nekoichi"
+        }]}),
+    )
+    .bytes_at("https://is1.test/1200x1200bb.jpg", jpeg(10_000));
+    let mut credited = entry("Duca, Puyo Suzuki, Peak A Soul+", "Nekoichi", 0);
+    credited.tags.album_artist = "Duca".to_owned();
+
+    let providers = build_providers(&settings).expect("providers");
+    let result = find_artwork(&credited, &providers, &settings, &http);
+
+    assert!(result.ok(), "{}", result.error);
+    let searches = http.requested.lock().expect("the recorder").clone();
+    assert!(searches[1].contains("term=Duca Nekoichi"), "{searches:?}");
 }
