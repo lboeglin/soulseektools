@@ -157,6 +157,10 @@ fn write(context: &AppContext, entries: &[PlaylistEntry], output: &OutputArgs) -
 
     let Some(destination) = &output.output else {
         print!("{text}");
+        // On stderr, so the playlist on stdout stays clean.
+        if entries.is_empty() {
+            eprintln!("No indexed file matched, so the playlist is empty.");
+        }
         return Ok(0);
     };
 
