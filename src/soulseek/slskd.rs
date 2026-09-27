@@ -16,6 +16,8 @@ pub const API_KEY_HEADER: &str = "X-API-Key";
 const POLL_INTERVAL: Duration = Duration::from_secs(1);
 const SEARCH_GRACE: Duration = Duration::from_secs(5);
 const MIN_SEARCH_SECONDS: u32 = 5;
+const RATE_LIMIT_BACKOFF: Duration = Duration::from_millis(500);
+const MAX_RATE_LIMIT_BACKOFF: Duration = Duration::from_secs(8);
 
 /// Order matters: "Completed, Errored" is a failure, not a success.
 const TERMINAL_STATES: &[(&str, TransferState)] = &[
@@ -225,7 +227,11 @@ impl<H: Http> SoulseekClient for SlskdClient<H> {
     }
 }
 
+/// The counter keeps concurrent searches apart: the clock alone gave two of
+/// them the same id, and slskd refused the second.
 fn new_search_id() -> String {
+    static SEQUENCE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let sequence = SEQUENCE.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default();
@@ -235,7 +241,7 @@ fn new_search_id() -> String {
         (now.subsec_nanos() >> 16) & 0xffff,
         now.subsec_nanos() & 0xfff,
         std::process::id() & 0xfff,
-        u64::from(now.subsec_nanos()) << 16 | u64::from(std::process::id() & 0xffff)
+        (sequence << 16 | u64::from(std::process::id() & 0xffff)) & 0xffff_ffff_ffff
     )
 }
 
@@ -396,17 +402,33 @@ impl Http for HttpTransport {
         let method = reqwest::Method::from_bytes(method.as_bytes())
             .map_err(|error| Error::SoulseekClient(format!("bad method: {error}")))?;
 
-        let mut request = self.client.request(method.clone(), &url);
-        for (name, value) in &self.headers {
-            request = request.header(name, value);
-        }
-        if let Some(body) = body {
-            request = request.json(body);
-        }
-
-        let response = request.send().map_err(|error| {
-            Error::SoulseekClient(format!("cannot reach slskd at {}: {error}", self.base_url))
-        })?;
+        // slskd refuses searches started in a burst with 429, so concurrent
+        // searches back off and try again.
+        let mut delay = RATE_LIMIT_BACKOFF;
+        let response = loop {
+            let mut request = self.client.request(method.clone(), &url);
+            for (name, value) in &self.headers {
+                request = request.header(name, value);
+            }
+            if let Some(body) = body {
+                request = request.json(body);
+            }
+            let response = request.send().map_err(|error| {
+                Error::SoulseekClient(format!("cannot reach slskd at {}: {error}", self.base_url))
+            })?;
+            if response.status() != reqwest::StatusCode::TOO_MANY_REQUESTS
+                || delay > MAX_RATE_LIMIT_BACKOFF
+            {
+                break response;
+            }
+            let asked = response
+                .headers()
+                .get(reqwest::header::RETRY_AFTER)
+                .and_then(|value| value.to_str().ok()?.parse::<u64>().ok())
+                .map(Duration::from_secs);
+            std::thread::sleep(asked.unwrap_or(delay).min(MAX_RATE_LIMIT_BACKOFF));
+            delay *= 2;
+        };
 
         let status = response.status();
         if !status.is_success() {

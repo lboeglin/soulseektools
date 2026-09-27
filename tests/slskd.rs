@@ -331,3 +331,26 @@ fn soulseek_state_flags_collapse_to_one_outcome() {
         );
     }
 }
+
+#[test]
+fn concurrent_searches_get_distinct_ids() {
+    let client = client(searching());
+    std::thread::scope(|scope| {
+        for _ in 0..8 {
+            scope.spawn(|| {
+                for _ in 0..20 {
+                    client.search("x", 15, 200).expect("a search");
+                }
+            });
+        }
+    });
+
+    let recorder = client.into_http();
+    let ids: Vec<String> = recorder
+        .calls_to("POST", "/searches")
+        .into_iter()
+        .filter_map(|(_, body)| Some(body?["id"].as_str()?.to_owned()))
+        .collect();
+    let distinct: std::collections::HashSet<&String> = ids.iter().collect();
+    assert_eq!((ids.len(), distinct.len()), (160, 160));
+}
