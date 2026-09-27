@@ -24,6 +24,8 @@ struct FakeClient {
     transfers: Vec<Transfer>,
     search_error: Option<String>,
     enqueue_error: Option<String>,
+    /// This many searches find nothing first, as dropped ones do.
+    dropped_searches: usize,
     searched: Mutex<Vec<String>>,
     enqueued: Mutex<Vec<(String, String)>>,
     cancelled: Mutex<Vec<(String, String)>>,
@@ -55,8 +57,14 @@ impl SoulseekClient for FakeClient {
             .lock()
             .expect("the fake is not poisoned")
             .push(text.to_owned());
+        let asked = self
+            .searched
+            .lock()
+            .expect("the fake is not poisoned")
+            .len();
         match &self.search_error {
             Some(error) => Err(Error::SoulseekClient(error.clone())),
+            None if asked <= self.dropped_searches => Ok(Vec::new()),
             None => Ok(self.candidates.clone()),
         }
     }
@@ -444,6 +452,35 @@ fn downloaded_path_keeps_only_the_filename() {
 }
 
 /// By rendezvous, not timing: each search blocks until a second one joins it.
+#[test]
+fn a_search_dropped_in_a_burst_is_asked_again_on_its_own() {
+    let scratch = Scratch::new("fetch-dropped-search");
+    let mut settings = settings(&scratch);
+    settings.slskd.search_concurrency = 4;
+    let mut store = store(&scratch);
+    store
+        .add(&[
+            Track::new("DECO*27", "Roki"),
+            Track::new("DECO*27", "Ghost Rule"),
+        ])
+        .expect("added tracks");
+    let client = FakeClient {
+        dropped_searches: 2,
+        ..FakeClient::with_candidates(vec![
+            candidate("@@peerA\\DECO*27\\Roki.flac"),
+            candidate("@@peerA\\DECO*27\\Ghost Rule.flac"),
+        ])
+    };
+
+    let outcomes = fetch::search_pending(&mut store, &client, &settings, None).expect("a search");
+
+    assert_eq!(client.searched.lock().expect("the fake").len(), 4);
+    assert!(
+        outcomes.iter().all(|outcome| outcome.found > 0),
+        "{outcomes:?}"
+    );
+}
+
 #[test]
 fn searches_run_concurrently_rather_than_one_after_another() {
     use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};

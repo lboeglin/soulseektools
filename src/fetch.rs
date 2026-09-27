@@ -152,13 +152,21 @@ fn search_concurrently(
     }
 
     // Its own pool: these threads wait on sockets, so core count is irrelevant.
-    rayon::ThreadPoolBuilder::new()
+    let mut results: Vec<_> = rayon::ThreadPoolBuilder::new()
         .num_threads(workers)
         .build()
         .map_or_else(
             |_| pending.iter().map(search).collect(),
             |pool| pool.install(|| pending.par_iter().map(search).collect()),
-        )
+        );
+    // The Soulseek server silently drops searches that arrive in a burst, so
+    // one that found nothing is asked again on its own.
+    for (entry, result) in pending.iter().zip(results.iter_mut()) {
+        if matches!(result, Ok(found) if found.is_empty()) {
+            *result = search(entry);
+        }
+    }
+    results
 }
 
 #[derive(Debug, Clone, PartialEq)]
