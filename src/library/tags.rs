@@ -293,6 +293,17 @@ pub const GENRE_SEPARATOR: &str = "; ";
 
 /// Total rather than a patch: an empty value removes the key. Pictures are left alone.
 pub fn write_tags(path: &Path, tags: &TrackTags) -> Result<()> {
+    if let Some(mut file) = NativeFile::open(path)? {
+        file.set(Field::Artist, &[&tags.artist]);
+        file.set(Field::AlbumArtist, &[&tags.album_artist]);
+        file.set(Field::Album, &[&tags.album]);
+        file.set(Field::Title, &[&tags.title]);
+        file.set_track(tags.track_number);
+        let genres: Vec<&str> = tags.genres.iter().map(String::as_str).collect();
+        file.set(Field::Genre, &genres);
+        return file.save(path);
+    }
+
     let mut file = read_file(path)?;
     let tag_type = existing_or_default_tag_type(&file);
     let tag = tag_for_writing(&mut file, tag_type);
@@ -339,6 +350,12 @@ pub fn write_tags(path: &Path, tags: &TrackTags) -> Result<()> {
 }
 
 pub fn write_genres(path: &Path, genres: &[String]) -> Result<()> {
+    if let Some(mut file) = NativeFile::open(path)? {
+        let values: Vec<&str> = genres.iter().map(String::as_str).collect();
+        file.set(Field::Genre, &values);
+        return file.save(path);
+    }
+
     let values: Vec<&String> = genres.iter().filter(|genre| !genre.is_empty()).collect();
     let mut file = read_file(path)?;
     let tag_type = existing_or_default_tag_type(&file);
@@ -387,6 +404,20 @@ fn is_kept(key: &ItemKey) -> bool {
 
 /// Binary items are skipped.
 pub fn read_extras(path: &Path) -> Result<Vec<Extra>> {
+    if let Some(comments) = NativeFile::open(path)?
+        .as_mut()
+        .and_then(NativeFile::comments)
+    {
+        return Ok(comments
+            .items()
+            .filter(|(key, _)| !vorbis_kept(key))
+            .map(|(key, value)| Extra {
+                key: key.to_owned(),
+                value: value.to_owned(),
+                locator: false,
+            })
+            .collect());
+    }
     Ok(extras_of(&read_file(path)?))
 }
 
@@ -423,6 +454,28 @@ fn spell_key(key: &ItemKey, tag_type: TagType) -> String {
 
 /// Total rather than a patch, so an undo puts back exactly what was logged.
 pub fn write_extras(path: &Path, extras: &[Extra]) -> Result<()> {
+    let mut native = NativeFile::open(path)?;
+    if let Some(comments) = native.as_mut().and_then(NativeFile::comments) {
+        let current = comments.items().filter(|(key, _)| !vorbis_kept(key));
+        if current.eq(extras
+            .iter()
+            .map(|extra| (extra.key.as_str(), extra.value.as_str())))
+        {
+            return Ok(());
+        }
+        let kept: Vec<(String, String)> = comments
+            .take_items()
+            .filter(|(key, _)| vorbis_kept(key))
+            .collect();
+        for (key, value) in kept {
+            comments.push(key, value);
+        }
+        for extra in extras {
+            comments.push(extra.key.clone(), extra.value.clone());
+        }
+        return native.as_ref().map_or(Ok(()), |file| file.save(path));
+    }
+
     let mut file = read_file(path)?;
     let tag_type = existing_or_default_tag_type(&file);
     let tag = tag_for_writing(&mut file, tag_type);
@@ -480,6 +533,20 @@ fn replay_gain_of(file: &TaggedFile) -> ReplayGainTags {
 
 /// Total rather than a patch, so an undo never restores a gain without its peak.
 pub fn write_replay_gain(path: &Path, gain: &ReplayGainTags) -> Result<()> {
+    if let Some(mut file) = NativeFile::open(path)? {
+        for (key, value) in [
+            ("REPLAYGAIN_TRACK_GAIN", &gain.track_gain),
+            ("REPLAYGAIN_TRACK_PEAK", &gain.track_peak),
+            ("REPLAYGAIN_ALBUM_GAIN", &gain.album_gain),
+            ("REPLAYGAIN_ALBUM_PEAK", &gain.album_peak),
+            (R128_TRACK_GAIN, &gain.r128_track_gain),
+            (R128_ALBUM_GAIN, &gain.r128_album_gain),
+        ] {
+            file.set_gain(key, value.as_deref());
+        }
+        return file.save(path);
+    }
+
     let mut file = read_file(path)?;
     let tag_type = existing_or_default_tag_type(&file);
     let tag = tag_for_writing(&mut file, tag_type);
@@ -561,8 +628,6 @@ fn artwork_of(file: &TaggedFile) -> Option<Artwork> {
 
 pub fn write_artwork(path: &Path, artwork: &Artwork) -> Result<()> {
     require_artwork_container(path)?;
-    let mut file = read_file(path)?;
-    let tag_type = existing_or_default_tag_type(&file);
     let mime = match artwork.mime.as_str() {
         "image/png" => MimeType::Png,
         _ => MimeType::Jpeg,
@@ -574,6 +639,13 @@ pub fn write_artwork(path: &Path, artwork: &Artwork) -> Result<()> {
         artwork.data.clone(),
     );
 
+    if let Some(mut file) = NativeFile::open(path)? {
+        file.replace_pictures(Some(picture))?;
+        return file.save(path);
+    }
+
+    let mut file = read_file(path)?;
+    let tag_type = existing_or_default_tag_type(&file);
     let tag = tag_for_writing(&mut file, tag_type);
     while !tag.pictures().is_empty() {
         tag.remove_picture(0);
@@ -586,6 +658,11 @@ pub fn write_artwork(path: &Path, artwork: &Artwork) -> Result<()> {
 
 pub fn clear_artwork(path: &Path) -> Result<()> {
     require_artwork_container(path)?;
+    if let Some(mut file) = NativeFile::open(path)? {
+        file.replace_pictures(None)?;
+        return file.save(path);
+    }
+
     let mut file = read_file(path)?;
     let tag_type = existing_or_default_tag_type(&file);
     let tag = tag_for_writing(&mut file, tag_type);
@@ -624,4 +701,420 @@ fn existing_or_default_tag_type(file: &TaggedFile) -> TagType {
     file.primary_tag()
         .or_else(|| file.first_tag())
         .map_or_else(|| file.primary_tag_type(), Tag::tag_type)
+}
+
+/// A file edited through its own tag format, one field at a time. lofty's
+/// generic `Tag` rewrites the whole block on save, folding aliases together
+/// (ORGANIZATION into LABEL), dropping multi-valued frames down to one value,
+/// losing lyrics languages and ratings, and adding an ENCODER field.
+enum NativeFile {
+    Flac(lofty::flac::FlacFile),
+    Ogg(lofty::ogg::VorbisFile),
+    Opus(lofty::ogg::OpusFile),
+    Mpeg(lofty::mpeg::MpegFile),
+    Mp4(lofty::mp4::Mp4File),
+}
+
+/// A field stk writes, spelled per format.
+#[derive(Clone, Copy)]
+enum Field {
+    Artist,
+    AlbumArtist,
+    Album,
+    Title,
+    Genre,
+}
+
+impl Field {
+    fn vorbis(self) -> &'static str {
+        match self {
+            Self::Artist => "ARTIST",
+            Self::AlbumArtist => "ALBUMARTIST",
+            Self::Album => "ALBUM",
+            Self::Title => "TITLE",
+            Self::Genre => "GENRE",
+        }
+    }
+
+    fn id3(self) -> &'static str {
+        match self {
+            Self::Artist => "TPE1",
+            Self::AlbumArtist => "TPE2",
+            Self::Album => "TALB",
+            Self::Title => "TIT2",
+            Self::Genre => "TCON",
+        }
+    }
+
+    fn mp4(self) -> [u8; 4] {
+        match self {
+            Self::Artist => *b"\xa9ART",
+            Self::AlbumArtist => *b"aART",
+            Self::Album => *b"\xa9alb",
+            Self::Title => *b"\xa9nam",
+            Self::Genre => *b"\xa9gen",
+        }
+    }
+}
+
+impl NativeFile {
+    /// `None` for a container stk writes through the generic tag, such as WAV.
+    fn open(path: &Path) -> Result<Option<Self>> {
+        use lofty::file::FileType;
+
+        let failed = |error: &dyn fmt::Display| Error::Tag(format!("{}: {error}", path.display()));
+        let kind = lofty::probe::Probe::open(path)
+            .map_err(|error| failed(&error))?
+            .guess_file_type()
+            .map_err(|error| failed(&error))?
+            .file_type();
+
+        let mut file = std::fs::File::open(path).map_err(|error| failed(&error))?;
+        let parse = lofty::config::ParseOptions::new();
+        let opened = match kind {
+            Some(FileType::Flac) => {
+                lofty::flac::FlacFile::read_from(&mut file, parse).map(Self::Flac)
+            }
+            Some(FileType::Vorbis) => {
+                lofty::ogg::VorbisFile::read_from(&mut file, parse).map(Self::Ogg)
+            }
+            Some(FileType::Opus) => {
+                lofty::ogg::OpusFile::read_from(&mut file, parse).map(Self::Opus)
+            }
+            Some(FileType::Mpeg) => {
+                lofty::mpeg::MpegFile::read_from(&mut file, parse).map(Self::Mpeg)
+            }
+            Some(FileType::Mp4) => {
+                lofty::mp4::Mp4File::read_from(&mut file, parse).map(|mut mp4| {
+                    if let Some(ilst) = mp4.ilst_mut() {
+                        keep_integer_widths(ilst);
+                    }
+                    Self::Mp4(mp4)
+                })
+            }
+            _ => return Ok(None),
+        };
+        opened.map(Some).map_err(|error| failed(&error))
+    }
+
+    /// The Vorbis comments of a FLAC, Ogg or Opus file, created when missing.
+    fn comments(&mut self) -> Option<&mut lofty::ogg::VorbisComments> {
+        match self {
+            Self::Flac(flac) => {
+                if flac.vorbis_comments().is_none() {
+                    flac.set_vorbis_comments(lofty::ogg::VorbisComments::default());
+                }
+                flac.vorbis_comments_mut()
+            }
+            Self::Ogg(ogg) => Some(ogg.vorbis_comments_mut()),
+            Self::Opus(opus) => Some(opus.vorbis_comments_mut()),
+            Self::Mpeg(_) | Self::Mp4(_) => None,
+        }
+    }
+
+    fn id3(&mut self) -> Option<&mut lofty::id3::v2::Id3v2Tag> {
+        let Self::Mpeg(mpeg) = self else {
+            return None;
+        };
+        if mpeg.id3v2().is_none() {
+            mpeg.set_id3v2(lofty::id3::v2::Id3v2Tag::default());
+        }
+        mpeg.id3v2_mut()
+    }
+
+    fn ilst(&mut self) -> Option<&mut lofty::mp4::Ilst> {
+        let Self::Mp4(mp4) = self else {
+            return None;
+        };
+        if mp4.ilst().is_none() {
+            mp4.set_ilst(lofty::mp4::Ilst::default());
+        }
+        mp4.ilst_mut()
+    }
+
+    fn set(&mut self, field: Field, values: &[&str]) {
+        let values: Vec<&str> = values
+            .iter()
+            .copied()
+            .filter(|value| !value.is_empty())
+            .collect();
+        if let Some(comments) = self.comments() {
+            set_comment(comments, field.vorbis(), &values);
+        } else if let Some(tag) = self.id3() {
+            // One frame, values NUL-separated, as ID3v2.4 specifies.
+            set_id3_text(tag, field.id3(), &values.join("\0"));
+        } else if let Some(ilst) = self.ilst() {
+            set_atom(ilst, lofty::mp4::AtomIdent::Fourcc(field.mp4()), &values);
+        }
+    }
+
+    fn set_track(&mut self, number: Option<i64>) {
+        let number = number.and_then(|number| u32::try_from(number).ok());
+        if let Some(comments) = self.comments() {
+            let text = number.map(|number| number.to_string()).unwrap_or_default();
+            set_comment(comments, "TRACKNUMBER", &[&text]);
+            return;
+        }
+        let tag: &mut dyn Accessor = if let Some(tag) = self.id3() {
+            tag
+        } else if let Some(ilst) = self.ilst() {
+            ilst
+        } else {
+            return;
+        };
+        if tag.track() == number {
+            return;
+        }
+        match number {
+            Some(number) => tag.set_track(number),
+            None => tag.remove_track(),
+        }
+    }
+
+    fn set_gain(&mut self, key: &str, value: Option<&str>) {
+        let value = value.filter(|value| !value.is_empty());
+        if let Some(comments) = self.comments() {
+            set_comment(comments, key, &[value.unwrap_or_default()]);
+        } else if let Some(tag) = self.id3() {
+            set_user_text(tag, key, value);
+        } else if let Some(ilst) = self.ilst() {
+            use lofty::mp4::AtomIdent;
+
+            // Taggers disagree on case; keep the file's spelling, drop duplicates.
+            let names: Vec<String> = (&*ilst)
+                .into_iter()
+                .filter_map(|atom| match atom.ident() {
+                    AtomIdent::Freeform { mean, name }
+                        if mean == "com.apple.iTunes" && name.eq_ignore_ascii_case(key) =>
+                    {
+                        Some(name.to_string())
+                    }
+                    _ => None,
+                })
+                .collect();
+            let freeform = |name: String| AtomIdent::Freeform {
+                mean: "com.apple.iTunes".into(),
+                name: name.into(),
+            };
+            for duplicate in names.iter().skip(1) {
+                ilst.remove(&freeform(duplicate.clone())).for_each(drop);
+            }
+            let name = names.into_iter().next().unwrap_or_else(|| key.to_owned());
+            set_atom(ilst, freeform(name), value.as_slice());
+        }
+    }
+
+    fn replace_pictures(&mut self, picture: Option<Picture>) -> Result<()> {
+        use lofty::ogg::OggPictureStorage;
+
+        let failed = |error: lofty::error::LoftyError| Error::Tag(error.to_string());
+        match self {
+            Self::Flac(flac) => {
+                flac.remove_pictures();
+                if let Some(picture) = picture {
+                    flac.insert_picture(picture, None).map_err(failed)?;
+                }
+            }
+            Self::Ogg(_) | Self::Opus(_) => {
+                let comments = self.comments().expect("an Ogg file has comments");
+                comments.remove_pictures();
+                if let Some(picture) = picture {
+                    comments.insert_picture(picture, None).map_err(failed)?;
+                }
+            }
+            Self::Mpeg(_) => {
+                let tag = self.id3().expect("an MP3 has an ID3v2 tag");
+                let apic = lofty::id3::v2::FrameId::Valid("APIC".into());
+                tag.remove(&apic).for_each(drop);
+                if let Some(picture) = picture {
+                    tag.insert_picture(picture);
+                }
+            }
+            Self::Mp4(_) => {
+                let ilst = self.ilst().expect("an MP4 has an ilst");
+                ilst.remove_pictures();
+                if let Some(picture) = picture {
+                    ilst.insert_picture(picture);
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn save(&self, path: &Path) -> Result<()> {
+        let options = WriteOptions::default();
+        match self {
+            Self::Flac(file) => file.save_to_path(path, options),
+            Self::Ogg(file) => file.save_to_path(path, options),
+            Self::Opus(file) => file.save_to_path(path, options),
+            Self::Mpeg(file) => file.save_to_path(path, options),
+            Self::Mp4(file) => file.save_to_path(path, options),
+        }
+        .map_err(|error| Error::Tag(format!("{}: {error}", path.display())))
+    }
+}
+
+/// Taggers disagree on the case of TXXX descriptions; keep the file's
+/// spelling and drop duplicates.
+fn set_user_text(tag: &mut lofty::id3::v2::Id3v2Tag, key: &str, value: Option<&str>) {
+    use lofty::id3::v2::{ExtendedTextFrame, Frame};
+
+    let is_key = |frame: &Frame<'_>| matches!(frame, Frame::UserText(text) if text.description.eq_ignore_ascii_case(key));
+    let current: Vec<&ExtendedTextFrame<'_>> = (&*tag)
+        .into_iter()
+        .filter_map(|frame| match frame {
+            Frame::UserText(text) if is_key(frame) => Some(text),
+            _ => None,
+        })
+        .collect();
+    if current.iter().map(|text| text.content.as_str()).eq(value) {
+        return;
+    }
+    let description = current
+        .first()
+        .map_or(key, |text| text.description.as_str())
+        .to_owned();
+    tag.retain(|frame| !is_key(frame));
+    if let Some(value) = value {
+        tag.insert(Frame::UserText(ExtendedTextFrame::new(
+            lofty::TextEncoding::UTF8,
+            description,
+            value.to_owned(),
+        )));
+    }
+}
+
+fn set_id3_text(tag: &mut lofty::id3::v2::Id3v2Tag, id: &'static str, value: &str) {
+    use lofty::id3::v2::{Frame, FrameId, TextInformationFrame};
+
+    let frame_id = FrameId::Valid(id.into());
+    if tag.get_text(&frame_id).unwrap_or_default() == value {
+        return;
+    }
+    tag.remove(&frame_id).for_each(drop);
+    if !value.is_empty() {
+        tag.insert(Frame::Text(TextInformationFrame::new(
+            frame_id,
+            lofty::TextEncoding::UTF8,
+            value.to_owned(),
+        )));
+    }
+}
+
+/// lofty writes every signed integer atom as four bytes, but players read
+/// these as one byte (two for `tmpo`) and would see 0.
+fn keep_integer_widths(ilst: &mut lofty::mp4::Ilst) {
+    use lofty::mp4::{Atom, AtomData, AtomIdent, DataType};
+
+    const WIDTHS: [([u8; 4], usize); 7] = [
+        (*b"rtng", 1),
+        (*b"stik", 1),
+        (*b"pgap", 1),
+        (*b"hdvd", 1),
+        (*b"akID", 1),
+        (*b"shwm", 1),
+        (*b"tmpo", 2),
+    ];
+    for (fourcc, width) in WIDTHS {
+        let ident = AtomIdent::Fourcc(fourcc);
+        let Some(&AtomData::SignedInteger(value)) =
+            ilst.get(&ident).and_then(|atom| atom.data().next())
+        else {
+            continue;
+        };
+        let data = value.to_be_bytes()[4 - width..].to_vec();
+        ilst.replace_atom(Atom::new(
+            ident,
+            AtomData::Unknown {
+                code: DataType::BeSignedInteger,
+                data,
+            },
+        ));
+    }
+}
+
+fn set_atom(ilst: &mut lofty::mp4::Ilst, ident: lofty::mp4::AtomIdent<'static>, values: &[&str]) {
+    use lofty::mp4::{Atom, AtomData};
+
+    let current: Vec<&str> = ilst
+        .get(&ident)
+        .map(|atom| {
+            atom.data()
+                .filter_map(|data| match data {
+                    AtomData::UTF8(text) => Some(text.as_str()),
+                    _ => None,
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    if current == values {
+        return;
+    }
+    ilst.remove(&ident).for_each(drop);
+    let data = values
+        .iter()
+        .map(|value| AtomData::UTF8((*value).to_owned()))
+        .collect();
+    if let Some(atom) = Atom::from_collection(ident, data) {
+        ilst.insert(atom);
+    }
+}
+
+/// Replace every value under `key` where the first one stood, keeping every
+/// other comment in its place. Does nothing when the values already match.
+fn set_comment(comments: &mut lofty::ogg::VorbisComments, key: &str, values: &[&str]) {
+    let wanted: Vec<&str> = values
+        .iter()
+        .copied()
+        .filter(|value| !value.is_empty())
+        .collect();
+    if comments.get_all(key).eq(wanted.iter().copied()) {
+        return;
+    }
+    let mut placed = false;
+    for (existing, value) in comments.take_items().collect::<Vec<_>>() {
+        if !existing.eq_ignore_ascii_case(key) {
+            comments.push(existing, value);
+        } else if !placed {
+            placed = true;
+            for value in &wanted {
+                comments.push(key.to_owned(), (*value).to_owned());
+            }
+        }
+    }
+    if !placed {
+        for value in wanted {
+            comments.push(key.to_owned(), value.to_owned());
+        }
+    }
+}
+
+/// Vorbis keys `read_extras` leaves out, as `is_kept` does for other formats.
+const VORBIS_KEPT: &[&str] = &[
+    "ARTIST",
+    "ALBUMARTIST",
+    "ALBUM",
+    "TITLE",
+    "TRACKNUMBER",
+    "TRACKTOTAL",
+    "TOTALTRACKS",
+    "DISCNUMBER",
+    "DISCTOTAL",
+    "TOTALDISCS",
+    "GENRE",
+    "ENCODER",
+    "ENCODING",
+    "ENCODERSETTINGS",
+    "REPLAYGAIN_TRACK_GAIN",
+    "REPLAYGAIN_TRACK_PEAK",
+    "REPLAYGAIN_ALBUM_GAIN",
+    "REPLAYGAIN_ALBUM_PEAK",
+    R128_TRACK_GAIN,
+    R128_ALBUM_GAIN,
+];
+
+fn vorbis_kept(key: &str) -> bool {
+    VORBIS_KEPT
+        .iter()
+        .any(|kept| kept.eq_ignore_ascii_case(key))
 }

@@ -376,3 +376,187 @@ fn a_vbr_mp3_is_told_from_a_cbr_one_by_its_first_frame() {
     assert!(!tags::mp3_is_vbr(&committed("noise-320k.mp3")));
     assert!(!tags::mp3_is_vbr(&committed("tagged.mp3")));
 }
+
+/// Alias pairs lofty's generic tag folds into one key, as real files carry them.
+const ALIASES: &[(&str, &str)] = &[
+    ("LABEL", "KARENT"),
+    ("ORGANIZATION", "KARENT"),
+    ("KEY", "F minor"),
+    ("INITIALKEY", "F minor"),
+    ("ORIGINALDATE", "2021-06-16"),
+    ("ORIGINALYEAR", "2021"),
+];
+
+fn vorbis_comments(path: &std::path::Path) -> lofty::ogg::VorbisComments {
+    use lofty::file::AudioFile;
+    let mut file = std::fs::File::open(path).expect("a readable file");
+    let parse = lofty::config::ParseOptions::new();
+    match path.extension().and_then(|e| e.to_str()) {
+        Some("flac") => lofty::flac::FlacFile::read_from(&mut file, parse)
+            .expect("a flac")
+            .vorbis_comments()
+            .cloned()
+            .unwrap_or_default(),
+        Some("ogg") => lofty::ogg::VorbisFile::read_from(&mut file, parse)
+            .expect("an ogg")
+            .vorbis_comments()
+            .clone(),
+        _ => lofty::ogg::OpusFile::read_from(&mut file, parse)
+            .expect("an opus")
+            .vorbis_comments()
+            .clone(),
+    }
+}
+
+fn set_vorbis_comments(path: &std::path::Path, items: &[(&str, &str)]) {
+    use lofty::config::WriteOptions;
+    use lofty::file::AudioFile;
+    let mut comments = lofty::ogg::VorbisComments::default();
+    for (key, value) in items {
+        comments.push((*key).to_owned(), (*value).to_owned());
+    }
+    let mut file = std::fs::File::open(path).expect("a readable file");
+    let parse = lofty::config::ParseOptions::new();
+    match path.extension().and_then(|e| e.to_str()) {
+        Some("flac") => {
+            let mut flac = lofty::flac::FlacFile::read_from(&mut file, parse).expect("a flac");
+            flac.set_vorbis_comments(comments);
+            drop(file);
+            flac.save_to_path(path, WriteOptions::default())
+        }
+        Some("ogg") => {
+            let mut ogg = lofty::ogg::VorbisFile::read_from(&mut file, parse).expect("an ogg");
+            ogg.set_vorbis_comments(comments);
+            drop(file);
+            ogg.save_to_path(path, WriteOptions::default())
+        }
+        _ => {
+            let mut opus = lofty::ogg::OpusFile::read_from(&mut file, parse).expect("an opus");
+            opus.set_vorbis_comments(comments);
+            drop(file);
+            opus.save_to_path(path, WriteOptions::default())
+        }
+    }
+    .expect("written comments");
+}
+
+#[test]
+fn writes_leave_every_other_vorbis_comment_exactly_as_it_was() {
+    // Regression: every write went through lofty's generic tag, which merged
+    // ORGANIZATION into LABEL and KEY into INITIALKEY, and added ENCODER.
+    let scratch = Scratch::new("tags-vorbis-raw");
+    for suffix in ["flac", "ogg", "opus"] {
+        let path = encode(&scratch.join(&format!("t.{suffix}")), &Encoded::default());
+        let mut items = ALIASES.to_vec();
+        items.push(("TITLE", "Heian Alien"));
+        set_vorbis_comments(&path, &items);
+        let before = vorbis_comments(&path);
+
+        let mut edited = tags::read_tags(&path).expect("readable tags");
+        edited.title = "Native Faith".to_owned();
+        tags::write_tags(&path, &edited).expect("written tags");
+        tags::write_genres(&path, &["Touhou".to_owned()]).expect("written genres");
+        tags::write_replay_gain(&path, &measurement()).expect("written gain");
+        tags::write_artwork(&path, &artwork(1)).expect("written cover");
+        let extras = tags::read_extras(&path).expect("readable extras");
+        tags::write_extras(&path, &extras).expect("written extras");
+
+        let after = vorbis_comments(&path);
+        let untouched = |comments: &lofty::ogg::VorbisComments| -> Vec<(String, String)> {
+            comments
+                .items()
+                .filter(|(key, _)| ALIASES.iter().any(|(alias, _)| alias == key))
+                .map(|(key, value)| (key.to_owned(), value.to_owned()))
+                .collect()
+        };
+        assert_eq!(untouched(&after), untouched(&before), "{suffix}");
+        assert_eq!(after.vendor(), before.vendor(), "{suffix}");
+        assert_eq!(after.get("ENCODER"), None, "{suffix}");
+        assert_eq!(after.get("TITLE"), Some("Native Faith"), "{suffix}");
+    }
+}
+
+#[test]
+fn an_mp3_gain_write_updates_the_frame_whatever_its_case_and_keeps_the_rest() {
+    use lofty::config::{ParseOptions, WriteOptions};
+    use lofty::file::AudioFile;
+    use lofty::id3::v2::{CommentFrame, Frame, Id3v2Tag};
+    use lofty::mpeg::MpegFile;
+    use lofty::TextEncoding;
+
+    let read = |path: &std::path::Path| {
+        let mut file = std::fs::File::open(path).expect("a readable file");
+        MpegFile::read_from(&mut file, ParseOptions::new()).expect("an mp3")
+    };
+    let scratch = Scratch::new("tags-id3-raw");
+    let path = encode(&scratch.join("t.mp3"), &Encoded::default());
+    let mut mp3 = read(&path);
+    let mut tag = Id3v2Tag::default();
+    tag.insert_user_text("replaygain_track_peak".to_owned(), "1.000000".to_owned());
+    tag.insert(Frame::Comment(CommentFrame::new(
+        TextEncoding::UTF8,
+        *b"jpn",
+        String::new(),
+        "コメント".to_owned(),
+    )));
+    mp3.set_id3v2(tag);
+    mp3.save_to_path(&path, WriteOptions::default())
+        .expect("a written tag");
+
+    tags::write_replay_gain(&path, &measurement()).expect("written gain");
+
+    let tag = read(&path).id3v2().cloned().expect("an ID3v2 tag");
+    let peaks: Vec<(String, String)> = (&tag)
+        .into_iter()
+        .filter_map(|frame| match frame {
+            Frame::UserText(text)
+                if text
+                    .description
+                    .eq_ignore_ascii_case("REPLAYGAIN_TRACK_PEAK") =>
+            {
+                Some((text.description.clone(), text.content.clone()))
+            }
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        peaks,
+        [("replaygain_track_peak".to_owned(), "0.988556".to_owned())]
+    );
+    let comment = tag.comments().next().expect("the comment");
+    assert_eq!(
+        (comment.language, comment.content.as_str()),
+        (*b"jpn", "コメント")
+    );
+}
+
+#[test]
+fn an_mp4_write_keeps_one_byte_integer_atoms_one_byte_wide() {
+    // Regression: lofty rewrote rtng as four bytes, which players read as 0.
+    use lofty::config::{ParseOptions, WriteOptions};
+    use lofty::file::AudioFile;
+    use lofty::mp4::{AdvisoryRating, Mp4File};
+
+    let scratch = Scratch::new("tags-mp4-raw");
+    let path = encode(&scratch.join("t.m4a"), &Encoded::default());
+    let mut file = std::fs::File::open(&path).expect("a readable file");
+    let mut mp4 = Mp4File::read_from(&mut file, ParseOptions::new()).expect("an m4a");
+    drop(file);
+    let mut ilst = mp4.ilst().cloned().unwrap_or_default();
+    ilst.set_advisory_rating(AdvisoryRating::Clean);
+    mp4.set_ilst(ilst);
+    mp4.save_to_path(&path, WriteOptions::default())
+        .expect("a written tag");
+
+    tags::write_replay_gain(&path, &measurement()).expect("written gain");
+
+    let bytes = std::fs::read(&path).expect("a readable file");
+    let at = bytes
+        .windows(4)
+        .position(|window| window == b"rtng")
+        .expect("an rtng atom");
+    let size = u32::from_be_bytes(bytes[at - 4..at].try_into().expect("four bytes"));
+    // Atom header, data header, then the one byte.
+    assert_eq!(size, 8 + 16 + 1);
+    assert_eq!(bytes[at + 20], 2);
+}
