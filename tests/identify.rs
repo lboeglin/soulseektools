@@ -114,6 +114,7 @@ fn entry(path: &str, album: &str) -> LibraryEntry {
         sample_rate: None,
         bit_depth: None,
         replay_gain: ReplayGainTags::default(),
+        isrc: None,
     }
 }
 

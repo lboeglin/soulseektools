@@ -82,6 +82,8 @@ pub struct LibraryEntry {
     pub artwork_bytes: u64,
 
     pub replay_gain: ReplayGainTags,
+    /// Normalised by [`crate::text::normalize::isrc`].
+    pub isrc: Option<String>,
 
     pub codec: String,
     pub bitrate: Option<u32>,

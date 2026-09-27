@@ -17,7 +17,7 @@ use crate::matching::NameForms;
 use crate::models::{LibraryEntry, ReplayGainTags, TrackTags, Verdict};
 use crate::text::normalize::strip_artist_prefix;
 
-pub const SCHEMA_VERSION: i64 = 6;
+pub const SCHEMA_VERSION: i64 = 7;
 
 /// The oldest version this upgrades in place rather than refusing.
 pub const MINIMUM_SCHEMA_VERSION: i64 = 2;
@@ -113,6 +113,11 @@ const V6_COLUMNS: &[(&str, &str)] = &[
 /// Set while the v6 columns still hold nothing for rows an older build wrote.
 const BACKFILL_PENDING: &str = "replay_gain_backfill_pending";
 
+const V7_COLUMNS: &[(&str, &str)] = &[("isrc", "TEXT")];
+
+/// Set while the v7 column still holds nothing for rows an older build wrote.
+const ISRC_BACKFILL_PENDING: &str = "isrc_backfill_pending";
+
 /// Nullable: an older measurement didn't count this, which isn't the same as zero.
 const V6_SNAPSHOT_COLUMNS: &[(&str, &str)] = &[("with_replay_gain", "INTEGER")];
 
@@ -145,6 +150,7 @@ const COLUMNS: &[&str] = &[
     "replay_gain_album_peak",
     "r128_track_gain",
     "r128_album_gain",
+    "isrc",
 ];
 
 const CHANGE_COLUMNS: &str = "id, run_id, applied_at, command, path, field, old_value, new_value";
@@ -252,6 +258,7 @@ pub fn describe(path: &Path, root: &Path) -> Result<LibraryEntry> {
         duration_seconds: stream.duration_seconds,
         artwork_bytes: described.artwork_bytes,
         replay_gain: described.replay_gain,
+        isrc: described.isrc,
         tags: read,
         codec: stream.codec,
         bitrate: stream.bitrate,
@@ -318,13 +325,19 @@ impl LibraryIndex {
         add_missing_columns(&connection, "changes", V4_CHANGE_COLUMNS)?;
         let loudness_columns_added = add_missing_columns(&connection, "files", V6_COLUMNS)?;
         add_missing_columns(&connection, "snapshots", V6_SNAPSHOT_COLUMNS)?;
-        if loudness_columns_added {
-            connection
-                .execute(
-                    "INSERT OR REPLACE INTO meta (key, value) VALUES (?1, '1')",
-                    params![BACKFILL_PENDING],
-                )
-                .map_err(|error| sqlite_error(&error))?;
+        let isrc_column_added = add_missing_columns(&connection, "files", V7_COLUMNS)?;
+        for (added, key) in [
+            (loudness_columns_added, BACKFILL_PENDING),
+            (isrc_column_added, ISRC_BACKFILL_PENDING),
+        ] {
+            if added {
+                connection
+                    .execute(
+                        "INSERT OR REPLACE INTO meta (key, value) VALUES (?1, '1')",
+                        params![key],
+                    )
+                    .map_err(|error| sqlite_error(&error))?;
+            }
         }
         connection
             .execute_batch(MIGRATED_INDEXES)
@@ -368,6 +381,7 @@ impl LibraryIndex {
         mut on_file: Option<&mut dyn FnMut(&Path)>,
     ) -> Result<RefreshResult> {
         self.backfill_replay_gain()?;
+        self.backfill_isrc()?;
 
         let known: HashMap<String, (i64, f64)> = self
             .connection
@@ -479,6 +493,50 @@ impl LibraryIndex {
         }
         transaction
             .execute("DELETE FROM meta WHERE key = ?1", params![BACKFILL_PENDING])
+            .map_err(|error| sqlite_error(&error))?;
+        transaction.commit().map_err(|error| sqlite_error(&error))?;
+        Ok(())
+    }
+
+    fn backfill_isrc(&mut self) -> Result<()> {
+        let pending: Option<String> = self
+            .connection
+            .query_row(
+                "SELECT value FROM meta WHERE key = ?1",
+                params![ISRC_BACKFILL_PENDING],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(|error| sqlite_error(&error))?;
+        if pending.is_none() {
+            return Ok(());
+        }
+
+        let paths: Vec<String> = self
+            .connection
+            .prepare("SELECT path FROM files")
+            .and_then(|mut statement| statement.query_map([], |row| row.get(0))?.collect())
+            .map_err(|error| sqlite_error(&error))?;
+        let transaction = self
+            .connection
+            .transaction()
+            .map_err(|error| sqlite_error(&error))?;
+        for path in paths {
+            let Ok(isrc) = tags::read_isrc(Path::new(&path)) else {
+                continue;
+            };
+            transaction
+                .execute(
+                    "UPDATE files SET isrc = ?2 WHERE path = ?1",
+                    params![path, isrc],
+                )
+                .map_err(|error| sqlite_error(&error))?;
+        }
+        transaction
+            .execute(
+                "DELETE FROM meta WHERE key = ?1",
+                params![ISRC_BACKFILL_PENDING],
+            )
             .map_err(|error| sqlite_error(&error))?;
         transaction.commit().map_err(|error| sqlite_error(&error))?;
         Ok(())
@@ -904,6 +962,7 @@ impl LibraryIndex {
                     entry.replay_gain.album_peak,
                     entry.replay_gain.r128_track_gain,
                     entry.replay_gain.r128_album_gain,
+                    entry.isrc,
                 ],
             )
             .map_err(|error| sqlite_error(&error))?;
@@ -954,5 +1013,6 @@ fn row_to_entry(row: &rusqlite::Row<'_>) -> rusqlite::Result<LibraryEntry> {
             r128_track_gain: row.get("r128_track_gain")?,
             r128_album_gain: row.get("r128_album_gain")?,
         },
+        isrc: row.get("isrc")?,
     })
 }

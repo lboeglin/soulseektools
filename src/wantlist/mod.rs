@@ -10,6 +10,7 @@ use crate::errors::{Error, Result};
 use crate::matching::{blocking_keys, score_track, MatchThresholds, NameForms};
 use crate::models::{LibraryEntry, Track};
 use crate::services::ServiceHttp;
+use crate::text::normalize;
 
 pub use discogs::Discogs;
 pub use lastfm::LastFm;
@@ -39,6 +40,8 @@ pub const DURATION_COLUMNS: &[&str] = &[
     "track duration (ms)",
     "length",
 ];
+/// Spotify exports (Exportify) carry it.
+pub const ISRC_COLUMNS: &[&str] = &["isrc"];
 /// Kept in `source_row` and read when a download is tagged.
 pub const TRACK_NUMBER_COLUMNS: &[&str] = &["track number", "track_number", "track no", "track"];
 
@@ -237,9 +240,28 @@ pub fn diff(
     thresholds: &MatchThresholds,
 ) -> WantlistDiff {
     let index = by_gram(entries);
+    let by_isrc: HashMap<&str, &LibraryEntry> = entries
+        .iter()
+        .filter_map(|entry| Some((entry.isrc.as_deref()?, entry)))
+        .collect();
     let mut result = WantlistDiff::default();
 
     for track in tracks {
+        // The same recording whatever script either side writes its title in:
+        // "ゴーストルール" in an export is the file tagged "Ghost Rule".
+        let recording = track
+            .source_value(ISRC_COLUMNS)
+            .and_then(normalize::isrc)
+            .and_then(|code| by_isrc.get(code.as_str()).copied());
+        if let Some(entry) = recording {
+            result.owned.push(OwnedTrack {
+                track: track.clone(),
+                entry: entry.clone(),
+                score: 1.0,
+            });
+            continue;
+        }
+
         let artist = NameForms::of(&track.artist);
         let title = NameForms::of(&track.title);
 

@@ -14,7 +14,9 @@ command, first in Python and then rewritten in Rust.
 - Wantlists from Spotify/Exportify CSV, Apple Music `Library.xml`, M3U, YouTube
   Music Takeout, Last.fm exports and profiles (`lastfm:<user>`), and Discogs
   collections.
-- `stk wantlist diff`, with `--new` for what the queue has never seen.
+- `stk wantlist diff`, with `--new` for what the queue has never seen. A row
+  whose ISRC a library file also carries matches it outright, whatever script
+  either title is written in.
 - `stk fetch search` and `download` through slskd. Results are ranked on the
   full remote path and scored as a batch that prefers one peer. A stalled peer
   hands its whole group on.

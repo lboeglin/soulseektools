@@ -142,6 +142,27 @@ fn prefix_pattern(pattern: &str) -> Arc<fancy_regex::Regex> {
         .clone()
 }
 
+/// The first well-formed code in `text`, uppercase and without hyphens:
+/// country, registrant, year and designation, twelve characters in all.
+/// A tag may hold several, separated by `;`, `/` or `,`.
+#[must_use]
+pub fn isrc(text: &str) -> Option<String> {
+    text.split([';', '/', ','])
+        .map(|code| {
+            code.chars()
+                .filter(|c| *c != '-' && !c.is_whitespace())
+                .collect::<String>()
+                .to_uppercase()
+        })
+        .find(|code| {
+            let bytes = code.as_bytes();
+            bytes.len() == 12
+                && bytes[..2].iter().all(u8::is_ascii_uppercase)
+                && bytes[2..5].iter().all(u8::is_ascii_alphanumeric)
+                && bytes[5..].iter().all(u8::is_ascii_digit)
+        })
+}
+
 #[must_use]
 pub fn sanitize_folder_name(name: &str, fallback: &str) -> String {
     let cleaned = INVALID_FILENAME_CHARS.replace_all(name, "_");

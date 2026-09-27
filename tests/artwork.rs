@@ -123,6 +123,7 @@ fn entry(artist: &str, title: &str, artwork_bytes: u64) -> LibraryEntry {
         sample_rate: None,
         bit_depth: None,
         replay_gain: ReplayGainTags::default(),
+        isrc: None,
     }
 }
 

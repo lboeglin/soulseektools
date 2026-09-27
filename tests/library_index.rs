@@ -246,7 +246,7 @@ fn a_v2_database_is_upgraded_in_place_rather_than_rewritten() {
     assert_eq!(entry.tags.artist, "ZUN");
     assert_eq!(entry.codec, "");
     assert_eq!(entry.bitrate, None);
-    assert_eq!(index.schema_version().expect("a version"), 6);
+    assert_eq!(index.schema_version().expect("a version"), 7);
     assert!(index.snapshots(None).expect("a series").is_empty());
 }
 
@@ -387,5 +387,53 @@ fn a_verdict_goes_stale_when_the_file_moves_under_it() {
     assert_eq!(
         index.verdict(&track).expect("a lookup"),
         Some(stk::models::Verdict::Ok)
+    );
+}
+
+#[test]
+fn an_upgraded_database_reads_each_files_isrc_without_a_rescan() {
+    let scratch = Scratch::new("index-isrc-backfill");
+    let root = scratch.join("Music");
+    let track = encode(
+        &root.join("DECO_27").join("Ghost Rule.flac"),
+        &Encoded {
+            metadata: &[
+                ("artist", "DECO*27"),
+                ("title", "Ghost Rule"),
+                ("isrc", "jp-z00-16-00001"),
+            ],
+            ..Encoded::default()
+        },
+    );
+    let mut index = open(&scratch, "index.db");
+    refresh(&mut index, &root);
+    assert_eq!(
+        index
+            .entry(&track)
+            .expect("a lookup")
+            .expect("the row")
+            .isrc
+            .as_deref(),
+        Some("JPZ001600001")
+    );
+    drop(index);
+    let connection = rusqlite::Connection::open(scratch.join("index.db")).expect("the database");
+    connection
+        .execute_batch("ALTER TABLE files DROP COLUMN isrc")
+        .expect("a pre-v7 files table");
+    drop(connection);
+
+    let mut index = open(&scratch, "index.db");
+    let refreshed = refresh(&mut index, &root);
+
+    assert_eq!(refreshed.unchanged, 1, "the file itself is not read again");
+    assert_eq!(
+        index
+            .entry(&track)
+            .expect("a lookup")
+            .expect("the row")
+            .isrc
+            .as_deref(),
+        Some("JPZ001600001")
     );
 }

@@ -29,6 +29,7 @@ fn entry(artist: &str, title: &str) -> LibraryEntry {
         sample_rate: None,
         bit_depth: None,
         replay_gain: ReplayGainTags::default(),
+        isrc: None,
     }
 }
 
@@ -381,4 +382,44 @@ fn a_bare_playlist_entry_is_guessed_from_its_filename() {
         (tracks[1].artist.as_str(), tracks[1].title.as_str()),
         ("", "Ghost Rule")
     );
+}
+
+#[test]
+fn an_isrc_matches_a_recording_whatever_script_its_title_is_in() {
+    let tagged = LibraryEntry {
+        isrc: Some("JPZ001600001".to_owned()),
+        ..entry("DECO*27", "Ghost Rule")
+    };
+    let wanted = |isrc: &str| Track {
+        source_row: vec![("ISRC".to_owned(), isrc.to_owned())],
+        ..Track::new("DECO*27", "ゴーストルール")
+    };
+
+    let matched = diff(
+        &[wanted("JP-Z00-16-00001")],
+        std::slice::from_ref(&tagged),
+        &MatchThresholds::default(),
+    );
+    assert_eq!(matched.owned.len(), 1);
+    assert!((matched.owned[0].score - 1.0).abs() < f64::EPSILON);
+
+    let other = diff(
+        &[wanted("JPZ001699999")],
+        &[tagged],
+        &MatchThresholds::default(),
+    );
+    assert_eq!(
+        other.missing.len(),
+        1,
+        "names alone don't match across scripts"
+    );
+}
+
+#[test]
+fn an_isrc_is_read_in_any_of_its_spellings() {
+    use stk::text::normalize::isrc;
+
+    assert_eq!(isrc("jp-z00-16-00001").as_deref(), Some("JPZ001600001"));
+    assert_eq!(isrc("bad; USRC17607839").as_deref(), Some("USRC17607839"));
+    assert_eq!(isrc("not an isrc"), None);
 }

@@ -185,6 +185,7 @@ pub struct Described {
     pub replay_gain: ReplayGainTags,
     pub artwork_bytes: u64,
     pub r128: bool,
+    pub isrc: Option<String>,
 }
 
 pub fn describe_file(path: &Path) -> Result<Described> {
@@ -200,7 +201,18 @@ pub fn describe_file(path: &Path) -> Result<Described> {
         replay_gain: replay_gain_of(&file),
         artwork_bytes,
         r128: carries_r128(&file),
+        isrc: isrc_of(&file),
     })
+}
+
+pub fn read_isrc(path: &Path) -> Result<Option<String>> {
+    Ok(isrc_of(&read_file(path)?))
+}
+
+fn isrc_of(file: &TaggedFile) -> Option<String> {
+    first_tag(file)?
+        .get_strings(&ItemKey::Isrc)
+        .find_map(crate::text::normalize::isrc)
 }
 
 /// Each is a `ChangeField` in the write log, so every write can be undone.

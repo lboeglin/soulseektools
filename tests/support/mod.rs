@@ -362,6 +362,7 @@ fn item_key(key: &str) -> ItemKey {
         "comment" => ItemKey::Comment,
         "lyrics" => ItemKey::Lyrics,
         "date" => ItemKey::RecordingDate,
+        "isrc" => ItemKey::Isrc,
         "encoder" => ItemKey::EncoderSoftware,
         "REPLAYGAIN_TRACK_GAIN" => ItemKey::ReplayGainTrackGain,
         "REPLAYGAIN_TRACK_PEAK" => ItemKey::ReplayGainTrackPeak,

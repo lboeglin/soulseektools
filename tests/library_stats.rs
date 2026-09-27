@@ -26,6 +26,7 @@ fn entry(path: &str, tags: TrackTags, artwork_bytes: u64) -> LibraryEntry {
         sample_rate: None,
         bit_depth: None,
         replay_gain: ReplayGainTags::default(),
+        isrc: None,
     }
 }
 
