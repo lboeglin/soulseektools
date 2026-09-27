@@ -15,6 +15,7 @@ use crate::fetch::{self, Patience, SearchOutcome, SystemClock, Waited};
 use crate::library::index::LibraryIndex;
 use crate::models::TrackStatus;
 use crate::organise::{self, Applied, Pattern, PlannedMove};
+use crate::retag::TagPolicy;
 use crate::review::picker;
 use crate::review::store::{ReviewStore, ReviewTrack};
 use crate::soulseek::base::SoulseekClient;
@@ -152,8 +153,9 @@ pub fn run(context: &AppContext, args: &SyncArgs) -> Result<i32> {
                 None => fetch_command::client(&settings.slskd)?,
             };
             let scope = fetch::Scope::Queue { limit: args.limit };
+            let tags = settings.fetch.tags;
             Download::Waited(wait(
-                context, &mut store, &client, &mut index, &roots, scope, timeout,
+                context, &mut store, &client, &mut index, scope, tags, timeout,
             )?)
         }
     } else {
@@ -307,15 +309,13 @@ pub(crate) fn download_and_file(
     let pattern = Pattern::parse(&context.settings().organise.pattern)?;
     let mut index = context.open_index()?;
 
-    let waited = wait(
-        context,
-        store,
-        client,
-        &mut index,
-        &roots,
-        fetch::Scope::Tracks(ids),
-        timeout,
-    )?;
+    // A typed query names the song no better than the file's own tags.
+    let tags = match context.settings().fetch.tags {
+        TagPolicy::Replace => TagPolicy::Fill,
+        other => other,
+    };
+    let scope = fetch::Scope::Tracks(ids);
+    let waited = wait(context, store, client, &mut index, scope, tags, timeout)?;
     report_download(context, &waited);
     let organised = organise_downloads(context, &mut index, Some(&target), &pattern, &roots, true)?;
     let mut failed = waited.went_wrong();
@@ -360,18 +360,20 @@ fn wait(
     store: &mut ReviewStore,
     client: &dyn SoulseekClient,
     index: &mut LibraryIndex,
-    roots: &[PathBuf],
     scope: fetch::Scope<'_>,
+    tags: TagPolicy,
     timeout: f64,
 ) -> Result<Waited> {
+    let mut settings = context.settings().clone();
+    settings.fetch.tags = tags;
     // A line only when something changed.
     let mut last = (usize::MAX, usize::MAX);
     fetch::wait_for_downloads(
         store,
         client,
-        context.settings(),
+        &settings,
         index,
-        roots,
+        &context.library_roots(),
         scope,
         Patience {
             timeout_seconds: timeout,
