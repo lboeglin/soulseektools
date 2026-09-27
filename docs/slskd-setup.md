@@ -22,6 +22,7 @@ services:
       - SLSKD_SLSK_USERNAME=your-soulseek-username
       - SLSKD_SLSK_PASSWORD=your-soulseek-password
       - SLSKD_REMOTE_CONFIGURATION=true
+      - SLSKD_DOWNLOADS_DIR=/downloads   # slskd's default is /app/downloads
     volumes:
       - ./slskd:/app                     # config and state; keep it
       - /path/to/music:/music:ro         # what you share back
