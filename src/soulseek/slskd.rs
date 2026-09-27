@@ -53,18 +53,29 @@ impl<H: Http> SlskdClient<H> {
         let _ = self.http.request("DELETE", path, None);
     }
 
+    /// slskd keeps a search open while answers trickle in and only publishes
+    /// its responses once it ends, so a search still running is stopped.
     fn await_completion(&self, search_id: &str, timeout_seconds: u32) {
-        let deadline =
-            Instant::now() + Duration::from_secs(u64::from(timeout_seconds)) + SEARCH_GRACE;
-        while Instant::now() < deadline {
-            match self.get(&format!("/searches/{search_id}")) {
+        let path = format!("/searches/{search_id}");
+        let timeout = Duration::from_secs(u64::from(timeout_seconds));
+        if !self.completes_within(&path, timeout) {
+            let _ = self.http.request("PUT", &path, None);
+            self.completes_within(&path, SEARCH_GRACE);
+        }
+    }
+
+    /// An unreadable search counts as complete: there is nothing to wait for.
+    fn completes_within(&self, path: &str, within: Duration) -> bool {
+        let deadline = Instant::now() + within;
+        loop {
+            match self.get(path) {
                 Ok(Some(state))
-                    if state.get("isComplete").and_then(Value::as_bool) == Some(true) =>
-                {
-                    return;
-                }
-                Ok(_) => {}
-                Err(_) => return,
+                    if state.get("isComplete").and_then(Value::as_bool) != Some(true) => {}
+                Ok(None) => {}
+                _ => return true,
+            }
+            if Instant::now() >= deadline {
+                return false;
             }
             std::thread::sleep(POLL_INTERVAL);
         }

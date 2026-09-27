@@ -14,6 +14,8 @@ use stk::soulseek::slskd::{state_from, Http, SlskdClient};
 struct Recorded {
     responses: HashMap<String, Value>,
     failures: HashMap<String, String>,
+    /// A search that stays open until a PUT stops it, as a busy one does.
+    open_until_stopped: bool,
     calls: Mutex<Vec<(String, String, Option<Value>)>>,
 }
 
@@ -50,6 +52,11 @@ impl Http for Recorded {
         let key = format!("{method} {path}");
         if let Some(message) = self.failures.get(&key) {
             return Err(Error::SoulseekClient(message.clone()));
+        }
+        if self.open_until_stopped && matches_search_route("GET /searches/*", &key) {
+            let calls = self.calls.lock().expect("the recorder is not poisoned");
+            let stopped = calls.iter().any(|(seen, _, _)| seen == "PUT");
+            return Ok(Some(json!({"isComplete": stopped})));
         }
         // Search ids are generated per call, so those routes match by prefix.
         for (route, response) in &self.responses {
@@ -202,6 +209,27 @@ fn the_search_timeout_is_sent_in_milliseconds_with_a_floor() {
             .expect("a body");
         assert_eq!(body["searchTimeout"], sent, "{seconds} s");
     }
+}
+
+#[test]
+fn a_search_still_open_at_the_timeout_is_stopped_before_its_responses_are_read() {
+    // slskd only publishes responses once a search ends; reading an open one
+    // returned nothing, and deleting it made slskd fail to finalize it.
+    let http = Recorded {
+        open_until_stopped: true,
+        ..searching()
+    };
+    let client = client(http);
+    assert_eq!(client.search("x", 1, 200).expect("a search").len(), 3);
+
+    let recorder = client.into_http();
+    let calls = recorder.calls.lock().expect("the recorder is not poisoned");
+    let order: Vec<&str> = calls
+        .iter()
+        .filter(|(method, path, _)| method == "PUT" || path.ends_with("/responses"))
+        .map(|(method, _, _)| method.as_str())
+        .collect();
+    assert_eq!(order, ["PUT", "GET"]);
 }
 
 #[test]
