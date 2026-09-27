@@ -464,7 +464,7 @@ impl LibraryIndex {
             };
             transaction
                 .execute(
-                    "UPDATE files SET replay_gain_track_gain = ?2, replay_gain_track_peak = ?3,                      replay_gain_album_gain = ?4, replay_gain_album_peak = ?5,                      r128_track_gain = ?6, r128_album_gain = ?7 WHERE path = ?1",
+                    "UPDATE files SET replay_gain_track_gain = ?2, replay_gain_track_peak = ?3, replay_gain_album_gain = ?4, replay_gain_album_peak = ?5, r128_track_gain = ?6, r128_album_gain = ?7 WHERE path = ?1",
                     params![
                         path,
                         gain.track_gain,
@@ -591,7 +591,7 @@ impl LibraryIndex {
         let row: Option<(String, String, Option<f64>)> = self
             .connection
             .query_row(
-                "SELECT kind, values_json, duration_seconds FROM fingerprints                  WHERE path = ?1 AND mtime = ?2",
+                "SELECT kind, values_json, duration_seconds FROM fingerprints WHERE path = ?1 AND mtime = ?2",
                 params![path.display().to_string(), mtime],
                 |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
             )
@@ -657,7 +657,7 @@ impl LibraryIndex {
 
         self.connection
             .execute(
-                "INSERT OR REPLACE INTO fingerprints                  (path, mtime, kind, values_json, duration_seconds) VALUES (?1, ?2, ?3, ?4, ?5)",
+                "INSERT OR REPLACE INTO fingerprints (path, mtime, kind, values_json, duration_seconds) VALUES (?1, ?2, ?3, ?4, ?5)",
                 params![
                     path.display().to_string(),
                     mtime,
@@ -804,7 +804,7 @@ impl LibraryIndex {
     pub fn record_change(&mut self, change: &NewChange) -> Result<i64> {
         self.connection
             .execute(
-                "INSERT INTO changes (run_id, applied_at, command, path, field, old_value, new_value)                  VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                "INSERT INTO changes (run_id, applied_at, command, path, field, old_value, new_value) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
                 params![
                     change.run_id,
                     change.applied_at,

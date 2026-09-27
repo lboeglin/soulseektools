@@ -323,7 +323,7 @@ impl ReviewStore {
         let next: Option<i64> = self
             .connection
             .query_row(
-                "SELECT rank FROM candidates WHERE track_id = ?1 AND attempted = 0                  ORDER BY rank LIMIT 1",
+                "SELECT rank FROM candidates WHERE track_id = ?1 AND attempted = 0 ORDER BY rank LIMIT 1",
                 params![track_id],
                 |row| row.get(0),
             )
@@ -486,7 +486,7 @@ fn insert_candidate(
     let candidate = &scored.candidate;
     transaction
         .execute(
-            "INSERT INTO candidates (track_id, rank, score, title_ratio, flags, username,              remote_path, size, bitrate, sample_rate, bit_depth, is_vbr, free_slots,              queue_length, duration_seconds, attempted)              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
+            "INSERT INTO candidates (track_id, rank, score, title_ratio, flags, username, remote_path, size, bitrate, sample_rate, bit_depth, is_vbr, free_slots, queue_length, duration_seconds, attempted) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
             params![
                 track_id,
                 rank,

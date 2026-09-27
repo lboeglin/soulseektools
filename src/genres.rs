@@ -154,7 +154,7 @@ fn artist_table(path: &Path, data: &toml::Value, alone: bool) -> Result<toml::Ta
         return Ok(toml::Table::new());
     }
     Err(Error::Config(format!(
-        "{}: put {} under [artists]; a map using [albums] or [tracks] cannot also          list artists at the top level",
+        "{}: put {} under [artists]; a map using [albums] or [tracks] cannot also list artists at the top level",
         path.display(),
         stray.join(", ")
     )))

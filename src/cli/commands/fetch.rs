@@ -137,7 +137,7 @@ fn download(context: &AppContext, limit: Option<usize>, collect_only: bool) -> R
     report_collected(context, &collected);
 
     context.say(&format!(
-        "Queued {} track(s); recorded {} finished transfer(s);          gave up on {} stalled one(s)",
+        "Queued {} track(s); recorded {} finished transfer(s); gave up on {} stalled one(s)",
         queued.iter().filter(|outcome| outcome.queued).count(),
         collected.len(),
         stalled.tracks.len()
