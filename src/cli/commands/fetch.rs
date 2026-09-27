@@ -7,11 +7,11 @@ use serde_json::json;
 
 use crate::cli::context::{show, table, unix_now, AppContext};
 use crate::config::SlskdSettings;
-use crate::errors::Result;
+use crate::errors::{Error, Result};
 use crate::fetch;
 use crate::models::TrackStatus;
 use crate::retag::Retagged;
-
+use crate::soulseek::base::SoulseekClient as _;
 use crate::soulseek::slskd::{HttpTransport, SlskdClient};
 
 #[derive(Subcommand, Debug)]
@@ -44,28 +44,45 @@ pub fn run(context: &AppContext, command: FetchCommand) -> Result<i32> {
     }
 }
 
+/// Checked before any work: every request without a key is refused, and a
+/// search against an slskd that is down would fail the whole queue.
 pub(crate) fn client(settings: &SlskdSettings) -> Result<SlskdClient<HttpTransport>> {
-    Ok(SlskdClient::new(
-        settings.clone(),
-        HttpTransport::new(settings)?,
-    ))
+    if settings.api_key.is_none() {
+        return Err(Error::Config(
+            "slskd needs an API key\n\
+             hint: export SLSKD_API_KEY, the key in slskd's web.authentication.api_keys"
+                .to_owned(),
+        ));
+    }
+    let client = SlskdClient::new(settings.clone(), HttpTransport::new(settings)?);
+    if !client.is_connected() {
+        return Err(Error::Config(format!(
+            "slskd at {} is not running, or not logged in to Soulseek\n\
+             hint: start slskd, and check its web UI says it is connected",
+            settings.url
+        )));
+    }
+    Ok(client)
 }
 
 fn search(context: &AppContext, limit: Option<usize>) -> Result<i32> {
-    let client = client(&context.settings().slskd)?;
     let mut store = context.open_review()?;
 
-    if store.tracks(&[TrackStatus::Pending], limit)?.is_empty()
-        && context.nothing_to_do("Nothing waiting to be searched.")
-    {
+    let idle = store.tracks(&[TrackStatus::Pending], limit)?.is_empty();
+    if idle && context.nothing_to_do("Nothing waiting to be searched.") {
         return Ok(0);
     }
-
-    let outcomes = fetch::search_pending(&mut store, &client, context.settings(), limit)?;
+    let outcomes = if idle {
+        Vec::new()
+    } else {
+        let client = client(&context.settings().slskd)?;
+        fetch::search_pending(&mut store, &client, context.settings(), limit)?
+    };
+    let failed = outcomes.iter().any(|outcome| !outcome.error.is_empty());
 
     if context.as_json {
         context.emit(&json!(outcomes.iter().map(search_row).collect::<Vec<_>>()));
-        return Ok(0);
+        return Ok(i32::from(failed));
     }
 
     report_searched(context, &outcomes);
@@ -75,7 +92,7 @@ fn search(context: &AppContext, limit: Option<usize>) -> Result<i32> {
          Run stk review pick to choose.",
         outcomes.len()
     ));
-    Ok(0)
+    Ok(i32::from(failed))
 }
 
 fn download(context: &AppContext, limit: Option<usize>, collect_only: bool) -> Result<i32> {

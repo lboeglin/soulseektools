@@ -282,8 +282,9 @@ const DOCUMENTS: &[(&[&str], i32, Shape)] = &[
     (&["review", "albums"], 0, Shape::Rows(&[])),
     (&["fetch", "search"], 0, Shape::Rows(SEARCHED)),
     (
-        &["sync", "export.csv", "--yes"],
-        1,
+        // `--limit 0` searches nothing, which keeps slskd out of the test.
+        &["sync", "export.csv", "--yes", "--limit", "0"],
+        0,
         Shape::Object(&[
             "applied", "scan", "diff", "search", "pick", "download", "organise", "rescan",
         ]),

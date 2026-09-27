@@ -98,7 +98,8 @@ pub fn search_pending(
     let mut outcomes = Vec::with_capacity(pending.len());
     for ((entry, mut scored), error) in pending.into_iter().zip(ranked).zip(errors) {
         if !error.is_empty() {
-            store.mark(entry.id, TrackStatus::Failed, &error)?;
+            // A failed request says nothing about the track: search it again next run.
+            store.mark(entry.id, TrackStatus::Pending, &error)?;
             outcomes.push(SearchOutcome {
                 track_id: entry.id,
                 query: entry.track.query(),

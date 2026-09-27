@@ -3,8 +3,8 @@
 `stk get`, `fetch` and `sync` search and download through
 [slskd](https://github.com/slskd/slskd), a headless Soulseek client with an
 HTTP API. The other commands work without it. It has to be running while you
-search or download; `stk` doesn't start it, and fails with "cannot reach
-slskd" when it's down.
+search or download, and logged in to Soulseek. `stk` doesn't start it: it stops
+before doing anything if slskd is down, and leaves the queue as it was.
 
 slskd runs either as a standalone program (download it from its
 [releases](https://github.com/slskd/slskd/releases), then run `slskd`) or in

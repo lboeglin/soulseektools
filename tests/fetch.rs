@@ -194,7 +194,8 @@ fn candidates_are_ranked_and_stored() {
 }
 
 #[test]
-fn a_backend_failure_marks_the_track_and_continues() {
+fn a_failed_search_leaves_the_track_to_search_again() {
+    // Marking it failed emptied the queue whenever slskd was briefly down.
     let scratch = Scratch::new("fetch-search-failure");
     let settings = settings(&scratch);
     let mut store = store(&scratch);
@@ -213,7 +214,7 @@ fn a_backend_failure_marks_the_track_and_continues() {
         .tracks(&[], None)
         .expect("tracks")
         .iter()
-        .all(|entry| entry.status == TrackStatus::Failed));
+        .all(|entry| entry.status == TrackStatus::Pending));
     assert!(
         outcomes[0].error.contains("unreachable"),
         "{:?}",

@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 use clap::Args;
 use serde_json::json;
 
+use crate::cli::commands::fetch as fetch_command;
 use crate::cli::context::{table, AppContext};
 use crate::config::SlskdSettings;
 use crate::errors::Error;
@@ -16,7 +17,6 @@ use crate::review::albums::{self, FolderOffer};
 use crate::review::picker;
 use crate::soulseek::base::SoulseekClient;
 use crate::soulseek::ranking;
-use crate::soulseek::slskd::{HttpTransport, SlskdClient};
 use crate::text::normalize::{flatten, normalize};
 use crate::wantlist::split_query;
 
@@ -122,7 +122,7 @@ pub fn run(context: &AppContext, args: &GetArgs) -> Result<i32> {
     options.min_bitrate = args.min_bitrate.or(options.min_bitrate);
 
     let settings: &SlskdSettings = &context.settings().slskd;
-    let client = SlskdClient::new(settings.clone(), HttpTransport::new(settings)?);
+    let client = fetch_command::client(settings)?;
 
     context.say(&format!("Searching for {} ...", track.query()));
     let candidates = client.search(
@@ -217,7 +217,7 @@ fn album(context: &AppContext, args: &GetArgs) -> Result<i32> {
     options.min_bitrate = args.min_bitrate.or(options.min_bitrate);
 
     let settings: &SlskdSettings = &context.settings().slskd;
-    let client = SlskdClient::new(settings.clone(), HttpTransport::new(settings)?);
+    let client = fetch_command::client(settings)?;
 
     let query = format!("{artist} {name}");
     context.say(&format!("Searching for {} ...", query.trim()));
@@ -459,7 +459,7 @@ fn batch(context: &AppContext, args: &GetArgs, tracks: &[Track]) -> Result<i32> 
         tracks.len()
     ));
 
-    let client = SlskdClient::new(settings.slskd.clone(), HttpTransport::new(&settings.slskd)?);
+    let client = fetch_command::client(&settings.slskd)?;
     let outcomes = fetch::search_pending(&mut store, &client, &settings, None)?;
 
     if context.as_json {

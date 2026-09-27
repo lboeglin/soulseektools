@@ -120,14 +120,17 @@ pub fn run(context: &AppContext, args: &SyncArgs) -> Result<i32> {
         diffed.missing, diffed.total, diffed.owned, diffed.queued
     ));
 
-    let client = fetch_command::client(&settings.slskd)?;
+    // slskd is only needed to search or download: a run with neither still
+    // diffs and organises without it.
+    let mut client = None;
     let searched = if store
         .tracks(&[TrackStatus::Pending], args.limit)?
         .is_empty()
     {
         Vec::new()
     } else {
-        fetch::search_pending(&mut store, &client, settings, args.limit)?
+        let client = client.insert(fetch_command::client(&settings.slskd)?);
+        fetch::search_pending(&mut store, client, settings, args.limit)?
     };
     if !searched.is_empty() {
         fetch_command::report_searched(context, &searched);
@@ -140,9 +143,18 @@ pub fn run(context: &AppContext, args: &SyncArgs) -> Result<i32> {
         let timeout = args
             .timeout
             .unwrap_or(2.0 * settings.slskd.stall_after_seconds);
-        Download::Waited(wait(
-            context, &mut store, &client, &mut index, &roots, args.limit, timeout,
-        )?)
+        let in_flight = [TrackStatus::Approved, TrackStatus::Queued];
+        if store.tracks(&in_flight, args.limit)?.is_empty() {
+            Download::Waited(fetch::Waited::default())
+        } else {
+            let client = match client.take() {
+                Some(client) => client,
+                None => fetch_command::client(&settings.slskd)?,
+            };
+            Download::Waited(wait(
+                context, &mut store, &client, &mut index, &roots, args.limit, timeout,
+            )?)
+        }
     } else {
         Download::Would(store.tracks(&[TrackStatus::Approved], args.limit)?)
     };
