@@ -6,3 +6,4 @@ genres.toml
 
 target/
 .lindera-cache/
+__pycache__/
