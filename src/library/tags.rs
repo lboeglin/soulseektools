@@ -985,8 +985,8 @@ impl NativeFile {
     }
 }
 
-/// lofty reads a comment or lyrics frame whose language isn't three letters,
-/// some taggers write zeros, but refuses to save it. `XXX` is ID3's unknown.
+/// lofty refuses to save a comment or lyrics frame whose language isn't three
+/// letters, which some taggers leave as zeros. `XXX` is ID3's unknown language.
 fn mark_unknown_languages(tag: &mut lofty::id3::v2::Id3v2Tag) {
     use lofty::id3::v2::Frame;
 

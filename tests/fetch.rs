@@ -210,7 +210,7 @@ fn candidates_are_ranked_and_stored() {
 
 #[test]
 fn a_failed_search_leaves_the_track_to_search_again() {
-    // Marking it failed emptied the queue whenever slskd was briefly down.
+    // A failed request says nothing about the track.
     let scratch = Scratch::new("fetch-search-failure");
     let settings = settings(&scratch);
     let mut store = store(&scratch);

@@ -227,8 +227,8 @@ impl<H: Http> SoulseekClient for SlskdClient<H> {
     }
 }
 
-/// The counter keeps concurrent searches apart: the clock alone gave two of
-/// them the same id, and slskd refused the second.
+/// Concurrent searches can read the same clock; the counter keeps their ids
+/// apart, since slskd refuses a repeated one.
 fn new_search_id() -> String {
     static SEQUENCE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let sequence = SEQUENCE.fetch_add(1, std::sync::atomic::Ordering::Relaxed);

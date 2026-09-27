@@ -287,7 +287,6 @@ pub fn album_rows(offer: &FolderOffer, artist: &str, album: &str) -> Vec<(Track,
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct QueuedFolder {
     pub queued: usize,
-    /// The tracks approved, for queueing just these.
     pub ids: Vec<i64>,
     /// Left alone because a transfer is already in flight or finished.
     pub skipped: Vec<String>,
@@ -353,9 +352,8 @@ fn strip_album_prefix(name: &str, album: &str) -> String {
     .to_owned()
 }
 
-/// Every number the album name holds appears in the folder's path, read as a
-/// number so `03` counts as `3`. Name similarity alone rates "Kikuo Miku 7"
-/// the album asked for as "Kikuo Miku 3".
+/// Every number in the album name appears in the folder's path, compared as
+/// numbers so `03` is `3`. Name similarity can't tell "Miku 7" from "Miku 3".
 #[must_use]
 pub fn names_its_numbers(folder: &str, album: &str) -> bool {
     let numbers = |text: &str| -> Vec<u64> {

@@ -416,7 +416,6 @@ pub fn enqueue_approved(
     enqueue(store, client, approved, now)
 }
 
-/// Only these tracks, so `get` never sends what an earlier run approved.
 pub fn enqueue_tracks(
     store: &mut ReviewStore,
     client: &dyn SoulseekClient,
