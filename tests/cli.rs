@@ -1152,6 +1152,11 @@ fn sync_apply_organises_what_arrived_and_scans_it_in() {
         .join("Song.flac");
     assert!(!download.exists());
     assert!(landed.is_file());
+    assert!(
+        !downloads.join("ZUN").exists(),
+        "the emptied peer folder goes"
+    );
+    assert!(downloads.is_dir(), "slskd's own folder stays");
     let index =
         stk::library::index::LibraryIndex::open(&harness.join("library.db")).expect("the index");
     assert!(index.entry(&landed).expect("a lookup").is_some());
