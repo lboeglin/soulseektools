@@ -659,6 +659,8 @@ fn organise_from_moves_a_download_into_the_library() {
     assert_eq!(run(&["organise", "--from", &from, "--apply"]), 0);
     assert!(!fetched.exists());
     assert!(root.join("ZUN").join("Lotus").join("Song.flac").is_file());
+    assert!(!downloads.join("ZUN").exists(), "the emptied folder goes");
+    assert!(downloads.is_dir(), "the source folder stays");
     drop(harness);
 }
 

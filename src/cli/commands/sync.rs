@@ -390,14 +390,7 @@ fn organise_downloads(
     );
     let applied = if apply {
         let ready: Vec<&PlannedMove> = planned.iter().filter(|move_| move_.ready()).collect();
-        let mut applied = organise::apply_moves(index, &ready, roots, settings, unix_now())?;
-        // slskd's folders sit outside the library, where `apply_moves` leaves them.
-        if settings.remove_empty_directories {
-            for moved in ready.iter().filter(|moved| !moved.entry.path.exists()) {
-                applied.pruned += organise::prune_empty(&moved.entry.path, downloads).len();
-            }
-        }
-        applied
+        organise::apply_moves(index, &ready, roots, Some(downloads), settings, unix_now())?
     } else {
         Applied::default()
     };

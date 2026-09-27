@@ -316,7 +316,7 @@ fn a_move_that_fails_is_reported_and_the_rest_carry_on() {
     );
     std::fs::remove_file(&vanished).expect("the file gone before the move");
     let ready: Vec<&PlannedMove> = planned.iter().filter(|move_| move_.ready()).collect();
-    let applied = apply_moves(&mut index, &ready, &roots, &settings(), 1.0).expect("applied");
+    let applied = apply_moves(&mut index, &ready, &roots, None, &settings(), 1.0).expect("applied");
 
     assert_eq!(applied.moved, 1);
     assert_eq!(applied.failures.len(), 1);

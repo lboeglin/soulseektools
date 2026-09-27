@@ -54,7 +54,14 @@ pub fn run(context: &AppContext, args: &OrganiseArgs) -> Result<i32> {
     let ready: Vec<&PlannedMove> = planned.iter().filter(|move_| move_.ready()).collect();
 
     let applied = if args.apply {
-        organise::apply_moves(&mut index, &ready, &roots, settings, unix_now())?
+        organise::apply_moves(
+            &mut index,
+            &ready,
+            &roots,
+            args.from.as_deref(),
+            settings,
+            unix_now(),
+        )?
     } else {
         Applied::default()
     };

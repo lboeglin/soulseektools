@@ -346,10 +346,13 @@ pub struct Applied {
     pub failures: Vec<(PathBuf, String)>,
 }
 
+/// `source` is the folder a move from outside the library came from, such as
+/// slskd's downloads; folders it leaves empty are pruned up to it.
 pub fn apply_moves(
     index: &mut LibraryIndex,
     ready: &[&PlannedMove],
     roots: &[PathBuf],
+    source: Option<&Path>,
     settings: &OrganiseSettings,
     now: f64,
 ) -> Result<Applied> {
@@ -364,10 +367,10 @@ pub fn apply_moves(
                 let landed = spelled_on_disk(&planned.destination);
                 index.relocate(from, &landed, roots)?;
                 applied.moved += 1;
-                if settings.remove_empty_directories {
-                    if let Some(root) = owning_root(from, roots) {
-                        applied.pruned += prune_empty(from, root).len();
-                    }
+                let boundary = owning_root(from, roots)
+                    .or_else(|| source.filter(|source| from.starts_with(source)));
+                if let (true, Some(boundary)) = (settings.remove_empty_directories, boundary) {
+                    applied.pruned += prune_empty(from, boundary).len();
                 }
             }
             Err(error) => applied.failures.push((from.clone(), error.to_string())),
