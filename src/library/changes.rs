@@ -463,6 +463,14 @@ pub fn apply_undo(
                 &back,
                 roots,
             )?;
+            // The folders the command created, or quarantined into, are left empty.
+            let quarantine = crate::duplicates::quarantine_root(index);
+            let boundary = crate::library::scan::owning_root(&change.path, roots)
+                .map(Path::to_path_buf)
+                .or_else(|| change.path.starts_with(&quarantine).then_some(quarantine));
+            if let Some(boundary) = boundary {
+                crate::organise::prune_empty(&change.path, &boundary);
+            }
             return Ok(());
         }
         ChangeField::Extras => {

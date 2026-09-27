@@ -437,13 +437,17 @@ pub const RESOLVE_COMMAND: &str = "dupes resolve";
 
 /// Outside every library root, so a scan never indexes it.
 #[must_use]
-pub fn quarantine_directory(index: &LibraryIndex, run_id: i64) -> PathBuf {
+pub fn quarantine_root(index: &LibraryIndex) -> PathBuf {
     index
         .database
         .parent()
         .unwrap_or(Path::new("."))
         .join("quarantine")
-        .join(run_id.to_string())
+}
+
+#[must_use]
+pub fn quarantine_directory(index: &LibraryIndex, run_id: i64) -> PathBuf {
+    quarantine_root(index).join(run_id.to_string())
 }
 
 /// Never overwrites: two roots can hold the same relative path.

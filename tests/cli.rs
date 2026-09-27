@@ -287,6 +287,10 @@ fn dupes_resolve_quarantines_the_lossy_copy_and_undo_puts_it_back() {
 
     assert!(mp3.is_file());
     assert!(!parked.exists());
+    assert!(
+        !harness.join("quarantine").join("1").exists(),
+        "the emptied run folder is removed"
+    );
     assert_eq!(indexed(&harness), 3);
     drop(harness);
 }
@@ -587,6 +591,13 @@ fn organise_moves_the_file_and_carries_its_index_row_along() {
     let changes = logged(&harness);
     assert!(changes.iter().any(|row| row.field == "move"));
     assert!(changes.iter().all(|row| row.command == "organise"));
+
+    assert_eq!(run(&["changes", "undo", "--last", "--apply"]), 0);
+    assert!(root.join("DECO_27").join("01 - Roki.flac").is_file());
+    assert!(
+        !root.join("DECO_27").join("Ghost").exists(),
+        "the folder organise created is removed"
+    );
     drop(harness);
 }
 
