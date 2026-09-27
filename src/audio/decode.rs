@@ -99,7 +99,16 @@ impl Audio {
         }
         let decoder = symphonia::default::get_codecs()
             .make_audio_decoder(&parameters, &AudioDecoderOptions::default())
-            .map_err(|_| unsupported(path))?;
+            .map_err(|_| {
+                if parameters.codec == CODEC_ID_AAC {
+                    Error::UnsupportedFormat(format!(
+                        "{}: HE-AAC, which the decoder can't read (only AAC-LC)",
+                        path.display()
+                    ))
+                } else {
+                    unsupported(path)
+                }
+            })?;
 
         let bit_depth = parameters
             .bits_per_sample
