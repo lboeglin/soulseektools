@@ -1146,6 +1146,8 @@ fn peer_tagged(path: &std::path::Path) {
                 ("track", "7"),
                 ("genre", "Vocaloid"),
                 ("comment", "ripped by someone"),
+                ("lyrics", "la la la"),
+                ("date", "2016-11-02"),
             ],
             ..Encoded::default()
         },
@@ -1238,10 +1240,14 @@ fn replace_keeps_what_the_row_cannot_say_and_drops_the_rest() {
     assert_eq!(read.genres, vec!["Vocaloid".to_owned()]);
     let cover = tags::read_artwork(&path).expect("readable tags");
     assert_eq!(cover.expect("the peer's cover").data.len(), 512);
-    assert!(tags::read_extras(&path)
+    // Comments and lyrics go; the date is about the music and stays.
+    let kept: Vec<String> = tags::read_extras(&path)
         .expect("readable extras")
-        .is_empty());
-    assert_eq!(outcome.tags.as_ref().expect("a tag outcome").dropped, 1);
+        .into_iter()
+        .map(|extra| extra.key.to_uppercase())
+        .collect();
+    assert_eq!(kept, vec!["DATE".to_owned()]);
+    assert_eq!(outcome.tags.as_ref().expect("a tag outcome").dropped, 2);
 }
 
 #[test]
@@ -1269,8 +1275,10 @@ fn undoing_the_collect_restores_the_peers_block() {
     assert_eq!(read.title, "Track 01");
     assert_eq!(read.album, "www.something.ru");
     let extras = tags::read_extras(&path).expect("readable extras");
-    assert_eq!(extras.len(), 1);
-    assert_eq!(extras[0].value, "ripped by someone");
+    assert_eq!(extras.len(), 3);
+    assert!(extras
+        .iter()
+        .any(|extra| extra.value == "ripped by someone"));
 }
 
 #[test]
@@ -1290,7 +1298,7 @@ fn fill_writes_only_what_the_peer_left_empty() {
     assert_eq!(read.title, "Roki");
     assert_eq!(read.artist, "Unknown Artist");
     assert_eq!(read.album, "www.something.ru");
-    assert_eq!(tags::read_extras(&path).expect("readable extras").len(), 1);
+    assert_eq!(tags::read_extras(&path).expect("readable extras").len(), 3);
     let retagged = outcome.tags.as_ref().expect("a tag outcome");
     assert_eq!(retagged.fields, vec![TagField::Title]);
     assert_eq!(retagged.dropped, 0);

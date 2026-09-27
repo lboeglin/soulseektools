@@ -360,6 +360,8 @@ fn item_key(key: &str) -> ItemKey {
         "track" => ItemKey::TrackNumber,
         "disc" => ItemKey::DiscNumber,
         "comment" => ItemKey::Comment,
+        "lyrics" => ItemKey::Lyrics,
+        "date" => ItemKey::RecordingDate,
         "encoder" => ItemKey::EncoderSoftware,
         "REPLAYGAIN_TRACK_GAIN" => ItemKey::ReplayGainTrackGain,
         "REPLAYGAIN_TRACK_PEAK" => ItemKey::ReplayGainTrackPeak,

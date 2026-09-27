@@ -187,11 +187,34 @@ fn retag(
 
     if policy == TagPolicy::Replace {
         let extras = tags::read_extras(path)?;
-        if !extras.is_empty() {
-            tags::write_extras(path, &[])?;
-            log.extras(index, path, &extras, &[])?;
-            outcome.dropped = extras.len();
+        let kept: Vec<tags::Extra> = extras
+            .iter()
+            .filter(|extra| !is_peer_noise(extra))
+            .cloned()
+            .collect();
+        if kept.len() < extras.len() {
+            tags::write_extras(path, &kept)?;
+            log.extras(index, path, &extras, &kept)?;
+            outcome.dropped = extras.len() - kept.len();
         }
     }
     Ok(())
+}
+
+/// What a peer leaves that isn't about the music: comments, lyrics and links.
+/// Dates, catalogue numbers and MusicBrainz ids stay.
+fn is_peer_noise(extra: &tags::Extra) -> bool {
+    const NOISE: [&str; 9] = [
+        "COMMENT",
+        "DESCRIPTION",
+        "LYRICS",
+        "UNSYNCEDLYRICS",
+        "COMM",
+        "USLT",
+        "WXXX",
+        "\u{a9}CMT",
+        "\u{a9}LYR",
+    ];
+    let key = extra.key.to_uppercase();
+    extra.locator || NOISE.contains(&key.as_str()) || key.starts_with("WWW") || key.ends_with("URL")
 }
