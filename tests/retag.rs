@@ -126,3 +126,23 @@ fn a_policy_round_trips_through_its_spelling() {
     assert!("overwrite".parse::<TagPolicy>().is_err());
     assert_eq!(TagPolicy::default(), TagPolicy::Replace);
 }
+
+#[test]
+fn a_row_spelling_the_tag_differently_leaves_the_files_spelling() {
+    let current = TrackTags {
+        title: "Frightfully-Insane Flan-chan's Frightful Song".to_owned(),
+        ..peer()
+    };
+    let row = RowTags {
+        title: "Frightfully-insane Flan-chan's frightful song".to_owned(),
+        ..row()
+    };
+
+    let planned = plan(TagPolicy::Replace, &row, &current);
+
+    assert_eq!(
+        planned.title,
+        "Frightfully-Insane Flan-chan's Frightful Song"
+    );
+    assert_eq!(planned.artist, "DECO*27", "a different name still wins");
+}

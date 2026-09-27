@@ -12,6 +12,7 @@ use crate::library::index::LibraryIndex;
 use crate::library::scan::owning_root;
 use crate::library::tags::{self, TagField};
 use crate::models::{Track, TrackTags};
+use crate::text::normalize::normalize;
 use crate::wantlist::TRACK_NUMBER_COLUMNS;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -98,13 +99,23 @@ pub fn plan(policy: TagPolicy, row: &RowTags, current: &TrackTags) -> TrackTags 
         (policy, _) => policy,
     };
 
-    if !row.artist.is_empty() && wins(proposed.artist.is_empty()) {
+    let differs = |wanted: &str, current: &str| normalize(wanted) != normalize(current);
+    if !row.artist.is_empty()
+        && differs(&row.artist, &proposed.artist)
+        && wins(proposed.artist.is_empty())
+    {
         proposed.artist.clone_from(&row.artist);
     }
-    if !row.title.is_empty() && under(title_policy, proposed.title.is_empty()) {
+    if !row.title.is_empty()
+        && differs(&row.title, &proposed.title)
+        && under(title_policy, proposed.title.is_empty())
+    {
         proposed.title.clone_from(&row.title);
     }
-    if !row.album.is_empty() && wins(proposed.album.is_empty()) {
+    if !row.album.is_empty()
+        && differs(&row.album, &proposed.album)
+        && wins(proposed.album.is_empty())
+    {
         proposed.album.clone_from(&row.album);
     }
     if row.track_number.is_some() && wins(proposed.track_number.is_none()) {
