@@ -110,6 +110,24 @@ fn an_edited_cell_is_the_only_field_proposed() {
 }
 
 #[test]
+fn a_tag_with_stray_spaces_is_not_rewritten_by_an_edit_elsewhere_in_the_row() {
+    let scratch = Scratch::new("sheet-stray-spaces");
+    let path = scratch.join("a.flac");
+    let spaced = TrackTags {
+        album: "Ghost ".to_owned(),
+        ..tagged()
+    };
+    let body = rows(&path, "album,title", "\"Ghost \",Ghost Rule");
+
+    let edits = read_sheet(&sheet(&scratch, &body), Blanks::LeaveAlone).expect("a sheet");
+    let planned = plan_changes(&edits, &[entry(&path, spaced)]);
+
+    let changes = changed(&planned);
+    assert_eq!(changes[0].fields, vec![TagField::Title]);
+    assert_eq!(changes[0].proposed.album, "Ghost ");
+}
+
+#[test]
 fn a_blank_cell_clears_the_tag_when_the_run_asks_for_it() {
     let scratch = Scratch::new("sheet-blank-clears");
     let path = scratch.join("a.flac");

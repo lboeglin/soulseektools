@@ -36,6 +36,9 @@ impl TagEdit {
             match cell {
                 Cell::Untouched => {}
                 Cell::Clear => field.set(&mut proposed, ""),
+                // Cells are read trimmed: a tag differing only by surrounding
+                // spaces was not edited.
+                Cell::Set(value) if field.value(current).trim() == value => {}
                 Cell::Set(value) => field.set(&mut proposed, value),
             }
         }
