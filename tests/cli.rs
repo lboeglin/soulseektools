@@ -1196,3 +1196,26 @@ fn trend_reports_the_measurements_it_recorded() {
     assert_eq!(totals, vec![3, 2]);
     drop(harness);
 }
+
+#[test]
+fn a_table_lines_up_rows_holding_wide_characters() {
+    let rendered = stk::cli::context::table(
+        &["Artist", "Files"],
+        &[
+            vec!["ぐちり".to_owned(), "5".to_owned()],
+            vec!["Ado".to_owned(), "33".to_owned()],
+        ],
+    );
+    // The display column where the last cell starts, per line.
+    let starts: Vec<usize> = rendered
+        .lines()
+        .map(|line| {
+            let (before, _) = line.rsplit_once(' ').expect("two columns");
+            unicode_width::UnicodeWidthStr::width(before) + 1
+        })
+        .collect();
+    assert!(
+        starts.windows(2).all(|pair| pair[0] == pair[1]),
+        "{rendered}"
+    );
+}

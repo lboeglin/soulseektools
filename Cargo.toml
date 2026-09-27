@@ -61,6 +61,7 @@ symphonia-common = "0.6.1"
 thiserror = "2.0.20"
 toml = "1.0.7"
 unicode-normalization = "0.1.25"
+unicode-width = "0.2.2"
 
 [lints.clippy]
 pedantic = { level = "warn", priority = -1 }

@@ -4,6 +4,7 @@ use std::io::Write as _;
 use std::path::{Path, PathBuf};
 
 use serde_json::Value;
+use unicode_width::UnicodeWidthStr;
 
 use crate::config::Resolved;
 use crate::errors::{Error, Result};
@@ -117,6 +118,7 @@ pub fn human_size(size: u64) -> String {
     }
 }
 
+/// Padded by display width: a CJK character takes two terminal columns.
 #[must_use]
 pub fn table(headers: &[&str], rows: &[Vec<String>]) -> String {
     let columns = headers
@@ -125,11 +127,11 @@ pub fn table(headers: &[&str], rows: &[Vec<String>]) -> String {
     let mut widths = vec![0_usize; columns];
 
     for (index, header) in headers.iter().enumerate() {
-        widths[index] = header.chars().count();
+        widths[index] = header.width();
     }
     for row in rows {
         for (index, cell) in row.iter().enumerate() {
-            widths[index] = widths[index].max(cell.chars().count());
+            widths[index] = widths[index].max(cell.width());
         }
     }
 
@@ -138,7 +140,7 @@ pub fn table(headers: &[&str], rows: &[Vec<String>]) -> String {
             .iter()
             .enumerate()
             .map(|(index, cell)| {
-                let padding = widths[index].saturating_sub(cell.chars().count());
+                let padding = widths[index].saturating_sub(cell.width());
                 format!("{cell}{}", " ".repeat(padding))
             })
             .collect::<Vec<_>>()
