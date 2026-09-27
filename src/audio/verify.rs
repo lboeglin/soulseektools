@@ -23,7 +23,10 @@ pub fn verify_file(path: &Path, settings: &VerifySettings) -> VerifyResult {
             return VerifyResult {
                 path: path.to_path_buf(),
                 verdict: Verdict::Error,
-                detail: error.to_string(),
+                // The result already names the file.
+                detail: error
+                    .to_string()
+                    .replace(&format!("{}: ", path.display()), ""),
                 sample_rate: None,
                 bit_depth: None,
                 codec: String::new(),

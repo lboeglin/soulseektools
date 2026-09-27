@@ -317,7 +317,7 @@ pub fn classify(
             Verdict::Fake,
             format!(
                 "{sample_rate}Hz container but content stops sharply at {measured} \
-                 -- upsampled, not hi-res"
+                 -- a lossy source, upsampled"
             ),
         );
     }

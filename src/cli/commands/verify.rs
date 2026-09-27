@@ -40,7 +40,7 @@ pub struct VerifyArgs {
     #[arg(long)]
     pub spectrograms: bool,
 
-    /// Print only SUSPECT, FAKE and UPSAMPLED results.
+    /// Print only SUSPECT, FAKE and UPSAMPLED results, and files that could not be checked.
     #[arg(long)]
     pub only_flagged: bool,
 
@@ -89,9 +89,11 @@ pub fn run(context: &AppContext, args: &VerifyArgs) -> Result<i32> {
         index.set_verdict(&result.path, result.verdict, now)?;
     }
 
-    if args.spectrograms {
-        render_spectrograms(context, &results);
-    }
+    let spectrograms = if args.spectrograms {
+        Some(render_spectrograms(context, &results))
+    } else {
+        None
+    };
     if let Some(destination) = &args.report {
         write_report(destination, &results)?;
     }
@@ -106,6 +108,11 @@ pub fn run(context: &AppContext, args: &VerifyArgs) -> Result<i32> {
     if skipped > 0 {
         context.say(&format!(
             "Skipped {skipped} file(s) with a current verdict."
+        ));
+    }
+    if let Some(saved) = spectrograms {
+        context.say(&format!(
+            "Saved {saved} spectrogram(s) beside the flagged files"
         ));
     }
     if let Some(destination) = &args.report {
@@ -158,16 +165,19 @@ fn is_flagged(verdict: Verdict) -> bool {
     )
 }
 
-fn render_spectrograms(context: &AppContext, results: &[VerifyResult]) {
+fn render_spectrograms(context: &AppContext, results: &[VerifyResult]) -> usize {
+    let mut saved = 0;
     for result in results {
         if !is_flagged(result.verdict) {
             continue;
         }
         let destination = result.path.with_extension("spectrogram.png");
-        if let Err(error) = spectrogram::render(&result.path, &destination) {
-            context.say(&format!("could not render {}: {error}", show(&destination)));
+        match spectrogram::render(&result.path, &destination) {
+            Ok(_) => saved += 1,
+            Err(error) => context.say(&format!("could not render {}: {error}", show(&destination))),
         }
     }
+    saved
 }
 
 /// Written with a BOM, or Excel mangles non-ASCII paths.
@@ -240,7 +250,9 @@ fn as_row(result: &VerifyResult) -> serde_json::Value {
 fn print_table(context: &AppContext, results: &[VerifyResult], only_flagged: bool) {
     let shown: Vec<&VerifyResult> = results
         .iter()
-        .filter(|result| !only_flagged || is_flagged(result.verdict))
+        .filter(|result| {
+            !only_flagged || is_flagged(result.verdict) || result.verdict == Verdict::Error
+        })
         .collect();
 
     if !shown.is_empty() {
