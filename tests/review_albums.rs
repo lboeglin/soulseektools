@@ -406,3 +406,40 @@ fn a_track_already_on_its_way_is_left_alone() {
     assert_eq!(entry.candidates.len(), 1);
     assert_eq!(entry.candidates[0].candidate.username, "someone");
 }
+
+#[test]
+fn a_folder_must_carry_the_numbers_of_the_album_asked_for() {
+    use stk::review::albums::names_its_numbers;
+
+    assert!(!names_its_numbers(
+        r"Music\Kikuo\Kikuo Miku 7",
+        "Kikuo Miku 3"
+    ));
+    assert!(names_its_numbers(
+        r"Music\Kikuo\Kikuo Miku 3\CD1",
+        "Kikuo Miku 3"
+    ));
+    assert!(names_its_numbers(
+        r"Music\YOASOBI\THE BOOK 03",
+        "THE BOOK 3"
+    ));
+    assert!(names_its_numbers(r"Music\DECO_27\GHOST", "GHOST"));
+}
+
+#[test]
+fn a_filename_naming_the_album_too_yields_just_the_title() {
+    let named = listing(
+        "bulk",
+        r"@@peer\Music\Kikuo Miku 7",
+        &[
+            "Kikuo - Kikuo Miku 7 - 01 Twins at the carousel.flac",
+            "Kikuo - Kikuo Miku 7 - 11 Astral Travel.flac",
+        ],
+    );
+    let offers = offered(&named, 2);
+    let rows = album_rows(&offers[0], "Kikuo", "Kikuo Miku 7");
+
+    let titles: Vec<&str> = rows.iter().map(|(track, _)| track.title.as_str()).collect();
+    assert_eq!(titles, vec!["Twins at the carousel", "Astral Travel"]);
+    assert_eq!(rows[1].0.source_value(&["track number"]), Some("11"));
+}

@@ -233,6 +233,7 @@ fn album(context: &AppContext, args: &GetArgs) -> Result<i32> {
         &flatten(&query),
         context.settings().review.album_minimum_tracks,
     );
+    offers.retain(|offer| albums::names_its_numbers(&offer.folder, &name));
     offers.truncate(args.limit);
 
     if context.as_json {

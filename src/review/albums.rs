@@ -7,7 +7,7 @@ use crate::errors::Result;
 use crate::models::{Candidate, ScoredCandidate, Track, TrackStatus};
 use crate::review::store::{ReviewStore, ReviewTrack};
 use crate::soulseek::ranking;
-use crate::text::normalize::{strip_artist_prefix, track_number};
+use crate::text::normalize::{strip_artist_prefix, strip_track_number, track_number};
 use crate::wantlist::TRACK_NUMBER_COLUMNS;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -253,7 +253,9 @@ pub fn album_rows(offer: &FolderOffer, artist: &str, album: &str) -> Vec<(Track,
     for file in &offer.files {
         let filename = file.candidate.filename();
         let stem = filename.rsplit_once('.').map_or(filename, |(stem, _)| stem);
-        let title = strip_artist_prefix(stem, artist);
+        // "Kikuo - Kikuo Miku 7 - 11 Astral Travel" names artist, album and number.
+        let after_album = strip_album_prefix(&strip_artist_prefix(stem, artist), album);
+        let title = strip_track_number(&after_album);
         if title.is_empty() {
             continue;
         }
@@ -266,6 +268,7 @@ pub fn album_rows(offer: &FolderOffer, artist: &str, album: &str) -> Vec<(Track,
             // Read back by `retag::RowTags::of` through the column names an
             // export is read with, so a download lands with its number on it.
             source_row: track_number(filename)
+                .or_else(|| track_number(&after_album))
                 .map(|number| vec![(TRACK_NUMBER_COLUMNS[0].to_owned(), number.to_string())])
                 .unwrap_or_default(),
             ..Track::default()
@@ -323,6 +326,42 @@ pub fn queue_folder(
         queued: picks.len(),
         skipped,
     })
+}
+
+const TITLE_SEPARATORS: [char; 6] = [' ', '-', '_', '.', '\u{2013}', '\u{2014}'];
+
+/// Only the whole name: "Ghost Rule" is a title on "Ghost Rule EP", not a prefix.
+fn strip_album_prefix(name: &str, album: &str) -> String {
+    let rest = name
+        .get(..album.len())
+        .filter(|head| !album.is_empty() && head.eq_ignore_ascii_case(album))
+        .and_then(|_| name.get(album.len()..));
+    match rest {
+        Some(rest) if rest.starts_with(TITLE_SEPARATORS) => {
+            let title = rest.trim_start_matches(TITLE_SEPARATORS);
+            if title.is_empty() {
+                name
+            } else {
+                title
+            }
+        }
+        _ => name,
+    }
+    .to_owned()
+}
+
+/// Every number the album name holds appears in the folder's path, read as a
+/// number so `03` counts as `3`. Name similarity alone rates "Kikuo Miku 7"
+/// the album asked for as "Kikuo Miku 3".
+#[must_use]
+pub fn names_its_numbers(folder: &str, album: &str) -> bool {
+    let numbers = |text: &str| -> Vec<u64> {
+        text.split(|c: char| !c.is_ascii_digit())
+            .filter_map(|digits| digits.parse().ok())
+            .collect()
+    };
+    let present = numbers(folder);
+    numbers(album).iter().all(|number| present.contains(number))
 }
 
 fn folder_name(folder: &str) -> &str {
