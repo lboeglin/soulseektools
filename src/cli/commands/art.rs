@@ -196,7 +196,7 @@ fn report(context: &AppContext, results: &[ArtworkResult], applied: bool) {
         ));
     } else {
         context.say(&format!(
-            "Found verified artwork for {found} of {} file(s). \
+            "Found artwork for {found} of {} file(s). \
              Nothing was written -- pass --apply to embed it.",
             results.len()
         ));
