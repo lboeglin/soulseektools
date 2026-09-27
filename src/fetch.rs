@@ -416,6 +416,21 @@ pub fn enqueue_approved(
     enqueue(store, client, approved, now)
 }
 
+/// Only these tracks, so `get` never sends what an earlier run approved.
+pub fn enqueue_tracks(
+    store: &mut ReviewStore,
+    client: &dyn SoulseekClient,
+    ids: &[i64],
+    now: f64,
+) -> crate::errors::Result<Vec<EnqueueOutcome>> {
+    let approved = store
+        .tracks(&[TrackStatus::Approved], None)?
+        .into_iter()
+        .filter(|entry| ids.contains(&entry.id))
+        .collect();
+    enqueue(store, client, approved, now)
+}
+
 fn enqueue(
     store: &mut ReviewStore,
     client: &dyn SoulseekClient,
@@ -442,27 +457,46 @@ fn enqueue(
         };
 
         let destination = sanitize_folder_name(&entry.track.artist, UNKNOWN_ARTIST);
-        if let Err(error) = client.enqueue(
-            &approved.candidate.username,
-            std::slice::from_ref(&approved.candidate),
-            &destination,
-        ) {
-            store.mark(entry.id, TrackStatus::Failed, &error.to_string())?;
-            outcomes.push(EnqueueOutcome {
-                track_id: entry.id,
-                query: entry.track.query(),
-                destination,
-                queued: false,
-                error: error.to_string(),
-            });
-            continue;
-        }
+        let mut candidate = approved.candidate;
+        let sent = loop {
+            match client.enqueue(
+                &candidate.username,
+                std::slice::from_ref(&candidate),
+                &destination,
+            ) {
+                Ok(_) => break Ok(candidate),
+                Err(error) => {
+                    // A peer that answered the search may be offline by now:
+                    // move on to the next candidate before giving up.
+                    let next = match store.next_candidate(entry.id)? {
+                        Some(_) => store
+                            .track(entry.id)?
+                            .and_then(|track| track.approved().cloned()),
+                        None => None,
+                    };
+                    match next {
+                        Some(next) => candidate = next.candidate,
+                        None => break Err(error),
+                    }
+                }
+            }
+        };
+        let candidate = match sent {
+            Ok(candidate) => candidate,
+            Err(error) => {
+                store.mark(entry.id, TrackStatus::Failed, &error.to_string())?;
+                outcomes.push(EnqueueOutcome {
+                    track_id: entry.id,
+                    query: entry.track.query(),
+                    destination,
+                    queued: false,
+                    error: error.to_string(),
+                });
+                continue;
+            }
+        };
 
-        store.mark_queued(
-            entry.id,
-            now,
-            &format!("from {}", approved.candidate.username),
-        )?;
+        store.mark_queued(entry.id, now, &format!("from {}", candidate.username))?;
         outcomes.push(EnqueueOutcome {
             track_id: entry.id,
             query: entry.track.query(),

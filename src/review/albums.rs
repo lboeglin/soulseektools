@@ -287,6 +287,8 @@ pub fn album_rows(offer: &FolderOffer, artist: &str, album: &str) -> Vec<(Track,
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct QueuedFolder {
     pub queued: usize,
+    /// The tracks approved, for queueing just these.
+    pub ids: Vec<i64>,
     /// Left alone because a transfer is already in flight or finished.
     pub skipped: Vec<String>,
 }
@@ -324,6 +326,7 @@ pub fn queue_folder(
     store.approve_all(&picks)?;
     Ok(QueuedFolder {
         queued: picks.len(),
+        ids: picks.iter().map(|(id, _)| *id).collect(),
         skipped,
     })
 }

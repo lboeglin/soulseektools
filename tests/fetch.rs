@@ -24,6 +24,8 @@ struct FakeClient {
     transfers: Vec<Transfer>,
     search_error: Option<String>,
     enqueue_error: Option<String>,
+    /// A peer that refuses every enqueue, as slskd does for one gone offline.
+    offline: Option<String>,
     /// This many searches find nothing first, as dropped ones do.
     dropped_searches: usize,
     searched: Mutex<Vec<String>>,
@@ -79,6 +81,11 @@ impl SoulseekClient for FakeClient {
             .lock()
             .expect("the fake is not poisoned")
             .push((username.to_owned(), destination.to_owned()));
+        if self.offline.as_deref() == Some(username) {
+            return Err(Error::SoulseekClient(format!(
+                "User {username} appears to be offline"
+            )));
+        }
         match &self.enqueue_error {
             Some(error) => Err(Error::SoulseekClient(error.clone())),
             None => Ok(Vec::new()),
@@ -1660,4 +1667,49 @@ fn what_counts_as_the_run_going_wrong() {
         ..fetch::Waited::default()
     };
     assert!(!timed_out.went_wrong(), "a timeout alone is not a failure");
+}
+
+#[test]
+fn a_peer_gone_offline_hands_the_track_to_the_next_candidate() {
+    let scratch = Scratch::new("fetch-offline-peer");
+    let settings = settings(&scratch);
+    let mut store = store(&scratch);
+    let track_id = approved(&mut store, &settings, &roki(), &["peerA", "peerB"]);
+    let first = approved_peer(&store, track_id);
+    let client = FakeClient {
+        offline: Some(first.clone()),
+        ..FakeClient::default()
+    };
+
+    let outcomes = fetch::enqueue_approved(&mut store, &client, None, 1000.0).expect("an enqueue");
+
+    assert!(outcomes[0].queued, "{:?}", outcomes[0].error);
+    assert_ne!(approved_peer(&store, track_id), first);
+}
+
+#[test]
+fn enqueueing_named_tracks_leaves_the_rest_of_the_queue_alone() {
+    let scratch = Scratch::new("fetch-named-enqueue");
+    let settings = settings(&scratch);
+    let mut store = store(&scratch);
+    let asked = approved(&mut store, &settings, &roki(), &["peerA"]);
+    let earlier = approved(
+        &mut store,
+        &settings,
+        &Track::new("DECO*27", "Ghost Rule"),
+        &["peerA"],
+    );
+
+    fetch::enqueue_tracks(&mut store, &FakeClient::default(), &[asked], 1000.0)
+        .expect("an enqueue");
+
+    let status = |id| {
+        store
+            .track(id)
+            .expect("a lookup")
+            .expect("the track")
+            .status
+    };
+    assert_eq!(status(asked), TrackStatus::Queued);
+    assert_eq!(status(earlier), TrackStatus::Approved);
 }

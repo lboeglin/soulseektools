@@ -178,7 +178,7 @@ pub fn run(context: &AppContext, args: &GetArgs) -> Result<i32> {
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs_f64();
-    let outcomes = fetch::enqueue_approved(&mut store, &client, None, now)?;
+    let outcomes = fetch::enqueue_tracks(&mut store, &client, &[entry.id], now)?;
 
     if let Some(failure) = outcomes.iter().find(|outcome| !outcome.queued) {
         let message = if failure.error.is_empty() {
@@ -288,7 +288,7 @@ fn album(context: &AppContext, args: &GetArgs) -> Result<i32> {
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs_f64();
-    let queued = fetch::enqueue_approved(&mut store, &client, None, now)?;
+    let queued = fetch::enqueue_tracks(&mut store, &client, &outcome.ids, now)?;
 
     if let Some(failure) = queued.iter().find(|outcome| !outcome.queued) {
         let message = if failure.error.is_empty() {
@@ -503,12 +503,13 @@ fn batch(context: &AppContext, args: &GetArgs, tracks: &[Track]) -> Result<i32> 
         return Ok(0);
     }
 
-    let mut approved = 0;
+    let mut ids = Vec::new();
     for outcome in &outcomes {
         if outcome.found > 0 && store.approve(outcome.track_id, 1).is_ok() {
-            approved += 1;
+            ids.push(outcome.track_id);
         }
     }
+    let approved = ids.len();
 
     if args.queue_only {
         context.say(&format!(
@@ -521,7 +522,7 @@ fn batch(context: &AppContext, args: &GetArgs, tracks: &[Track]) -> Result<i32> 
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs_f64();
-    let queued = fetch::enqueue_approved(&mut store, &client, None, now)?;
+    let queued = fetch::enqueue_tracks(&mut store, &client, &ids, now)?;
     let sent = queued.iter().filter(|outcome| outcome.queued).count();
 
     context.say(&format!(
