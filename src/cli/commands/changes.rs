@@ -64,6 +64,7 @@ fn list(
     run: Option<i64>,
 ) -> Result<i32> {
     let index = context.open_index()?;
+    let filtered = command.is_some() || run.is_some();
     let changes = index.changes(&ChangeFilter {
         limit: Some(limit),
         command,
@@ -76,7 +77,11 @@ fn list(
     }
 
     if changes.is_empty() {
-        context.say("Nothing has been written yet.");
+        context.say(if filtered {
+            "No change matches that command or run."
+        } else {
+            "Nothing has been written yet."
+        });
         return Ok(0);
     }
 
