@@ -189,16 +189,19 @@ fn the_api_key_is_sent_as_a_header() {
 }
 
 #[test]
-fn a_timeout_below_the_daemon_minimum_is_raised_to_it() {
-    let client = SlskdClient::new(SlskdSettings::default(), searching());
-    client.search("x", 1, 200).expect("a search");
+fn the_search_timeout_is_sent_in_milliseconds_with_a_floor() {
+    // Sent as seconds, slskd ended every search after 15 ms with no results.
+    for (seconds, sent) in [(15, 15_000), (1, 5_000)] {
+        let client = SlskdClient::new(SlskdSettings::default(), searching());
+        client.search("x", seconds, 200).expect("a search");
 
-    let recorder = client.into_http();
-    let body = recorder.calls_to("POST", "/searches")[0]
-        .1
-        .clone()
-        .expect("a body");
-    assert_eq!(body["searchTimeout"], 5);
+        let recorder = client.into_http();
+        let body = recorder.calls_to("POST", "/searches")[0]
+            .1
+            .clone()
+            .expect("a body");
+        assert_eq!(body["searchTimeout"], sent, "{seconds} s");
+    }
 }
 
 #[test]

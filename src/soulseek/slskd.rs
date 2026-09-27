@@ -15,6 +15,7 @@ pub const API_KEY_HEADER: &str = "X-API-Key";
 
 const POLL_INTERVAL: Duration = Duration::from_secs(1);
 const SEARCH_GRACE: Duration = Duration::from_secs(5);
+const MIN_SEARCH_SECONDS: u32 = 5;
 
 /// Order matters: "Completed, Errored" is a failure, not a success.
 const TERMINAL_STATES: &[(&str, TransferState)] = &[
@@ -86,12 +87,14 @@ impl<H: Http> SoulseekClient for SlskdClient<H> {
         response_limit: u32,
     ) -> Result<Vec<Candidate>> {
         let search_id = new_search_id();
+        let timeout_seconds = timeout_seconds.max(MIN_SEARCH_SECONDS);
         self.post(
             "/searches",
             &serde_json::json!({
                 "id": search_id,
                 "searchText": text,
-                "searchTimeout": timeout_seconds.max(5),
+                // Milliseconds: slskd ends a 15 ms search before any peer answers.
+                "searchTimeout": timeout_seconds * 1000,
                 "responseLimit": response_limit,
             }),
         )?;
