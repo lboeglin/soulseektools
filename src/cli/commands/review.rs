@@ -352,6 +352,10 @@ fn approve_album(context: &AppContext, index: usize) -> Result<i32> {
 
 fn approve(context: &AppContext, track_id: i64, rank: i64) -> Result<i32> {
     let mut store = context.open_review()?;
+    if store.track(track_id)?.is_none() {
+        eprintln!("error: no track {track_id} in the review queue");
+        return Ok(1);
+    }
     if let Err(error) = store.approve(track_id, rank) {
         eprintln!("error: {error}");
         return Ok(1);
