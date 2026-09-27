@@ -1259,6 +1259,24 @@ fn a_download_still_being_moved_into_place_waits_for_the_next_collect() {
 }
 
 #[test]
+fn a_finished_download_missing_from_the_download_directory_is_an_error() {
+    let scratch = Scratch::new("fetch-missing-file");
+    let settings = settings(&scratch);
+    let mut store = store(&scratch);
+    let (_, path) = arrived(&mut store, &settings, &roki_with_album());
+    std::fs::remove_file(&path).expect("the file gone");
+
+    let outcomes = collect(&mut store, &completed(), &settings, false).expect("a collect");
+
+    assert!(
+        outcomes[0].error.contains("slskd.download_directory"),
+        "{}",
+        outcomes[0].error
+    );
+    assert!(fetch::downloads_went_wrong(&[], &outcomes));
+}
+
+#[test]
 fn replace_keeps_what_the_row_cannot_say_and_drops_the_rest() {
     let scratch = Scratch::new("fetch-tag-kept");
     let settings = settings(&scratch);
@@ -1515,7 +1533,7 @@ fn wait(
         settings,
         &mut index,
         &settings.library.all_roots(),
-        limit,
+        fetch::Scope::Queue { limit },
         patience,
         clock,
         &mut |_| {},

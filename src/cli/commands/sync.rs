@@ -151,8 +151,9 @@ pub fn run(context: &AppContext, args: &SyncArgs) -> Result<i32> {
                 Some(client) => client,
                 None => fetch_command::client(&settings.slskd)?,
             };
+            let scope = fetch::Scope::Queue { limit: args.limit };
             Download::Waited(wait(
-                context, &mut store, &client, &mut index, &roots, args.limit, timeout,
+                context, &mut store, &client, &mut index, &roots, scope, timeout,
             )?)
         }
     } else {
@@ -196,7 +197,7 @@ fn target(context: &AppContext, apply: bool) -> Result<Option<Target>> {
     let Some(downloads) = context.settings().slskd.download_directory.clone() else {
         if apply {
             return Err(Error::Config(
-                "sync --apply has nowhere to organise downloads from\n\
+                "nowhere to organise downloads from\n\
                  hint: set slskd.download_directory to where slskd saves them"
                     .to_owned(),
             ));
@@ -263,20 +264,7 @@ impl Synced {
             )),
         }
         if let Some(organised) = &self.organised {
-            let failures: Vec<(String, String)> = organised
-                .applied
-                .failures
-                .iter()
-                .map(|(path, error)| (show(path), error.clone()))
-                .collect();
-            organise_command::report(
-                context,
-                &organised.planned,
-                &organised.ready(),
-                &failures,
-                self.applied,
-                organised.applied.pruned,
-            );
+            report_organised(context, organised, self.applied);
         }
         match &self.rescanned {
             Some(rescanned) => rescanned.report(context),
@@ -285,6 +273,57 @@ impl Synced {
             ),
         }
     }
+}
+
+fn report_organised(context: &AppContext, organised: &Organised, applied: bool) {
+    let failures: Vec<(String, String)> = organised
+        .applied
+        .failures
+        .iter()
+        .map(|(path, error)| (show(path), error.clone()))
+        .collect();
+    organise_command::report(
+        context,
+        &organised.planned,
+        &organised.ready(),
+        &failures,
+        applied,
+        organised.applied.pruned,
+    );
+}
+
+/// `true` when something went wrong.
+pub(crate) fn download_and_file(
+    context: &AppContext,
+    store: &mut ReviewStore,
+    client: &dyn SoulseekClient,
+    ids: &[i64],
+    timeout: f64,
+) -> Result<bool> {
+    let Some(target) = target(context, true)? else {
+        return Ok(false);
+    };
+    let roots = context.library_roots();
+    let pattern = Pattern::parse(&context.settings().organise.pattern)?;
+    let mut index = context.open_index()?;
+
+    let waited = wait(
+        context,
+        store,
+        client,
+        &mut index,
+        &roots,
+        fetch::Scope::Tracks(ids),
+        timeout,
+    )?;
+    report_download(context, &waited);
+    let organised = organise_downloads(context, &mut index, Some(&target), &pattern, &roots, true)?;
+    let mut failed = waited.went_wrong();
+    if let Some(organised) = &organised {
+        report_organised(context, organised, true);
+        failed |= !organised.applied.failures.is_empty();
+    }
+    Ok(failed)
 }
 
 fn pick(context: &AppContext, store: &mut ReviewStore, yes: bool) -> Result<usize> {
@@ -322,7 +361,7 @@ fn wait(
     client: &dyn SoulseekClient,
     index: &mut LibraryIndex,
     roots: &[PathBuf],
-    limit: Option<usize>,
+    scope: fetch::Scope<'_>,
     timeout: f64,
 ) -> Result<Waited> {
     // A line only when something changed.
@@ -333,7 +372,7 @@ fn wait(
         context.settings(),
         index,
         roots,
-        limit,
+        scope,
         Patience {
             timeout_seconds: timeout,
             poll_seconds: POLL_SECONDS,

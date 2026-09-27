@@ -6,8 +6,8 @@ use std::path::{Path, PathBuf};
 use clap::Args;
 use serde_json::json;
 
-use crate::cli::commands::fetch as fetch_command;
-use crate::cli::context::{table, AppContext};
+use crate::cli::commands::{fetch as fetch_command, sync as sync_command};
+use crate::cli::context::{table, unix_now, AppContext};
 use crate::config::SlskdSettings;
 use crate::errors::Error;
 use crate::errors::Result;
@@ -15,6 +15,7 @@ use crate::fetch;
 use crate::models::{ScoredCandidate, Track};
 use crate::review::albums::{self, FolderOffer};
 use crate::review::picker;
+use crate::review::store::ReviewStore;
 use crate::soulseek::base::SoulseekClient;
 use crate::soulseek::ranking;
 use crate::text::normalize::{flatten, normalize};
@@ -50,9 +51,13 @@ pub struct GetArgs {
     #[arg(short = 'y', long)]
     pub yes: bool,
 
-    /// Choose a candidate but do not download it yet.
+    /// Choose a candidate but do not download it; stk fetch download does that later.
     #[arg(long)]
     pub queue_only: bool,
+
+    /// Stop waiting for downloads after this long [default: twice slskd.stall_after_seconds].
+    #[arg(long, value_name = "SECONDS")]
+    pub timeout: Option<f64>,
 
     /// How many candidates to offer, or folders under `--album`.
     #[arg(short = 'n', long, default_value_t = 5)]
@@ -174,26 +179,7 @@ pub fn run(context: &AppContext, args: &GetArgs) -> Result<i32> {
         return Ok(0);
     }
 
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs_f64();
-    let outcomes = fetch::enqueue_tracks(&mut store, &client, &[entry.id], now)?;
-
-    if let Some(failure) = outcomes.iter().find(|outcome| !outcome.queued) {
-        let message = if failure.error.is_empty() {
-            "could not queue the download"
-        } else {
-            &failure.error
-        };
-        eprintln!("error: {message}");
-        return Ok(1);
-    }
-
-    context.say(&format!(
-        "Queued candidate {choice}. Run stk fetch download --collect to record it once it finishes."
-    ));
-    Ok(0)
+    download(context, &mut store, &client, &[entry.id], args)
 }
 
 /// With no tracklist, the folder itself is scored and taken, one album at a time.
@@ -284,30 +270,7 @@ fn album(context: &AppContext, args: &GetArgs) -> Result<i32> {
         return Ok(0);
     }
 
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs_f64();
-    let queued = fetch::enqueue_tracks(&mut store, &client, &outcome.ids, now)?;
-
-    if let Some(failure) = queued.iter().find(|outcome| !outcome.queued) {
-        let message = if failure.error.is_empty() {
-            "could not queue the download"
-        } else {
-            &failure.error
-        };
-        eprintln!("error: {message}");
-        return Ok(1);
-    }
-
-    context.say(&format!(
-        "Queued {} file(s) from {}'s \"{}\". \
-         Run stk fetch download --collect to record them once they finish.",
-        outcome.queued,
-        offer.username,
-        offer.name()
-    ));
-    Ok(0)
+    download(context, &mut store, &client, &outcome.ids, args)
 }
 
 #[must_use]
@@ -518,16 +481,31 @@ fn batch(context: &AppContext, args: &GetArgs, tracks: &[Track]) -> Result<i32> 
         return Ok(0);
     }
 
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs_f64();
-    let queued = fetch::enqueue_tracks(&mut store, &client, &ids, now)?;
-    let sent = queued.iter().filter(|outcome| outcome.queued).count();
+    download(context, &mut store, &client, &ids, args)
+}
 
+fn download(
+    context: &AppContext,
+    store: &mut ReviewStore,
+    client: &dyn SoulseekClient,
+    ids: &[i64],
+    args: &GetArgs,
+) -> Result<i32> {
+    let settings = &context.settings().slskd;
+    if settings.download_directory.is_some() {
+        let timeout = args.timeout.unwrap_or(2.0 * settings.stall_after_seconds);
+        let failed = sync_command::download_and_file(context, store, client, ids, timeout)?;
+        return Ok(i32::from(failed));
+    }
+
+    let queued = fetch::enqueue_tracks(store, client, ids, unix_now())?;
+    if let Some(failure) = queued.iter().find(|outcome| !outcome.queued) {
+        eprintln!("error: {}", failure.error);
+        return Ok(1);
+    }
     context.say(&format!(
-        "Queued {sent} of {approved} download(s). \
-         Run stk fetch download --collect to record them once they finish."
+        "Queued {} download(s). Set slskd.download_directory so get can wait for          them, check them and file them; until then, stk fetch download --collect          records them once they finish.",
+        queued.len()
     ));
     Ok(0)
 }

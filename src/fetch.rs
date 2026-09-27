@@ -584,11 +584,19 @@ pub fn collect(
         } else {
             None
         };
-        store.mark(
-            entry.id,
-            TrackStatus::Downloaded,
-            &describe(verdict.as_ref()),
-        )?;
+        let error = match local_path.as_deref() {
+            Some(path) if !path.is_file() => format!(
+                "not found at {}; is slskd.download_directory where slskd saves files?",
+                path.display()
+            ),
+            _ => String::new(),
+        };
+        let detail = if error.is_empty() {
+            describe(verdict.as_ref())
+        } else {
+            format!("downloaded, {error}")
+        };
+        store.mark(entry.id, TrackStatus::Downloaded, &detail)?;
         outcomes.push(CollectOutcome {
             track_id: entry.id,
             query: entry.track.query(),
@@ -596,7 +604,7 @@ pub fn collect(
             local_path,
             verdict,
             tags,
-            error: String::new(),
+            error,
             retried_with_rank: None,
         });
     }
@@ -664,6 +672,15 @@ pub fn downloads_went_wrong(queued: &[EnqueueOutcome], collected: &[CollectOutco
         })
 }
 
+#[derive(Debug, Clone, Copy)]
+pub enum Scope<'a> {
+    /// Tracks already on their way count too.
+    Queue {
+        limit: Option<usize>,
+    },
+    Tracks(&'a [i64]),
+}
+
 /// On timeout slskd keeps the transfers, and the next collect records them.
 #[allow(clippy::too_many_arguments)]
 pub fn wait_for_downloads(
@@ -672,7 +689,7 @@ pub fn wait_for_downloads(
     settings: &Settings,
     index: &mut LibraryIndex,
     roots: &[PathBuf],
-    limit: Option<usize>,
+    scope: Scope<'_>,
     patience: Patience,
     clock: &mut dyn Clock,
     progress: &mut dyn FnMut(&Waited),
@@ -680,12 +697,20 @@ pub fn wait_for_downloads(
     let start = clock.now();
     let mut waited = Waited::default();
 
-    let mut ours: HashSet<i64> = store
-        .tracks(&[TrackStatus::Queued], None)?
-        .iter()
-        .map(|entry| entry.id)
-        .collect();
-    let sent = enqueue_approved(store, client, limit, start)?;
+    let (mut ours, sent): (HashSet<i64>, _) = match scope {
+        Scope::Queue { limit } => (
+            store
+                .tracks(&[TrackStatus::Queued], None)?
+                .iter()
+                .map(|entry| entry.id)
+                .collect(),
+            enqueue_approved(store, client, limit, start)?,
+        ),
+        Scope::Tracks(ids) => (
+            ids.iter().copied().collect(),
+            enqueue_tracks(store, client, ids, start)?,
+        ),
+    };
     ours.extend(
         sent.iter()
             .filter(|outcome| outcome.queued)
