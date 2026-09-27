@@ -253,10 +253,41 @@ fn an_explicit_override_beats_the_environment() {
     )
     .expect("settings");
 
-    assert_eq!(resolved.settings.library.root, PathBuf::from("from-flag"));
+    let flag = scratch.join("from-flag");
+    assert_eq!(resolved.settings.library.root, flag);
+    assert_eq!(resolved.settings.library.all_roots(), vec![flag]);
+}
+
+#[test]
+fn every_relative_path_resolves_against_the_config_file_not_the_working_directory() {
+    let _guard = exclusive();
+    let scratch = Scratch::new("config-relative-paths");
+    let _environment = CleanEnvironment::enter(scratch.path());
+    let directory = scratch.join("config");
+    std::fs::create_dir_all(&directory).expect("a config directory");
+    let path = write_toml(
+        &directory.join(CONFIG_FILENAME),
+        "[index]
+path = \"library.db\"
+[review]
+path = \"review.db\"
+         [slskd]
+download_directory = \"downloads\"
+         [wantlist]
+discogs_cache = \"discogs.json\"
+",
+    );
+
+    let settings = load(Some(&path)).settings;
+    assert_eq!(settings.index.path, directory.join("library.db"));
+    assert_eq!(settings.review.path, directory.join("review.db"));
     assert_eq!(
-        resolved.settings.library.all_roots(),
-        vec![PathBuf::from("from-flag")]
+        settings.slskd.download_directory,
+        Some(directory.join("downloads"))
+    );
+    assert_eq!(
+        settings.wantlist.discogs_cache,
+        directory.join("discogs.json")
     );
 }
 

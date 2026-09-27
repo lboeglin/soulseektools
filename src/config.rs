@@ -664,10 +664,24 @@ pub fn load_settings(config_path: Option<&Path>, overrides: &Overrides) -> Resul
     settings.wantlist.discogs_token = secret(DISCOGS_TOKEN_ENV_VAR);
     settings.wantlist.lastfm_api_key = secret(LASTFM_API_KEY_ENV_VAR);
 
-    Ok(Resolved {
+    let mut resolved = Resolved {
         settings,
         source_path: path,
-    })
+    };
+    let settings = &resolved.settings;
+    let index = resolved.resolve(&settings.index.path);
+    let review = resolved.resolve(&settings.review.path);
+    let discogs_cache = resolved.resolve(&settings.wantlist.discogs_cache);
+    let downloads = settings
+        .slskd
+        .download_directory
+        .as_deref()
+        .map(|path| resolved.resolve(path));
+    resolved.settings.index.path = index;
+    resolved.settings.review.path = review;
+    resolved.settings.wantlist.discogs_cache = discogs_cache;
+    resolved.settings.slskd.download_directory = downloads;
+    Ok(resolved)
 }
 
 fn secret(name: &str) -> Option<String> {
@@ -725,6 +739,8 @@ fn apply_overrides(table: &mut toml::Table, overrides: &Overrides) {
         .entry("library".to_owned())
         .or_insert_with(|| toml::Value::Table(toml::Table::new()));
     if let Some(entry) = entry.as_table_mut() {
+        // Typed on the command line, so relative to where stk runs.
+        let root = std::path::absolute(root).unwrap_or_else(|_| root.clone());
         let root = toml::Value::String(root.display().to_string());
         entry.insert("roots".to_owned(), toml::Value::Array(vec![root.clone()]));
         entry.insert("root".to_owned(), root);
