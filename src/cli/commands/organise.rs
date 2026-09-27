@@ -184,7 +184,7 @@ pub(crate) fn report(
             context.say(&format!("Removed {pruned} empty directory(ies)"));
         }
         for (path, reason) in failures {
-            context.say(&format!("failed {path}: {reason}"));
+            context.say_failure(path, reason);
         }
     } else if !ready.is_empty() {
         context.say("Nothing was written -- pass --apply to move them.");

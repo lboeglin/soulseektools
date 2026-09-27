@@ -64,6 +64,12 @@ impl AppContext {
         }
     }
 
+    /// Errors often name their file already; it is said once.
+    pub fn say_failure(&self, path: &str, reason: &str) {
+        let reason = reason.replace(&format!("{path}: "), "");
+        self.say(&format!("failed {path}: {reason}"));
+    }
+
     /// Under `--json` the run carries on, so an empty document is still printed.
     #[must_use]
     pub fn nothing_to_do(&self, line: &str) -> bool {

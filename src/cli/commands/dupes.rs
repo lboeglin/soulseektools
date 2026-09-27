@@ -384,7 +384,7 @@ fn resolve_report(
             context.say(&format!("Removed {} empty directory(ies)", applied.pruned));
         }
         for (path, reason) in &applied.failures {
-            context.say(&format!("failed {}: {reason}", show(path)));
+            context.say_failure(&show(path), reason);
         }
         if applied.moved > 0 {
             context.say("stk changes undo --last --apply puts them back.");

@@ -285,6 +285,8 @@ fn report(
         // re-measurement that agreed with what the files already carried.
         context.say(if selection.wanted.is_empty() {
             "Nothing to measure."
+        } else if failures.len() >= selection.wanted.len() {
+            "Nothing could be measured."
         } else {
             "Every file measured already carries the figures this scan found."
         });
@@ -301,6 +303,6 @@ fn report(
     }
 
     for (path, error) in failures {
-        context.say(&format!("failed {path}: {error}"));
+        context.say_failure(path, error);
     }
 }

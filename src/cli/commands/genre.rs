@@ -198,7 +198,7 @@ fn apply_genres(context: &AppContext, apply: bool) -> Result<i32> {
             changes.len() - failures.len()
         ));
         for (path, reason) in &failures {
-            context.say(&format!("failed {path}: {reason}"));
+            context.say_failure(path, reason);
         }
     } else {
         context.say(&format!(
