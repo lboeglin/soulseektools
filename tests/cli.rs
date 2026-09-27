@@ -883,6 +883,7 @@ fn get_accepts_one_track_several_tracks_and_a_list() {
         min_bitrate: None,
         yes: false,
         queue_only: false,
+        rename: false,
         timeout: None,
         limit: 5,
     };

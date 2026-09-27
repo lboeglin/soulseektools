@@ -12,7 +12,8 @@ use crate::config::SlskdSettings;
 use crate::errors::Error;
 use crate::errors::Result;
 use crate::fetch;
-use crate::models::{ScoredCandidate, Track};
+use crate::models::{Candidate, ScoredCandidate, Track};
+use crate::retag::TagPolicy;
 use crate::review::albums::{self, FolderOffer};
 use crate::review::picker;
 use crate::review::store::ReviewStore;
@@ -54,6 +55,10 @@ pub struct GetArgs {
     /// Choose a candidate but do not download it; stk fetch download does that later.
     #[arg(long)]
     pub queue_only: bool,
+
+    /// Write the artist and title as typed into the file, replacing its own.
+    #[arg(long)]
+    pub rename: bool,
 
     /// Stop waiting for downloads after this long [default: twice slskd.stall_after_seconds].
     #[arg(long, value_name = "SECONDS")]
@@ -130,10 +135,10 @@ pub fn run(context: &AppContext, args: &GetArgs) -> Result<i32> {
     let client = fetch_command::client(settings)?;
 
     context.say(&format!("Searching for {} ...", track.query()));
-    let candidates = client.search(
-        &normalize(&format!("{} {}", track.artist, track.title)),
-        settings.search_timeout_seconds,
-        settings.search_response_limit,
+    let candidates = search(
+        &client,
+        settings,
+        &format!("{} {}", track.artist, track.title),
     )?;
     let scored = ranking::rank(&track, &candidates, &options, Some(args.limit));
 
@@ -182,6 +187,26 @@ pub fn run(context: &AppContext, args: &GetArgs) -> Result<i32> {
     download(context, &mut store, &client, &[entry.id], args)
 }
 
+/// Asked twice: Soulseek sometimes answers with silence while peers hold the file.
+fn search(
+    client: &dyn SoulseekClient,
+    settings: &SlskdSettings,
+    text: &str,
+) -> Result<Vec<Candidate>> {
+    let ask = || {
+        client.search(
+            &normalize(text),
+            settings.search_timeout_seconds,
+            settings.search_response_limit,
+        )
+    };
+    let found = ask()?;
+    if found.is_empty() {
+        return ask();
+    }
+    Ok(found)
+}
+
 /// With no tracklist, the folder itself is scored and taken, one album at a time.
 fn album(context: &AppContext, args: &GetArgs) -> Result<i32> {
     if args.from.is_some() || args.query.len() != 1 {
@@ -207,11 +232,7 @@ fn album(context: &AppContext, args: &GetArgs) -> Result<i32> {
 
     let query = format!("{artist} {name}");
     context.say(&format!("Searching for {} ...", query.trim()));
-    let candidates = client.search(
-        &normalize(&query),
-        settings.search_timeout_seconds,
-        settings.search_response_limit,
-    )?;
+    let candidates = search(&client, settings, &query)?;
 
     let mut offers = albums::folders(
         &candidates,
@@ -494,7 +515,13 @@ fn download(
     let settings = &context.settings().slskd;
     if settings.download_directory.is_some() {
         let timeout = args.timeout.unwrap_or(2.0 * settings.stall_after_seconds);
-        let failed = sync_command::download_and_file(context, store, client, ids, timeout)?;
+        // A typed query names the song no better than the file's own tags.
+        let tags = match (args.rename, context.settings().fetch.tags) {
+            (true, _) => TagPolicy::Replace,
+            (false, TagPolicy::Replace) => TagPolicy::Fill,
+            (false, other) => other,
+        };
+        let failed = sync_command::download_and_file(context, store, client, ids, tags, timeout)?;
         return Ok(i32::from(failed));
     }
 

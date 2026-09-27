@@ -423,3 +423,9 @@ fn an_isrc_is_read_in_any_of_its_spellings() {
     assert_eq!(isrc("bad; USRC17607839").as_deref(), Some("USRC17607839"));
     assert_eq!(isrc("not an isrc"), None);
 }
+
+#[test]
+fn a_track_without_an_artist_reads_as_its_title_alone() {
+    assert_eq!(Track::new("", "Roki").query(), "Roki");
+    assert_eq!(Track::new("DECO*27", "Roki").query(), "DECO*27 - Roki");
+}

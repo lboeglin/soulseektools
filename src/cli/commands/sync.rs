@@ -300,6 +300,7 @@ pub(crate) fn download_and_file(
     store: &mut ReviewStore,
     client: &dyn SoulseekClient,
     ids: &[i64],
+    tags: TagPolicy,
     timeout: f64,
 ) -> Result<bool> {
     let Some(target) = target(context, true)? else {
@@ -309,11 +310,6 @@ pub(crate) fn download_and_file(
     let pattern = Pattern::parse(&context.settings().organise.pattern)?;
     let mut index = context.open_index()?;
 
-    // A typed query names the song no better than the file's own tags.
-    let tags = match context.settings().fetch.tags {
-        TagPolicy::Replace => TagPolicy::Fill,
-        other => other,
-    };
     let scope = fetch::Scope::Tracks(ids);
     let waited = wait(context, store, client, &mut index, scope, tags, timeout)?;
     report_download(context, &waited);

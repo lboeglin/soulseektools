@@ -140,7 +140,11 @@ impl Track {
 
     #[must_use]
     pub fn query(&self) -> String {
-        format!("{} - {}", self.artist, self.title)
+        if self.artist.is_empty() {
+            self.title.clone()
+        } else {
+            format!("{} - {}", self.artist, self.title)
+        }
     }
 
     /// The export's value under the first of `columns` its header carries,
