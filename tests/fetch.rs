@@ -1226,6 +1226,32 @@ fn a_completed_download_is_tagged_from_its_review_row() {
 }
 
 #[test]
+fn a_download_still_being_moved_into_place_waits_for_the_next_collect() {
+    let scratch = Scratch::new("fetch-partial-file");
+    let settings = settings(&scratch);
+    let mut store = store(&scratch);
+    let (track_id, path) = arrived(&mut store, &settings, &roki_with_album());
+    let whole = std::fs::metadata(&path).expect("the file").len();
+    let moving = FakeClient::with_transfers(vec![Transfer {
+        size: whole + 1,
+        ..transfer("@@peerA\\Music\\Roki.flac", TransferState::Completed, "")
+    }]);
+
+    let outcomes = collect(&mut store, &moving, &settings, false).expect("a collect");
+
+    assert!(outcomes.is_empty());
+    let entry = store.track(track_id).expect("a lookup").expect("the track");
+    assert_eq!(entry.status, TrackStatus::Queued);
+    assert_eq!(
+        tags::read_tags(&path).expect("readable tags").artist,
+        "Unknown Artist"
+    );
+
+    let outcomes = collect(&mut store, &completed(), &settings, false).expect("a collect");
+    assert_eq!(outcomes.len(), 1);
+}
+
+#[test]
 fn replace_keeps_what_the_row_cannot_say_and_drops_the_rest() {
     let scratch = Scratch::new("fetch-tag-kept");
     let settings = settings(&scratch);
@@ -1607,6 +1633,8 @@ fn what_counts_as_the_run_going_wrong() {
     let cases = [
         (collected("", None, Some(Verdict::Ok)), false),
         (collected("", None, Some(Verdict::Fake)), true),
+        // A peer's copy that stops decoding before its end.
+        (collected("", None, Some(Verdict::Error)), true),
         (collected("peer gone", Some(2), None), false),
         (collected("peer gone", None, None), true),
     ];

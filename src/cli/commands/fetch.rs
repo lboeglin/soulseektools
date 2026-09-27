@@ -121,6 +121,7 @@ fn download(context: &AppContext, limit: Option<usize>, collect_only: bool) -> R
         now,
         true,
     )?;
+    let failed = i32::from(fetch::downloads_went_wrong(&queued, &collected));
 
     if context.as_json {
         context.emit(&json!({
@@ -129,7 +130,7 @@ fn download(context: &AppContext, limit: Option<usize>, collect_only: bool) -> R
             "queued": queued.iter().map(enqueue_row).collect::<Vec<_>>(),
             "collected": collected.iter().map(collect_row).collect::<Vec<_>>(),
         }));
-        return Ok(0);
+        return Ok(failed);
     }
 
     report_stalled(context, &stalled.tracks, &stalled.peers);
@@ -142,7 +143,7 @@ fn download(context: &AppContext, limit: Option<usize>, collect_only: bool) -> R
         collected.len(),
         stalled.tracks.len()
     ));
-    Ok(0)
+    Ok(failed)
 }
 
 pub(crate) fn search_row(outcome: &fetch::SearchOutcome) -> serde_json::Value {

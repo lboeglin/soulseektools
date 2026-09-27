@@ -530,6 +530,16 @@ pub fn collect(
         }
 
         let local_path = downloaded_path(settings, &entry.track.artist, transfer);
+        // slskd calls a transfer done before moving the file out of its
+        // incomplete folder, a copy across Docker mounts; tagging a half-copied
+        // file corrupts it. It is collected once all of it has arrived.
+        let partial = local_path
+            .as_deref()
+            .and_then(|path| std::fs::metadata(path).ok())
+            .is_some_and(|meta| meta.len() < transfer.size);
+        if partial {
+            continue;
+        }
         let tags = match local_path.as_deref().filter(|path| path.is_file()) {
             Some(path) => {
                 retag::apply(path, settings.fetch.tags, &entry.track, &log, index, roots)?
@@ -598,19 +608,27 @@ pub struct Waited {
 }
 
 impl Waited {
-    /// Whether the run failed: a track that couldn't be queued, one that failed
-    /// with nothing left to try, or a download `verify` calls fake or upsampled.
-    /// Retried failures and timeouts don't count.
     #[must_use]
     pub fn went_wrong(&self) -> bool {
-        self.queued.iter().any(|outcome| !outcome.queued)
-            || self.collected.iter().any(|outcome| {
-                (!outcome.error.is_empty() && outcome.retried_with_rank.is_none())
-                    || outcome.verdict.as_ref().is_some_and(|verdict| {
-                        matches!(verdict.verdict, Verdict::Fake | Verdict::Upsampled)
-                    })
-            })
+        downloads_went_wrong(&self.queued, &self.collected)
     }
+}
+
+/// Whether a download run failed: a track that couldn't be queued, one that
+/// failed with nothing left to try, or a download `verify` calls fake or
+/// upsampled, or can't read to the end. Retried failures and timeouts don't count.
+#[must_use]
+pub fn downloads_went_wrong(queued: &[EnqueueOutcome], collected: &[CollectOutcome]) -> bool {
+    queued.iter().any(|outcome| !outcome.queued)
+        || collected.iter().any(|outcome| {
+            (!outcome.error.is_empty() && outcome.retried_with_rank.is_none())
+                || outcome.verdict.as_ref().is_some_and(|verdict| {
+                    matches!(
+                        verdict.verdict,
+                        Verdict::Fake | Verdict::Upsampled | Verdict::Error
+                    )
+                })
+        })
 }
 
 /// On timeout slskd keeps the transfers, and the next collect records them.
