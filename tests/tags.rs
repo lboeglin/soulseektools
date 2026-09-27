@@ -574,3 +574,33 @@ fn an_mp4_write_keeps_one_byte_integer_atoms_one_byte_wide() {
     assert_eq!(size, 8 + 16 + 1);
     assert_eq!(bytes[at + 20], 2);
 }
+
+#[test]
+fn an_mp3_whose_comment_has_no_language_can_still_be_written() {
+    // Regression: lofty reads a COMM frame with a zeroed language but refuses to
+    // save it, so every write to such a file failed.
+    let scratch = Scratch::new("tags-id3-language");
+    let path = encode(&scratch.join("t.mp3"), &Encoded::default());
+    let mut frame = vec![3, 0, 0, 0, 0];
+    frame.extend(b"kept");
+    let mut tag = b"ID3\x04\x00\x00".to_vec();
+    tag.extend(syncsafe(10 + frame.len()));
+    tag.extend(b"COMM");
+    tag.extend(syncsafe(frame.len()));
+    tag.extend([0, 0]);
+    tag.extend(&frame);
+    let audio = std::fs::read(&path).expect("a readable file");
+    std::fs::write(&path, [tag, audio].concat()).expect("a written file");
+
+    tags::write_genres(&path, &["Vocaloid".to_owned()]).expect("a written genre");
+
+    let file = lofty::read_from_path(&path).expect("a readable file");
+    let tag = file.primary_tag().expect("a tag");
+    assert_eq!(tag.get_string(&ItemKey::Comment), Some("kept"));
+    assert_eq!(tag.get_string(&ItemKey::Genre), Some("Vocaloid"));
+}
+
+fn syncsafe(size: usize) -> [u8; 4] {
+    let size = u32::try_from(size).expect("a small frame");
+    [3, 2, 1, 0].map(|shift| u8::try_from((size >> (7 * shift)) & 0x7f).expect("seven bits"))
+}

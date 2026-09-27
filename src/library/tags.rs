@@ -782,7 +782,12 @@ impl NativeFile {
                 lofty::ogg::OpusFile::read_from(&mut file, parse).map(Self::Opus)
             }
             Some(FileType::Mpeg) => {
-                lofty::mpeg::MpegFile::read_from(&mut file, parse).map(Self::Mpeg)
+                lofty::mpeg::MpegFile::read_from(&mut file, parse).map(|mut mpeg| {
+                    if let Some(tag) = mpeg.id3v2_mut() {
+                        mark_unknown_languages(tag);
+                    }
+                    Self::Mpeg(mpeg)
+                })
             }
             Some(FileType::Mp4) => {
                 lofty::mp4::Mp4File::read_from(&mut file, parse).map(|mut mp4| {
@@ -965,6 +970,41 @@ impl NativeFile {
             Self::Mp4(file) => file.save_to_path(path, options),
         }
         .map_err(|error| Error::Tag(format!("{}: {error}", path.display())))
+    }
+}
+
+/// lofty reads a comment or lyrics frame whose language isn't three letters,
+/// some taggers write zeros, but refuses to save it. `XXX` is ID3's unknown.
+fn mark_unknown_languages(tag: &mut lofty::id3::v2::Id3v2Tag) {
+    use lofty::id3::v2::Frame;
+
+    let broken = |frame: &Frame<'_>| {
+        let language = match frame {
+            Frame::Comment(comment) => comment.language,
+            Frame::UnsynchronizedText(lyrics) => lyrics.language,
+            _ => return false,
+        };
+        !language.iter().all(u8::is_ascii_alphabetic)
+    };
+    let fixed: Vec<Frame<'static>> = (&*tag)
+        .into_iter()
+        .filter(|frame| broken(frame))
+        .cloned()
+        .map(|mut frame| {
+            match &mut frame {
+                Frame::Comment(comment) => comment.language = *b"XXX",
+                Frame::UnsynchronizedText(lyrics) => lyrics.language = *b"XXX",
+                _ => {}
+            }
+            frame
+        })
+        .collect();
+    if fixed.is_empty() {
+        return;
+    }
+    tag.retain(|frame| !broken(frame));
+    for frame in fixed {
+        tag.insert(frame);
     }
 }
 
