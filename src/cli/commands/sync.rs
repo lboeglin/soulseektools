@@ -437,7 +437,7 @@ fn report_download(context: &AppContext, waited: &Waited) {
     fetch_command::report_queued(context, &waited.queued);
     fetch_command::report_collected(context, &waited.collected);
     context.say(&format!(
-        "Queued {} track(s); recorded {} finished transfer(s); gave up on {} stalled one(s)",
+        "Queued {} track(s); recorded {} finished transfer(s); cancelled {} stalled one(s)",
         waited
             .queued
             .iter()
