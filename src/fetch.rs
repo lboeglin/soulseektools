@@ -2,9 +2,11 @@
 //! tag and verify what arrived. Nothing downloads until a candidate is approved.
 
 use std::collections::{HashMap, HashSet};
+use std::path::{Path, PathBuf};
+use std::sync::Mutex;
+use std::time::{Duration, Instant};
 
 use rayon::prelude::*;
-use std::path::{Path, PathBuf};
 
 use crate::audio::verify::verify_file;
 use crate::config::{Settings, UploaderSettings};
@@ -137,7 +139,9 @@ fn search_concurrently(
     client: &dyn SoulseekClient,
     settings: &Settings,
 ) -> Vec<crate::errors::Result<Vec<crate::models::Candidate>>> {
+    let pacer = Pacer::new(settings.slskd.search_interval_seconds);
     let search = |entry: &crate::review::store::ReviewTrack| {
+        pacer.wait_turn();
         let query = normalize(&format!("{} {}", entry.track.artist, entry.track.title));
         client.search(
             &query,
@@ -167,6 +171,40 @@ fn search_concurrently(
         }
     }
     results
+}
+
+/// Spaces out the starts of searches running on several threads.
+struct Pacer {
+    interval: Duration,
+    last_start: Mutex<Option<Instant>>,
+}
+
+impl Pacer {
+    fn new(interval_seconds: f64) -> Self {
+        Self {
+            interval: Duration::from_secs_f64(interval_seconds.max(0.0)),
+            last_start: Mutex::new(None),
+        }
+    }
+
+    /// Holds the lock while sleeping, so waiting workers start one at a time.
+    fn wait_turn(&self) {
+        if self.interval.is_zero() {
+            return;
+        }
+        let mut last_start = self
+            .last_start
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if let Some(previous) = *last_start {
+            let due = previous + self.interval;
+            let now = Instant::now();
+            if due > now {
+                std::thread::sleep(due - now);
+            }
+        }
+        *last_start = Some(Instant::now());
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]

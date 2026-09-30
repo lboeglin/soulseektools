@@ -158,6 +158,10 @@ fn an_invalid_value_is_rejected_naming_the_key() {
         ),
         ("[organise]\npattern = \"../{title}\"\n", "organise"),
         ("[fetch]\ntags = \"overwrite\"\n", "overwrite"),
+        (
+            "[slskd]\nsearch_interval_seconds = -1\n",
+            "slskd.search_interval_seconds",
+        ),
     ] {
         let path = write_toml(&scratch.join(CONFIG_FILENAME), body);
         let error = load_settings(Some(&path), &Overrides::default()).expect_err(body);

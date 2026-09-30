@@ -208,6 +208,9 @@ pub struct SlskdSettings {
     /// How many searches to run at once. Bounded because slskd relays each one
     /// to the Soulseek network, which throttles floods.
     pub search_concurrency: usize,
+    /// The least time between two searches starting, across workers, so a
+    /// large sync doesn't flood the Soulseek server.
+    pub search_interval_seconds: f64,
 }
 
 impl Default for SlskdSettings {
@@ -221,6 +224,7 @@ impl Default for SlskdSettings {
             download_directory: None,
             stall_after_seconds: 3600.0,
             search_concurrency: 4,
+            search_interval_seconds: 1.0,
         }
     }
 }
@@ -844,6 +848,11 @@ impl Settings {
         }
         if self.slskd.search_timeout_seconds == 0 {
             return bad("slskd.search_timeout_seconds", "must be at least 1");
+        }
+        if !(self.slskd.search_interval_seconds >= 0.0
+            && self.slskd.search_interval_seconds.is_finite())
+        {
+            return bad("slskd.search_interval_seconds", "must be 0 or more");
         }
         if self.slskd.request_timeout_seconds <= 0.0 {
             return bad("slskd.request_timeout_seconds", "must be greater than 0");

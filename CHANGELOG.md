@@ -19,7 +19,9 @@ command, first in Python and then rewritten in Rust.
   either title is written in.
 - `stk fetch search` and `download` through slskd. Results are ranked on the
   full remote path and scored as a batch that prefers one peer. A stalled peer
-  hands its whole group on.
+  hands its whole group on. Searches start at least
+  `slskd.search_interval_seconds` apart, so a large sync doesn't flood the
+  server.
 - `stk review list`, `pick`, `albums` and `approve-album`.
 - `stk sync`, which runs scan, diff, search, pick, download and organise in one
   command.

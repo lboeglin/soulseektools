@@ -29,6 +29,7 @@ struct FakeClient {
     /// This many searches find nothing first, as dropped ones do.
     dropped_searches: usize,
     searched: Mutex<Vec<String>>,
+    started: Mutex<Vec<std::time::Instant>>,
     enqueued: Mutex<Vec<(String, String)>>,
     cancelled: Mutex<Vec<(String, String)>>,
 }
@@ -55,6 +56,10 @@ impl SoulseekClient for FakeClient {
     }
 
     fn search(&self, text: &str, _timeout: u32, _limit: u32) -> Result<Vec<Candidate>> {
+        self.started
+            .lock()
+            .expect("the fake is not poisoned")
+            .push(std::time::Instant::now());
         self.searched
             .lock()
             .expect("the fake is not poisoned")
@@ -134,6 +139,7 @@ fn settings(scratch: &Scratch) -> Settings {
     Settings {
         slskd: stk::config::SlskdSettings {
             download_directory: Some(scratch.join("downloads")),
+            search_interval_seconds: 0.0,
             ..stk::config::SlskdSettings::default()
         },
         index: stk::config::IndexSettings {
@@ -573,6 +579,35 @@ fn searches_run_concurrently_rather_than_one_after_another() {
         peak <= WORKERS,
         "{peak} searches ran at once, above the configured {WORKERS}"
     );
+}
+
+#[test]
+fn concurrent_searches_start_at_least_the_interval_apart() {
+    const INTERVAL: std::time::Duration = std::time::Duration::from_millis(50);
+
+    let scratch = Scratch::new("fetch-paced");
+    let mut settings = settings(&scratch);
+    settings.slskd.search_concurrency = 4;
+    settings.slskd.search_interval_seconds = INTERVAL.as_secs_f64();
+    let mut store = store(&scratch);
+    let tracks: Vec<Track> = (0..6)
+        .map(|index| Track::new("A", &index.to_string()))
+        .collect();
+    store.add(&tracks).expect("added tracks");
+    let client = FakeClient::with_candidates(vec![candidate(r"@@peerA\A\0.flac")]);
+
+    fetch::search_pending(&mut store, &client, &settings, None).expect("a search");
+
+    let mut started = client.started.lock().expect("the fake").clone();
+    started.sort();
+    assert_eq!(started.len(), 6);
+    for pair in started.windows(2) {
+        assert!(
+            pair[1] - pair[0] >= INTERVAL,
+            "two searches started {:?} apart",
+            pair[1] - pair[0]
+        );
+    }
 }
 
 #[test]
