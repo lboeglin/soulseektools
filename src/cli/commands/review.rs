@@ -3,7 +3,7 @@
 use clap::Subcommand;
 use serde_json::json;
 
-use crate::cli::context::{table, AppContext};
+use crate::cli::context::{candidate_count, table, AppContext};
 use crate::errors::Result;
 use crate::models::TrackStatus;
 use crate::review::albums::{self, AlbumOffer};
@@ -20,12 +20,16 @@ pub enum ReviewCommand {
         /// Show at most this many.
         #[arg(long, default_value_t = 50)]
         limit: usize,
-        /// Show each track's candidates too.
-        #[arg(long)]
-        candidates: bool,
+        /// Show each track's candidates too, this many [default: review.candidates_per_track].
+        #[arg(long, num_args = 0..=1, value_name = "N", value_parser = candidate_count)]
+        candidates: Option<Option<usize>>,
     },
     /// Walk the tracks awaiting review, choosing a candidate for each.
-    Pick,
+    Pick {
+        /// Offer this many candidates per track [default: review.candidates_per_track].
+        #[arg(long, value_name = "N", value_parser = candidate_count)]
+        candidates: Option<usize>,
+    },
     /// Show the folders one peer could supply several waiting tracks from.
     Albums {
         /// Show at most this many.
@@ -70,8 +74,15 @@ pub fn run(context: &AppContext, command: ReviewCommand) -> Result<i32> {
             status,
             limit,
             candidates,
-        } => list(context, status.as_deref(), limit, candidates),
-        ReviewCommand::Pick => pick(context),
+        } => {
+            let shown = candidates
+                .map(|count| count.unwrap_or(context.settings().review.candidates_per_track));
+            list(context, status.as_deref(), limit, shown)
+        }
+        ReviewCommand::Pick { candidates } => pick(
+            context,
+            candidates.unwrap_or(context.settings().review.candidates_per_track),
+        ),
         ReviewCommand::Albums { limit, tracks } => list_albums(context, limit, tracks),
         ReviewCommand::ApproveAlbum { index } => approve_album(context, index),
         ReviewCommand::Approve { track_id, rank } => approve(context, track_id, rank),
@@ -84,7 +95,7 @@ fn list(
     context: &AppContext,
     status: Option<&str>,
     limit: usize,
-    with_candidates: bool,
+    shown: Option<usize>,
 ) -> Result<i32> {
     let statuses: Vec<TrackStatus> = match status {
         Some(status) => match status.parse() {
@@ -159,7 +170,7 @@ fn list(
         .collect();
     context.say(&table(&["ID", "Status", "Track", "Detail"], &rows));
 
-    if with_candidates {
+    if let Some(shown) = shown {
         for entry in &tracks {
             if entry.candidates.is_empty() {
                 continue;
@@ -168,7 +179,7 @@ fn list(
                 "\n{} {} - {}",
                 entry.id, entry.track.artist, entry.track.title
             ));
-            for (index, scored) in entry.candidates.iter().enumerate() {
+            for (index, scored) in entry.candidates.iter().take(shown).enumerate() {
                 let rank = i64::try_from(index + 1).unwrap_or(0);
                 let marker = if Some(rank) == entry.approved_rank {
                     "*"
@@ -190,7 +201,7 @@ fn list(
 }
 
 /// Refused under `--json`, where the prompt would be invisible.
-fn pick(context: &AppContext) -> Result<i32> {
+fn pick(context: &AppContext, shown: usize) -> Result<i32> {
     if context.as_json {
         eprintln!("error: stk review pick asks a question per track and cannot run with --json");
         eprintln!("hint: stk --json review list --candidates, then stk review approve <id> <rank>");
@@ -200,6 +211,7 @@ fn pick(context: &AppContext) -> Result<i32> {
     let mut store = context.open_review()?;
     let tally = picker::walk(
         &mut store,
+        shown,
         &mut std::io::stdin().lock(),
         &mut std::io::stdout().lock(),
     )?;

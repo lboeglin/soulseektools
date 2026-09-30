@@ -886,7 +886,7 @@ fn get_accepts_one_track_several_tracks_and_a_list() {
         queue_only: false,
         rename: false,
         timeout: None,
-        limit: 5,
+        candidates: None,
     };
 
     let one = wanted_tracks(&args(vec!["DECO*27 - Roki"], None)).expect("one track");
@@ -1240,4 +1240,16 @@ fn a_table_lines_up_rows_holding_wide_characters() {
 fn force_is_refused_without_yes() {
     assert_eq!(run(&["get", "DECO*27 - Roki", "--force"]), 2);
     assert_eq!(run(&["sync", "list.csv", "--force"]), 2);
+}
+
+#[test]
+fn candidates_is_bounded_by_what_a_search_keeps() {
+    assert_eq!(run(&["get", "DECO*27 - Roki", "--candidates", "11"]), 2);
+    assert_eq!(run(&["get", "DECO*27 - Roki", "--candidates", "0"]), 2);
+    assert_eq!(run(&["review", "pick", "--candidates", "11"]), 2);
+}
+
+#[test]
+fn get_no_longer_takes_limit_for_candidates() {
+    assert_eq!(run(&["get", "DECO*27 - Roki", "--limit", "5"]), 2);
 }

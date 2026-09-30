@@ -7,8 +7,8 @@ use clap::Args;
 use serde_json::json;
 
 use crate::cli::commands::{fetch as fetch_command, sync as sync_command};
-use crate::cli::context::{table, unix_now, AppContext};
-use crate::config::SlskdSettings;
+use crate::cli::context::{candidate_count, table, unix_now, AppContext};
+use crate::config::{SlskdSettings, STORED_CANDIDATES};
 use crate::errors::Error;
 use crate::errors::Result;
 use crate::fetch;
@@ -68,9 +68,9 @@ pub struct GetArgs {
     #[arg(long, value_name = "SECONDS")]
     pub timeout: Option<f64>,
 
-    /// How many candidates to offer, or folders under `--album`.
-    #[arg(short = 'n', long, default_value_t = 5)]
-    pub limit: usize,
+    /// Offer this many candidates, or folders under `--album` [default: review.candidates_per_track].
+    #[arg(short = 'n', long, value_name = "N", value_parser = candidate_count)]
+    pub candidates: Option<usize>,
 }
 
 /// Blank lines and `#` comments in a list are skipped.
@@ -144,7 +144,8 @@ pub fn run(context: &AppContext, args: &GetArgs) -> Result<i32> {
         settings,
         &format!("{} {}", track.artist, track.title),
     )?;
-    let scored = ranking::rank(&track, &candidates, &options, Some(args.limit));
+    let scored = ranking::rank(&track, &candidates, &options, Some(STORED_CANDIDATES));
+    let shown = shown(context, args).min(scored.len());
 
     if context.as_json {
         context.emit(&payload(&track, &scored));
@@ -164,9 +165,9 @@ pub fn run(context: &AppContext, args: &GetArgs) -> Result<i32> {
         return Ok(1);
     }
 
-    print_candidates(context, &scored);
+    print_candidates(context, &scored[..shown]);
     let flagged = scored[0].needs_a_look().then(|| scored[0].flags.join(", "));
-    let Some(choice) = choose(context, args, flagged, scored.len()) else {
+    let Some(choice) = choose(context, args, flagged, shown) else {
         context.say("Nothing downloaded.");
         return Ok(0);
     };
@@ -246,7 +247,7 @@ fn album(context: &AppContext, args: &GetArgs) -> Result<i32> {
         context.settings().review.album_minimum_tracks,
     );
     offers.retain(|offer| albums::names_its_numbers(&offer.folder, &name));
-    offers.truncate(args.limit);
+    offers.truncate(shown(context, args));
 
     if context.as_json {
         context.emit(&album_payload(&query, &offers));
@@ -401,6 +402,11 @@ fn print_candidates(context: &AppContext, scored: &[ScoredCandidate]) {
     context.say(&table(&["#", "Detail"], &rows));
 }
 
+fn shown(context: &AppContext, args: &GetArgs) -> usize {
+    args.candidates
+        .unwrap_or(context.settings().review.candidates_per_track)
+}
+
 /// `--yes` takes rank 1 unless it is `flagged`, and then asks like a run without it.
 fn choose(
     context: &AppContext,
@@ -463,7 +469,6 @@ fn batch(context: &AppContext, args: &GetArgs, tracks: &[Track]) -> Result<i32> 
     let mut settings = context.settings().clone();
     settings.ranking.require_lossless = args.lossless || settings.ranking.require_lossless;
     settings.ranking.min_bitrate = args.min_bitrate.or(settings.ranking.min_bitrate);
-    settings.review.candidates_per_track = args.limit.clamp(1, 10);
 
     let mut store = context.open_review()?;
     let added = store.add(tracks)?;

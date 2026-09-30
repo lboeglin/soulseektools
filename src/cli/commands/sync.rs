@@ -9,7 +9,7 @@ use serde_json::json;
 use crate::cli::commands::library::{self, Scanned};
 use crate::cli::commands::wantlist::ExportArgs;
 use crate::cli::commands::{fetch as fetch_command, organise as organise_command};
-use crate::cli::context::{show, table, unix_now, AppContext};
+use crate::cli::context::{candidate_count, show, table, unix_now, AppContext};
 use crate::errors::{Error, Result};
 use crate::fetch::{self, Patience, SearchOutcome, SystemClock, Waited};
 use crate::library::index::LibraryIndex;
@@ -39,6 +39,10 @@ pub struct SyncArgs {
     /// With --yes, take the best candidate even when it is flagged.
     #[arg(long, requires = "yes")]
     pub force: bool,
+
+    /// Offer this many candidates per track [default: review.candidates_per_track].
+    #[arg(long, value_name = "N", value_parser = candidate_count)]
+    pub candidates: Option<usize>,
 
     /// Search, and download, at most this many tracks.
     #[arg(long)]
@@ -142,7 +146,7 @@ pub fn run(context: &AppContext, args: &SyncArgs) -> Result<i32> {
         fetch_command::report_searched(context, &searched);
     }
 
-    let (approved, held) = pick(context, &mut store, args.yes, args.force)?;
+    let (approved, held) = pick(context, &mut store, args)?;
 
     let mut index = context.open_index()?;
     let download = if args.apply {
@@ -338,12 +342,11 @@ pub(crate) fn download_and_file(
 fn pick(
     context: &AppContext,
     store: &mut ReviewStore,
-    yes: bool,
-    force: bool,
+    args: &SyncArgs,
 ) -> Result<(usize, Vec<ReviewTrack>)> {
-    if yes {
+    if args.yes {
         let waiting = store.tracks(&[TrackStatus::AwaitingReview], None)?;
-        let taken = picker::take_best(store, &waiting, force)?;
+        let taken = picker::take_best(store, &waiting, args.force)?;
         context.say(&format!(
             "Took the best candidate for {} track(s).",
             taken.approved.len()
@@ -352,8 +355,12 @@ fn pick(
         return Ok((taken.approved.len(), taken.held));
     }
 
+    let shown = args
+        .candidates
+        .unwrap_or(context.settings().review.candidates_per_track);
     let tally = picker::walk(
         store,
+        shown,
         &mut std::io::stdin().lock(),
         &mut std::io::stdout().lock(),
     )?;

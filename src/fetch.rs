@@ -9,7 +9,7 @@ use std::time::{Duration, Instant};
 use rayon::prelude::*;
 
 use crate::audio::verify::verify_file;
-use crate::config::{Settings, UploaderSettings};
+use crate::config::{Settings, UploaderSettings, STORED_CANDIDATES};
 use crate::library::changes::ChangeLog;
 use crate::library::index::LibraryIndex;
 use crate::library::scan::{LOSSLESS_EXTENSIONS, LOSSY_VERIFIED_EXTENSIONS};
@@ -67,10 +67,7 @@ pub fn search_pending(
 
     // Deeper than the review cap, so the batch pass can see a peer ranked
     // fourth on every track.
-    let pool = settings
-        .uploader
-        .pool_per_track
-        .max(settings.review.candidates_per_track);
+    let pool = settings.uploader.pool_per_track.max(STORED_CANDIDATES);
     let mut ranked: Vec<Vec<ScoredCandidate>> = Vec::with_capacity(pending.len());
     let mut errors: Vec<String> = Vec::with_capacity(pending.len());
     for (entry, found) in pending.iter().zip(searched) {
@@ -112,7 +109,7 @@ pub fn search_pending(
             continue;
         }
 
-        scored.truncate(settings.review.candidates_per_track);
+        scored.truncate(STORED_CANDIDATES);
         let taken = preferred
             .as_ref()
             .filter(|preferred| {

@@ -82,7 +82,7 @@ fn approved_rank(store: &ReviewStore, title: &str) -> Option<i64> {
 fn walk(store: &mut ReviewStore, script: &str) -> (Tally, String) {
     let mut input = Cursor::new(script.as_bytes().to_vec());
     let mut transcript: Vec<u8> = Vec::new();
-    let tally = picker::walk(store, &mut input, &mut transcript).expect("a completed walk");
+    let tally = picker::walk(store, 10, &mut input, &mut transcript).expect("a completed walk");
     (
         tally,
         String::from_utf8(transcript).expect("a utf-8 transcript"),
@@ -238,4 +238,21 @@ fn force_takes_a_flagged_best_candidate() {
 
     assert_eq!(taken.approved.len(), 2);
     assert_eq!(approved_rank(&store, "Roki"), Some(1));
+}
+
+#[test]
+fn the_picker_offers_only_the_candidates_asked_for() {
+    let scratch = Scratch::new("picker-shown");
+    let mut store = queue(&scratch);
+    let mut input = Cursor::new(b"3\n2\n".to_vec());
+    let mut transcript: Vec<u8> = Vec::new();
+
+    let tally = picker::walk(&mut store, 2, &mut input, &mut transcript).expect("a walk");
+    let transcript = String::from_utf8(transcript).expect("utf-8");
+
+    assert!(transcript.contains(" 2. "), "{transcript}");
+    assert!(!transcript.contains(" 3. "), "{transcript}");
+    assert!(transcript.contains("Not one of the offered candidates."));
+    assert_eq!(tally.approved, 1);
+    assert_eq!(approved_rank(&store, "Roki"), Some(2));
 }

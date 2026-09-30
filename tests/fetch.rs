@@ -805,7 +805,7 @@ fn a_peer_holding_most_of_the_batch_is_offered_first_for_all_of_them() {
 }
 
 #[test]
-fn the_batch_pass_sees_candidates_below_the_review_cap() {
+fn the_batch_pass_sees_candidates_below_the_shown_count() {
     // Regression: ranking truncated per track before the batch pass could see `bulk`.
     let scratch = Scratch::new("fetch-prefer-deep");
     let mut settings = settings(&scratch);
@@ -816,7 +816,10 @@ fn the_batch_pass_sees_candidates_below_the_review_cap() {
     fetch::search_pending(&mut store, &batch_client(true), &settings, None).expect("a search");
 
     for entry in store.tracks(&[], None).expect("the queued tracks") {
-        assert_eq!(entry.candidates.len(), 2, "the review cap still holds");
+        assert!(
+            entry.candidates.len() > 2,
+            "kept beyond what the picker shows"
+        );
         assert_eq!(entry.candidates[0].candidate.username, "bulk");
     }
 }

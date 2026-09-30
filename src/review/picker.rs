@@ -70,8 +70,10 @@ pub fn take_best(store: &mut ReviewStore, entries: &[ReviewTrack], force: bool) 
     Ok(taken)
 }
 
+/// Offers each track's first `shown` candidates.
 pub fn walk(
     store: &mut ReviewStore,
+    shown: usize,
     input: &mut impl BufRead,
     output: &mut impl Write,
 ) -> Result<Tally> {
@@ -86,8 +88,8 @@ pub fn walk(
     let mut position = 0;
 
     while let Some(entry) = queue.get(position) {
-        present(output, position, queue.len(), entry);
-        let count = entry.candidates.len();
+        let count = entry.candidates.len().min(shown);
+        present(output, position, queue.len(), entry, count);
         let _ = write!(
             output,
             "Take which? [1-{count}, r reject, s skip, u undo, q quit] (1): "
@@ -153,7 +155,13 @@ pub fn walk(
     Ok(tally)
 }
 
-fn present(output: &mut impl Write, position: usize, total: usize, entry: &ReviewTrack) {
+fn present(
+    output: &mut impl Write,
+    position: usize,
+    total: usize,
+    entry: &ReviewTrack,
+    shown: usize,
+) {
     let _ = writeln!(
         output,
         "\n{}/{total}  {} - {}",
@@ -161,7 +169,7 @@ fn present(output: &mut impl Write, position: usize, total: usize, entry: &Revie
         entry.track.artist,
         entry.track.title
     );
-    for (index, scored) in entry.candidates.iter().enumerate() {
+    for (index, scored) in entry.candidates.iter().take(shown).enumerate() {
         let _ = writeln!(output, " {}. {}", index + 1, scored.describe());
         let _ = writeln!(output, "    {}", scored.candidate.remote_path);
     }

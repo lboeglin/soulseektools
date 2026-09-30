@@ -87,6 +87,15 @@ impl AppContext {
     }
 }
 
+/// Parses `--candidates`: no more than a search keeps.
+pub fn candidate_count(text: &str) -> std::result::Result<usize, String> {
+    let limit = crate::config::STORED_CANDIDATES;
+    match text.parse::<usize>() {
+        Ok(count) if (1..=limit).contains(&count) => Ok(count),
+        _ => Err(format!("must be a number from 1 to {limit}")),
+    }
+}
+
 #[must_use]
 pub fn unix_now() -> f64 {
     std::time::SystemTime::now()

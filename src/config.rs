@@ -309,10 +309,15 @@ impl Default for IndexSettings {
     }
 }
 
+/// How many candidates a search keeps per track, so the picker can show more
+/// on request without searching again.
+pub const STORED_CANDIDATES: usize = 10;
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, default)]
 pub struct ReviewSettings {
     pub path: PathBuf,
+    /// How many candidates the picker shows, when no `--candidates` is given.
     pub candidates_per_track: usize,
 
     /// How many of the queue's tracks one peer's folder must hold to be offered
@@ -324,7 +329,7 @@ impl Default for ReviewSettings {
     fn default() -> Self {
         Self {
             path: default_data_path("review.db"),
-            candidates_per_track: 3,
+            candidates_per_track: 5,
             album_minimum_tracks: 2,
         }
     }
@@ -869,8 +874,11 @@ impl Settings {
         if self.verify.probe_count == 0 {
             return bad("verify.probe_count", "must be at least 1");
         }
-        if !(1..=10).contains(&self.review.candidates_per_track) {
-            return bad("review.candidates_per_track", "must be between 1 and 10");
+        if !(1..=STORED_CANDIDATES).contains(&self.review.candidates_per_track) {
+            return bad(
+                "review.candidates_per_track",
+                &format!("must be between 1 and {STORED_CANDIDATES}"),
+            );
         }
         if self.review.album_minimum_tracks < 2 {
             return bad("review.album_minimum_tracks", "must be at least 2");
