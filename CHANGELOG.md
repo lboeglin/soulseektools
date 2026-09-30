@@ -22,11 +22,16 @@ command, first in Python and then rewritten in Rust.
   hands its whole group on. Searches start at least
   `slskd.search_interval_seconds` apart, so a large sync doesn't flood the
   server.
-- `stk review list`, `pick`, `albums` and `approve-album`.
+- Candidates are flagged when they lack a version the wanted title names
+  (`missing:reloaded`) or add one (`extra:eurobeat mix`).
+- `stk review list`, `pick`, `albums` and `approve-album`. A search keeps ten
+  candidates per track, and `--candidates N` on `get`, `sync` and `review`
+  picks how many to show.
 - `stk sync`, which runs scan, diff, search, pick, download and organise in one
-  command.
-- Downloads are tagged from their review row (`fetch.tags`) and verified on
-  arrival.
+  command. `--yes` takes the best candidate unless it is flagged, which
+  `--force` overrides.
+- Downloads are tagged from their review row (`fetch.tags`), verified on
+  arrival, and given a cover when they come without one.
 - `stk verify` for transcodes, upsampled MP3s and fake hi-res. Verdicts are
   stored so `--changed` can skip files already checked.
 - `stk dupes titles`, `content` and `resolve`. `resolve` quarantines copies
@@ -37,7 +42,8 @@ command, first in Python and then rewritten in Rust.
   overrides.
 - `stk tags dump`, `apply` and `identify` (AcoustID).
 - `stk organise`, `stk loudness` (ReplayGain 2.0), and `stk playlist export`,
-  `genre` and `artist`.
+  `genre` and `artist`. `organise` reuses an existing artist folder whose name
+  reads the same (`稲葉曇` into `Inabakumori`), or `organise.artist_aliases`.
 - `stk library scan`, `stats` and `trend`, over several roots with exclusions.
 - `stk changes list` and `undo` for everything `--apply` writes.
 - `stk doctor`, which checks the configuration, the library roots and, when

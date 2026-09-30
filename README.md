@@ -60,6 +60,10 @@ Apple Music `Library.xml`, M3U, YouTube Music Takeout, Last.fm
 their own: `library scan`, `wantlist diff`, `fetch search`, `review pick`,
 `fetch download`.
 
+Candidates that may be the wrong version are flagged, and `--yes` leaves those
+for you to pick. Downloads join the artist folder you already have (`稲葉曇`
+into `Inabakumori`; `organise.artist_aliases` for other spellings).
+
 Download only what you have the right to: free releases, Creative Commons
 music, music you already own. You answer for what you download. See
 [being a good peer](docs/slskd-setup.md#being-a-good-peer) for sharing and
