@@ -72,6 +72,44 @@ fn a_term_the_track_itself_contains_is_not_held_against_it() {
 }
 
 #[test]
+fn a_wanted_word_that_merely_contains_a_term_keeps_its_penalty() {
+    let wanted = Track::new("Daft Punk", "Discovery");
+    let result = candidate("@@peer\\Covers\\01 Discovery.flac");
+
+    assert_eq!(
+        ranked(&wanted, &[result])[0].flags,
+        vec!["cover".to_owned()]
+    );
+}
+
+#[test]
+fn a_term_inside_a_longer_word_is_not_a_match() {
+    let result = candidate("@@peer\\Discover Weekly\\03 - Roki.flac");
+
+    assert!(ranked(&track(), &[result])[0].flags.is_empty());
+}
+
+#[test]
+fn a_term_starting_a_longer_word_still_counts() {
+    let result = candidate("@@peer\\DECO27 Remixes\\03 - Roki.flac");
+
+    assert_eq!(
+        ranked(&track(), &[result])[0].flags,
+        vec!["remix".to_owned()]
+    );
+}
+
+#[test]
+fn a_term_right_after_japanese_text_still_counts() {
+    let result = candidate("@@peer\\ロキlive\\03 - Roki.flac");
+
+    assert_eq!(
+        ranked(&track(), &[result])[0].flags,
+        vec!["live".to_owned()]
+    );
+}
+
+#[test]
 fn lossless_outranks_lossy_whatever_the_bitrate() {
     let lossy = Candidate {
         bit_depth: None,

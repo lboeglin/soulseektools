@@ -145,11 +145,24 @@ pub fn terms_in(path_text: &str, terms: &[String], wanted: &str) -> Vec<String> 
         .filter_map(|term| {
             let normalised = flatten(term);
             let keep = !normalised.is_empty()
-                && path_text.contains(&normalised)
-                && !wanted.contains(&normalised);
+                && starts_a_word_in(path_text, &normalised)
+                && !starts_a_word_in(wanted, &normalised);
             keep.then_some(term.clone())
         })
         .collect()
+}
+
+/// "Remixes" holds "remix" but "Discover" doesn't hold "cover". Only a Latin
+/// letter or digit before the match joins it to a word, since CJK runs have no
+/// spaces to split on.
+#[must_use]
+pub fn starts_a_word_in(text: &str, term: &str) -> bool {
+    text.match_indices(term).any(|(at, _)| {
+        text[..at]
+            .chars()
+            .next_back()
+            .is_none_or(|before| !before.is_ascii_alphanumeric())
+    })
 }
 
 #[must_use]
