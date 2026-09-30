@@ -4,6 +4,16 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.0.2] - 2026-10-01
+
+### Fixed
+
+- A failed or stalled download was retried with the next candidate even when
+  it was flagged, which filed the wrong version. Retries now skip flagged
+  candidates, and a track with only flagged ones left goes back to review.
+- Stopping slskd while `sync` or `get` waited aborted the run, leaving what had
+  arrived unfiled. The wait now ends there and files what arrived.
+
 ## [1.0.1] - 2026-09-30
 
 ### Fixed
@@ -73,6 +83,7 @@ command, first in Python and then rewritten in Rust.
 
 - The Python implementation, the Textual review app and the Nicotine+ plugin.
 
-[Unreleased]: https://github.com/lboeglin/soulseektools/compare/v1.0.1...HEAD
+[Unreleased]: https://github.com/lboeglin/soulseektools/compare/v1.0.2...HEAD
+[1.0.2]: https://github.com/lboeglin/soulseektools/compare/v1.0.1...v1.0.2
 [1.0.1]: https://github.com/lboeglin/soulseektools/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/lboeglin/soulseektools/releases/tag/v1.0.0
