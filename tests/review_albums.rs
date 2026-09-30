@@ -5,7 +5,7 @@ mod support;
 use stk::config::RankingSettings;
 use stk::models::{Candidate, ScoredCandidate, Track, TrackStatus};
 use stk::review::albums::{album_rows, folders, offers, queue_folder, AlbumOffer, FolderOffer};
-use stk::review::store::ReviewStore;
+use stk::review::store::{Retry, ReviewStore};
 use support::Scratch;
 
 fn store(scratch: &Scratch) -> ReviewStore {
@@ -235,10 +235,13 @@ fn a_failed_album_pick_falls_back_to_the_track_it_was_preferred_over() {
 
     assert_eq!(
         store.next_candidate(track_id).expect("a retry"),
-        Some(1),
+        Retry::Approved(1),
         "the candidate the album was preferred over is still worth trying"
     );
-    assert_eq!(store.next_candidate(track_id).expect("a retry"), None);
+    assert_eq!(
+        store.next_candidate(track_id).expect("a retry"),
+        Retry::Exhausted
+    );
     assert_eq!(
         store
             .track(track_id)

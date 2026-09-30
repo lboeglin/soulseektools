@@ -313,6 +313,36 @@ fn a_completed_transfer_is_recorded() {
 }
 
 #[test]
+fn a_failed_transfer_with_only_flagged_candidates_left_waits_for_review() {
+    let scratch = Scratch::new("fetch-retry-flagged");
+    let settings = settings(&scratch);
+    let mut store = store(&scratch);
+    store
+        .add(&[Track::new("DECO*27", "Roki (Reloaded)")])
+        .expect("an added track");
+
+    let client = FakeClient::with_candidates(vec![
+        candidate(r"@@peerA\Roki Reloaded\Roki.flac"),
+        candidate(r"@@peerB\Music\Roki.flac"),
+    ]);
+    fetch::search_pending(&mut store, &client, &settings, None).expect("a search");
+    let track_id = store.tracks(&[], None).expect("tracks")[0].id;
+    store.approve(track_id, 1).expect("an approval");
+    fetch::enqueue_approved(&mut store, &FakeClient::default(), None, 1000.0).expect("an enqueue");
+
+    let failing = FakeClient::with_transfers(vec![transfer(
+        r"@@peerA\Roki Reloaded\Roki.flac",
+        TransferState::Failed,
+        "peer gone",
+    )]);
+    let outcomes = collect(&mut store, &failing, &settings, true).expect("a collect");
+
+    assert_eq!(outcomes[0].retried_with_rank, None);
+    let entry = store.track(track_id).expect("a lookup").expect("the track");
+    assert_eq!(entry.status, TrackStatus::AwaitingReview);
+}
+
+#[test]
 fn a_failed_transfer_promotes_the_next_candidate_when_there_is_one() {
     let scratch = Scratch::new("fetch-retry");
     let settings = settings(&scratch);

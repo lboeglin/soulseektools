@@ -15,7 +15,7 @@ use crate::library::index::LibraryIndex;
 use crate::library::scan::{LOSSLESS_EXTENSIONS, LOSSY_VERIFIED_EXTENSIONS};
 use crate::models::{ScoredCandidate, TrackStatus, Verdict, VerifyResult};
 use crate::retag::{self, Retagged};
-use crate::review::store::{ReviewStore, ReviewTrack};
+use crate::review::store::{Retry, ReviewStore, ReviewTrack};
 use crate::soulseek::base::{SoulseekClient, Transfer, TransferState};
 use crate::soulseek::ranking;
 use crate::text::normalize::{normalize, sanitize_folder_name, UNKNOWN_ARTIST};
@@ -429,14 +429,14 @@ fn cancel(
 
 fn retry_next(store: &mut ReviewStore, track_id: i64) -> crate::errors::Result<Option<i64>> {
     let retried = store.next_candidate(track_id)?;
-    if retried.is_none() {
+    if retried == Retry::Exhausted {
         store.mark(
             track_id,
             TrackStatus::Failed,
             "stalled, and no candidates left",
         )?;
     }
-    Ok(retried)
+    Ok(retried.rank())
 }
 
 fn stall_outcome(
@@ -517,23 +517,26 @@ fn enqueue(
                 Err(error) => {
                     // A peer that answered the search may be offline by now:
                     // move on to the next candidate before giving up.
-                    let next = match store.next_candidate(entry.id)? {
-                        Some(_) => store
+                    let retry = store.next_candidate(entry.id)?;
+                    let next = match retry {
+                        Retry::Approved(_) => store
                             .track(entry.id)?
                             .and_then(|track| track.approved().cloned()),
-                        None => None,
+                        Retry::ForReview | Retry::Exhausted => None,
                     };
                     match next {
                         Some(next) => candidate = next.candidate,
-                        None => break Err(error),
+                        None => break Err((error, retry)),
                     }
                 }
             }
         };
         let candidate = match sent {
             Ok(candidate) => candidate,
-            Err(error) => {
-                store.mark(entry.id, TrackStatus::Failed, &error.to_string())?;
+            Err((error, retry)) => {
+                if retry != Retry::ForReview {
+                    store.mark(entry.id, TrackStatus::Failed, &error.to_string())?;
+                }
                 outcomes.push(EnqueueOutcome {
                     track_id: entry.id,
                     query: entry.track.query(),
@@ -595,10 +598,11 @@ pub fn collect(
             } else {
                 transfer.error.clone()
             };
-            let retried = store.next_candidate(entry.id)?;
-            if retried.is_none() {
+            let retry = store.next_candidate(entry.id)?;
+            if retry == Retry::Exhausted {
                 store.mark(entry.id, TrackStatus::Failed, &detail)?;
             }
+            let retried = retry.rank();
             outcomes.push(CollectOutcome {
                 track_id: entry.id,
                 query: entry.track.query(),

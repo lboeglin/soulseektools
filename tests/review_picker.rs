@@ -6,7 +6,7 @@ use std::io::Cursor;
 
 use stk::models::{Candidate, ScoredCandidate, Track, TrackStatus};
 use stk::review::picker::{self, Decision, Tally};
-use stk::review::store::ReviewStore;
+use stk::review::store::{Retry, ReviewStore};
 use support::Scratch;
 
 const TITLES: [&str; 2] = ["Roki", "Ghost Rule"];
@@ -128,7 +128,10 @@ fn u_takes_back_the_previous_decision_and_offers_it_again() {
     assert_eq!(approved_rank(&store, "Roki"), Some(2));
     // Still marked tried, the retry would skip past it and the best copy would never be fetched.
     let id = id_of(&store, "Roki");
-    assert_eq!(store.next_candidate(id).expect("a retry"), Some(1));
+    assert_eq!(
+        store.next_candidate(id).expect("a retry"),
+        Retry::Approved(1)
+    );
 }
 
 #[test]

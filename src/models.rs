@@ -212,6 +212,13 @@ impl Candidate {
     }
 }
 
+#[must_use]
+pub fn needs_a_look(flags: &[String]) -> bool {
+    flags
+        .iter()
+        .any(|flag| flag != crate::soulseek::ranking::PREFERRED_FLAG)
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct ScoredCandidate {
     pub candidate: Candidate,
@@ -230,9 +237,7 @@ impl ScoredCandidate {
     /// preferred peer is not one.
     #[must_use]
     pub fn needs_a_look(&self) -> bool {
-        self.flags
-            .iter()
-            .any(|flag| flag != crate::soulseek::ranking::PREFERRED_FLAG)
+        needs_a_look(&self.flags)
     }
 
     #[must_use]

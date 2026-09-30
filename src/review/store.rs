@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use rusqlite::{params, params_from_iter, Connection, OptionalExtension, Transaction};
 
 use crate::errors::{Error, Result};
-use crate::models::{Candidate, ScoredCandidate, Track, TrackStatus};
+use crate::models::{needs_a_look, Candidate, ScoredCandidate, Track, TrackStatus};
 
 pub const SCHEMA_VERSION: i64 = 4;
 
@@ -88,6 +88,23 @@ impl ReviewTrack {
         usize::try_from(rank - 1)
             .ok()
             .and_then(|position| self.candidates.get(position))
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Retry {
+    Approved(i64),
+    ForReview,
+    Exhausted,
+}
+
+impl Retry {
+    #[must_use]
+    pub fn rank(self) -> Option<i64> {
+        match self {
+            Self::Approved(rank) => Some(rank),
+            Self::ForReview | Self::Exhausted => None,
+        }
     }
 }
 
@@ -319,25 +336,44 @@ impl ReviewStore {
         self.set_status(track_id, TrackStatus::Pending, "")
     }
 
-    /// `None`, and the track `FAILED`, once every candidate has been tried.
-    pub fn next_candidate(&mut self, track_id: i64) -> Result<Option<i64>> {
+    /// A flagged candidate is never taken unattended.
+    pub fn next_candidate(&mut self, track_id: i64) -> Result<Retry> {
         if self.track(track_id)?.is_none() {
-            return Ok(None);
+            return Ok(Retry::Exhausted);
         }
         // Not the rank after the current one: an album pick may skip better ones.
-        let next: Option<i64> = self
+        let untried: Vec<(i64, String)> = self
             .connection
-            .query_row(
-                "SELECT rank FROM candidates WHERE track_id = ?1 AND attempted = 0 ORDER BY rank LIMIT 1",
-                params![track_id],
-                |row| row.get(0),
+            .prepare(
+                "SELECT rank, flags FROM candidates WHERE track_id = ?1 AND attempted = 0 ORDER BY rank",
             )
-            .optional()
+            .and_then(|mut statement| {
+                statement
+                    .query_map(params![track_id], |row| Ok((row.get(0)?, row.get(1)?)))?
+                    .collect()
+            })
             .map_err(|error| sqlite_error(&error))?;
-
-        let Some(next) = next else {
+        if untried.is_empty() {
             self.set_status(track_id, TrackStatus::Failed, "no candidates left to try")?;
-            return Ok(None);
+            return Ok(Retry::Exhausted);
+        }
+
+        let clean = untried.iter().find(|(_, flags)| {
+            !needs_a_look(&serde_json::from_str::<Vec<String>>(flags).unwrap_or_default())
+        });
+        let Some(&(next, _)) = clean else {
+            self.connection
+                .execute(
+                    "UPDATE candidates SET approved = 0 WHERE track_id = ?1",
+                    params![track_id],
+                )
+                .map_err(|error| sqlite_error(&error))?;
+            self.set_status(
+                track_id,
+                TrackStatus::AwaitingReview,
+                "only flagged candidates left",
+            )?;
+            return Ok(Retry::ForReview);
         };
 
         self.approve(track_id, next)?;
@@ -347,7 +383,7 @@ impl ReviewStore {
                 params![track_id],
             )
             .map_err(|error| sqlite_error(&error))?;
-        Ok(Some(next))
+        Ok(Retry::Approved(next))
     }
 
     pub fn untried(&self, track_id: i64) -> Result<Vec<ScoredCandidate>> {

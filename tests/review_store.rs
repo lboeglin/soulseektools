@@ -3,7 +3,8 @@
 mod support;
 
 use stk::models::{Candidate, ScoredCandidate, Track, TrackStatus};
-use stk::review::store::ReviewStore;
+use stk::review::store::{Retry, ReviewStore};
+use stk::soulseek::ranking::PREFERRED_FLAG;
 use support::Scratch;
 
 fn store(scratch: &Scratch) -> ReviewStore {
@@ -200,7 +201,7 @@ fn the_next_candidate_is_promoted_without_losing_the_search() {
 
     assert_eq!(
         store.next_candidate(track_id).expect("a promotion"),
-        Some(2)
+        Retry::Approved(2)
     );
 
     let stored = store.track(track_id).expect("a lookup").expect("the track");
@@ -220,13 +221,16 @@ fn a_track_only_fails_once_its_candidates_are_exhausted() {
 
     assert_eq!(
         store.next_candidate(track_id).expect("a promotion"),
-        Some(1)
+        Retry::Approved(1)
     );
     assert_eq!(
         store.next_candidate(track_id).expect("a promotion"),
-        Some(2)
+        Retry::Approved(2)
     );
-    assert_eq!(store.next_candidate(track_id).expect("no more"), None);
+    assert_eq!(
+        store.next_candidate(track_id).expect("no more"),
+        Retry::Exhausted
+    );
 
     let stored = store.track(track_id).expect("a lookup").expect("the track");
     assert_eq!(stored.status, TrackStatus::Failed);
@@ -258,17 +262,20 @@ fn reordering_the_untried_candidates_keeps_the_tried_ones_first_and_tried() {
     store.approve(track_id, 2).expect("an approval");
 
     store
-        .reorder_untried(track_id, &[scored(3, &["moved"]), scored(1, &[])])
+        .reorder_untried(track_id, &[scored(3, &[PREFERRED_FLAG]), scored(1, &[])])
         .expect("a reorder");
 
     let entry = store.track(track_id).expect("a lookup").expect("the track");
     assert_eq!(entry.approved_rank, None);
     assert_eq!(
         entry.candidates,
-        vec![scored(2, &[]), scored(3, &["moved"]), scored(1, &[])]
+        vec![scored(2, &[]), scored(3, &[PREFERRED_FLAG]), scored(1, &[])]
     );
     assert_eq!(store.untried(track_id).expect("untried").len(), 2);
-    assert_eq!(store.next_candidate(track_id).expect("a retry"), Some(2));
+    assert_eq!(
+        store.next_candidate(track_id).expect("a retry"),
+        Retry::Approved(2)
+    );
     assert_eq!(
         store
             .track(track_id)
@@ -310,4 +317,51 @@ fn a_v1_database_is_upgraded_in_place_rather_than_rewritten() {
     assert_eq!(stored.track.artist, "DECO*27");
     assert_eq!(stored.queued_at, None);
     assert_eq!(stored.attempts, 0);
+}
+
+#[test]
+fn a_retry_passes_over_a_flagged_candidate() {
+    let scratch = Scratch::new("review-retry-clean");
+    let mut store = store(&scratch);
+    store.add(&[roki()]).expect("an added track");
+    let track_id = first_id(&store);
+    store
+        .set_candidates(
+            track_id,
+            &[
+                scored(1, &[]),
+                scored(2, &["missing:reloaded"]),
+                scored(3, &[]),
+            ],
+        )
+        .expect("recorded candidates");
+    store.approve(track_id, 1).expect("an approval");
+
+    assert_eq!(
+        store.next_candidate(track_id).expect("a retry"),
+        Retry::Approved(3)
+    );
+}
+
+#[test]
+fn a_retry_with_only_flagged_candidates_left_goes_back_to_review() {
+    let scratch = Scratch::new("review-retry-flagged");
+    let mut store = store(&scratch);
+    store.add(&[roki()]).expect("an added track");
+    let track_id = first_id(&store);
+    store
+        .set_candidates(
+            track_id,
+            &[scored(1, &[]), scored(2, &["missing:reloaded"])],
+        )
+        .expect("recorded candidates");
+    store.approve(track_id, 1).expect("an approval");
+
+    assert_eq!(
+        store.next_candidate(track_id).expect("a retry"),
+        Retry::ForReview
+    );
+    let entry = store.track(track_id).expect("a lookup").expect("the track");
+    assert_eq!(entry.status, TrackStatus::AwaitingReview);
+    assert_eq!(entry.approved_rank, None);
 }
