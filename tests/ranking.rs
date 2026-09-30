@@ -364,26 +364,19 @@ fn a_version_the_title_names_is_flagged_when_the_path_lacks_it() {
 }
 
 #[test]
-fn a_version_named_only_in_the_folder_is_not_missing() {
-    let wanted = Track::new("DECO*27", "Roki (Reloaded)");
-    let result = candidate(r"@@peer\Roki Reloaded\03 - Roki.flac");
-
-    assert!(ranked(&wanted, &[result])[0].flags.is_empty());
-}
-
-#[test]
-fn a_missing_version_costs_no_score() {
+fn a_version_named_in_the_folder_counts_and_a_missing_one_costs_nothing() {
     let wanted = Track::new("DECO*27", "Roki (Reloaded)");
     let results = ranked(
         &wanted,
         &[
-            candidate(r"@@peer\Roki Reloaded\03 - Roki.flac"),
             candidate(r"@@peer\Roki Single\03 - Roki.flac"),
+            candidate(r"@@peer\Roki Reloaded\03 - Roki.flac"),
         ],
     );
 
     assert_eq!(results[0].score, results[1].score);
-    assert!(results[1].needs_a_look());
+    assert!(results[0].flags.is_empty());
+    assert_eq!(results[1].flags, vec!["missing:reloaded".to_owned()]);
 }
 
 #[test]

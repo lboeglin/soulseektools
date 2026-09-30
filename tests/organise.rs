@@ -399,21 +399,26 @@ fn an_artist_with_no_folder_yet_gets_one_named_from_its_tag() {
     let scratch = Scratch::new("organise-new-artist");
     let root = scratch.join("Music");
     std::fs::create_dir_all(root.join("Inabakumori")).expect("an artist folder");
-    let arrived = entry(
-        &scratch
-            .join("downloads")
-            .join("Roki.flac")
-            .display()
-            .to_string(),
-        tagged("DECO*27", "", "Roki", None),
-    );
 
-    let planned = flat(&[arrived], &root, &settings());
-
-    assert_eq!(
-        planned[0].destination,
-        root.join("DECO_27").join("Roki.flac")
-    );
+    for (credit, folder) in [
+        ("DECO*27", "DECO_27"),
+        ("Dejo & Fernando Bonini", "Dejo & Fernando Bonini"),
+    ] {
+        let arrived = entry(
+            &scratch
+                .join("downloads")
+                .join("Song.flac")
+                .display()
+                .to_string(),
+            tagged(credit, "", "Song", None),
+        );
+        let planned = flat(&[arrived], &root, &settings());
+        assert_eq!(
+            planned[0].destination,
+            root.join(folder).join("Song.flac"),
+            "{credit}"
+        );
+    }
 }
 
 #[test]
@@ -444,28 +449,6 @@ fn a_shared_credit_joins_its_lead_artists_folder() {
             "{credit}"
         );
     }
-}
-
-#[test]
-fn a_shared_credit_with_no_folder_keeps_its_full_name() {
-    let scratch = Scratch::new("organise-lead-unknown");
-    let root = scratch.join("Music");
-    std::fs::create_dir_all(&root).expect("a root");
-    let arrived = entry(
-        &scratch
-            .join("downloads")
-            .join("Song.flac")
-            .display()
-            .to_string(),
-        tagged("Dejo & Fernando Bonini", "", "Song", None),
-    );
-
-    let planned = flat(&[arrived], &root, &settings());
-
-    assert_eq!(
-        planned[0].destination,
-        root.join("Dejo & Fernando Bonini").join("Song.flac")
-    );
 }
 
 #[test]
