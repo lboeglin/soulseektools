@@ -171,6 +171,11 @@ impl FolderOffer {
     }
 
     #[must_use]
+    pub fn needs_a_look(&self) -> bool {
+        !self.flags.is_empty() || self.below_quality > 0
+    }
+
+    #[must_use]
     pub fn rejected(&self) -> bool {
         self.score < 0
     }

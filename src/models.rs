@@ -222,6 +222,15 @@ impl ScoredCandidate {
         self.score < 0
     }
 
+    /// Any warning, from a penalty term to a missing version; being the batch's
+    /// preferred peer is not one.
+    #[must_use]
+    pub fn needs_a_look(&self) -> bool {
+        self.flags
+            .iter()
+            .any(|flag| flag != crate::soulseek::ranking::PREFERRED_FLAG)
+    }
+
     #[must_use]
     pub fn describe(&self) -> String {
         let candidate = &self.candidate;

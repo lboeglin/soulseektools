@@ -2,7 +2,9 @@
 
 use stk::config::{RankingSettings, UploaderSettings};
 use stk::models::{Candidate, ScoredCandidate, Track};
-use stk::soulseek::ranking::{is_audio, prefer_one_uploader, rank, score_folder, PREFERRED_FLAG};
+use stk::soulseek::ranking::{
+    is_audio, prefer_one_uploader, qualifiers, rank, score_folder, PREFERRED_FLAG,
+};
 
 fn track() -> Track {
     Track {
@@ -343,4 +345,116 @@ fn only_audio_counts_as_audio() {
     ] {
         assert_eq!(is_audio(&candidate(path)), audio, "is_audio({path:?})");
     }
+}
+
+#[test]
+fn a_version_the_title_names_is_flagged_when_the_path_lacks_it() {
+    let wanted = Track::new("DECO*27", "弱虫モンブラン (Reloaded)");
+    let results = ranked(
+        &wanted,
+        &[
+            candidate(r"Music\DECO＊27\DECOUSTIC\05 - 弱虫モンブラン.flac"),
+            candidate(r"Bestfast\DECO_27\愛迷エレジー\09 - 弱虫モンブラン.flac"),
+        ],
+    );
+
+    for result in &results {
+        assert_eq!(result.flags, vec!["missing:reloaded".to_owned()]);
+    }
+}
+
+#[test]
+fn a_version_named_only_in_the_folder_is_not_missing() {
+    let wanted = Track::new("DECO*27", "Roki (Reloaded)");
+    let result = candidate(r"@@peer\Roki Reloaded\03 - Roki.flac");
+
+    assert!(ranked(&wanted, &[result])[0].flags.is_empty());
+}
+
+#[test]
+fn a_missing_version_costs_no_score() {
+    let wanted = Track::new("DECO*27", "Roki (Reloaded)");
+    let results = ranked(
+        &wanted,
+        &[
+            candidate(r"@@peer\Roki Reloaded\03 - Roki.flac"),
+            candidate(r"@@peer\Roki Single\03 - Roki.flac"),
+        ],
+    );
+
+    assert_eq!(results[0].score, results[1].score);
+    assert!(results[1].needs_a_look());
+}
+
+#[test]
+fn a_version_the_filename_adds_is_flagged() {
+    let wanted = Track::new("COOL&CREATE", "Help me, ERINNNNNN!!");
+    let result = candidate(
+        r"Musique\DL\Various Artists\[COOL&CREATE] (2018) Help me, ERINNNNNN!! LOVE( ﾟ∀ﾟ)o彡 [FLAC]\07 - Help me, ERINNNNNN!!（Eurobeat Mix）.flac",
+    );
+
+    assert_eq!(
+        ranked(&wanted, &[result])[0].flags,
+        vec!["extra:eurobeat mix".to_owned()]
+    );
+}
+
+#[test]
+fn a_version_already_penalised_is_not_flagged_twice() {
+    let wanted = Track::new("Nao", "Taiyou Paradise");
+    let result = candidate(
+        r"Music\The Cynphetic Collective\takehirotei Anime-Jpop Remix Collection\01 Nao - Taiyou Paradise (takehirotei remix).flac",
+    );
+
+    assert_eq!(
+        ranked(&wanted, &[result])[0].flags,
+        vec!["remix".to_owned()]
+    );
+}
+
+#[test]
+fn credits_remasters_and_years_are_not_versions() {
+    for (title, path) in [
+        ("Roki (feat. MIKU)", r"@@peer\Music\03 - Roki.flac"),
+        ("Roki - 2011 Remaster", r"@@peer\Music\03 - Roki.flac"),
+        ("Roki", r"@@peer\Music\03 - Roki [2018].flac"),
+        ("Roki", r"@@peer\Music\03 - Roki (feat. MIKU).flac"),
+    ] {
+        let wanted = Track::new("DECO*27", title);
+        assert!(
+            ranked(&wanted, &[candidate(path)])[0].flags.is_empty(),
+            "{title} / {path}"
+        );
+    }
+}
+
+#[test]
+fn a_wanted_cover_flags_the_original_and_spares_the_cover() {
+    let wanted = Track::new("タカオカミズキ", "Ochame Kinou (feat. KASANE TETO) - Cover");
+    let original = candidate(r"@@peer\Music\Ochame Kinou.flac");
+    let cover = candidate(r"@@peer\Covers\Ochame Kinou (Cover).flac");
+
+    assert_eq!(
+        ranked(&wanted, &[original])[0].flags,
+        vec!["missing:cover".to_owned()]
+    );
+    assert!(ranked(&wanted, &[cover])[0].flags.is_empty());
+}
+
+#[test]
+fn fullwidth_and_lenticular_brackets_hold_qualifiers() {
+    assert_eq!(
+        qualifiers("化けの花（Remix）【Short Ver.】", false, &[]),
+        vec!["remix".to_owned(), "short ver".to_owned()]
+    );
+}
+
+#[test]
+fn being_the_preferred_peer_is_not_a_warning() {
+    let mut result = scored("peer", 100);
+    result.flags = vec![PREFERRED_FLAG.to_owned()];
+    assert!(!result.needs_a_look());
+
+    result.flags.push("extra:eurobeat mix".to_owned());
+    assert!(result.needs_a_look());
 }

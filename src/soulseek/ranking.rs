@@ -4,6 +4,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::LazyLock;
 
 use regex::Regex;
+use unicode_normalization::UnicodeNormalization;
 
 use crate::config::{RankingSettings, UploaderSettings};
 use crate::library::scan::LOSSLESS_EXTENSIONS;
@@ -41,6 +42,10 @@ const ARTIST_WEIGHT_AGAINST_TITLE: f64 = 0.6;
 const REJECTED_SCORE: i64 = -1;
 
 static SEPARATORS: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"[\\/]+").unwrap());
+static BRACKETED: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"[(\[【]([^()\[\]【】]+)[)\]】]").unwrap());
+static TRAILING_DASH: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"\s[-\x{2013}\x{2014}]\s+([^-\x{2013}\x{2014}]+)$").unwrap());
 
 #[must_use]
 pub fn rank(
@@ -129,12 +134,66 @@ pub fn score(
         flags.push("duration".to_owned());
     }
 
+    flags.extend(version_flags(&stem, &path_text, track, wanted, options));
+
     Some(ScoredCandidate {
         candidate: candidate.clone(),
         score: total.max(0),
         title_ratio,
         flags,
     })
+}
+
+/// Flags a bracketed version the wanted title names and the path lacks, or one
+/// the filename adds. Peers name files too loosely for these to cost score.
+fn version_flags(
+    stem: &str,
+    path_text: &str,
+    track: &Track,
+    wanted: &str,
+    options: &RankingSettings,
+) -> Vec<String> {
+    let missing = qualifiers(&track.title, true, &options.ignore_qualifiers)
+        .into_iter()
+        .filter(|qualifier| !starts_a_word_in(path_text, qualifier))
+        .map(|qualifier| format!("missing:{qualifier}"));
+    let extra = qualifiers(stem, false, &options.ignore_qualifiers)
+        .into_iter()
+        .filter(|qualifier| {
+            !starts_a_word_in(wanted, qualifier)
+                && terms_in(qualifier, &options.penalise_terms, wanted).is_empty()
+                && terms_in(qualifier, &options.reject_terms, wanted).is_empty()
+        })
+        .map(|qualifier| format!("extra:{qualifier}"));
+    missing.chain(extra).collect()
+}
+
+/// The bracketed parts of a name, flattened, and with `trailing_dash` a final
+/// ` - Remaster` too. A filename's dashes mostly split off the artist or album.
+#[must_use]
+pub fn qualifiers(name: &str, trailing_dash: bool, ignored: &[String]) -> Vec<String> {
+    let folded: String = name.nfkc().collect();
+    let bracketed = BRACKETED
+        .captures_iter(&folded)
+        .map(|found| found[1].to_owned());
+    let dashed = trailing_dash
+        .then(|| TRAILING_DASH.captures(&folded))
+        .flatten()
+        .map(|found| found[1].to_owned());
+
+    let mut found: Vec<String> = Vec::new();
+    for qualifier in bracketed.chain(dashed).map(|text| flatten(&text)) {
+        let noise = qualifier
+            .split(' ')
+            .all(|word| word.chars().all(|character| character.is_ascii_digit()))
+            || ignored
+                .iter()
+                .any(|term| starts_a_word_in(&qualifier, &flatten(term)));
+        if !qualifier.is_empty() && !noise && !found.contains(&qualifier) {
+            found.push(qualifier);
+        }
+    }
+    found
 }
 
 /// A term in the wanted name ("Live and Learn") is not held against a result.

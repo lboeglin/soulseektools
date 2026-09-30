@@ -68,6 +68,10 @@ pub struct RankingSettings {
     pub penalise_terms: Vec<String>,
     pub penalty_per_term: i64,
     pub duration_tolerance_seconds: f64,
+
+    /// Bracketed parts of a name that don't make it another version, left out
+    /// when flagging a qualifier a result lacks or adds. Matched at a word start.
+    pub ignore_qualifiers: Vec<String>,
 }
 
 impl Default for RankingSettings {
@@ -96,6 +100,31 @@ impl Default for RankingSettings {
             .to_vec(),
             penalty_per_term: 2_000_000,
             duration_tolerance_seconds: 12.0,
+            ignore_qualifiers: [
+                "feat",
+                "ft",
+                "featuring",
+                "with",
+                "remaster",
+                "from",
+                "original mix",
+                "album version",
+                "single version",
+                "explicit",
+                "mono",
+                "stereo",
+                "bonus track",
+                "flac",
+                "mp3",
+                "320",
+                "16bit",
+                "24bit",
+                "hi res",
+                "web",
+                "cd",
+            ]
+            .map(str::to_owned)
+            .to_vec(),
         }
     }
 }
