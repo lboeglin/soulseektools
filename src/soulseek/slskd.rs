@@ -355,7 +355,6 @@ fn optional_f64(value: Option<&Value>) -> Option<f64> {
     (number != 0.0).then_some(number)
 }
 
-/// What slskd shares with the network.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Shares {
     pub folders: usize,

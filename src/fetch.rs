@@ -52,8 +52,7 @@ pub struct CollectOutcome {
     pub retried_with_rank: Option<i64>,
 }
 
-/// A track queued again after a stall once, as its last attempt, with how
-/// many attempts it took.
+/// One row per track, its last attempt, with how many attempts it took.
 #[must_use]
 pub fn latest_per_track(queued: &[EnqueueOutcome]) -> Vec<(&EnqueueOutcome, usize)> {
     let mut latest: Vec<(&EnqueueOutcome, usize)> = Vec::new();
@@ -187,7 +186,6 @@ fn search_concurrently(
     results
 }
 
-/// Spaces out the starts of searches running on several threads.
 struct Pacer {
     interval: Duration,
     last_start: Mutex<Option<Instant>>,

@@ -46,7 +46,6 @@ pub struct Tally {
     pub skipped: usize,
 }
 
-/// What `--yes` did with the tracks it was given.
 #[derive(Debug, Default, Clone, PartialEq)]
 pub struct Taken {
     pub approved: Vec<i64>,

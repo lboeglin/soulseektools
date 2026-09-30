@@ -71,7 +71,6 @@ struct Target {
 struct Organised {
     planned: Vec<PlannedMove>,
     applied: Applied,
-    /// Covers looked up for the files just filed that arrived without one.
     covers: Vec<ArtworkResult>,
 }
 
@@ -383,7 +382,6 @@ fn pick(
     Ok((tally.approved, Vec::new()))
 }
 
-/// Tracks `--yes` left alone because their best candidate is flagged.
 pub(crate) fn report_held(context: &AppContext, held: &[ReviewTrack]) {
     if held.is_empty() {
         return;

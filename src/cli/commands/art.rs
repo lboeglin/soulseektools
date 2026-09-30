@@ -129,7 +129,6 @@ pub(crate) fn needing_artwork(
         .collect()
 }
 
-/// Looks up a cover for each entry and, with `apply`, embeds the verified ones.
 pub(crate) fn fetch_covers(
     context: &AppContext,
     index: &mut LibraryIndex,
