@@ -4,6 +4,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-09-30
+
+### Fixed
+
+- A track queued by `stk get` and downloaded later by `sync` or `fetch
+  download` had its tags replaced with the typed name. A typed name now only
+  fills what the file lacks, whichever command downloads it.
+
 ## [1.0.0] - 2026-09-30
 
 The project went from ad-hoc scripts and a Nicotine+ plugin to one `stk`
@@ -65,5 +73,6 @@ command, first in Python and then rewritten in Rust.
 
 - The Python implementation, the Textual review app and the Nicotine+ plugin.
 
-[Unreleased]: https://github.com/lboeglin/soulseektools/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/lboeglin/soulseektools/compare/v1.0.1...HEAD
+[1.0.1]: https://github.com/lboeglin/soulseektools/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/lboeglin/soulseektools/releases/tag/v1.0.0

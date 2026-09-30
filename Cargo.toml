@@ -1,7 +1,7 @@
 [package]
 name = "stk"
 description = "Keep a music library clean: transcodes, duplicates, covers, genres and tags, and fill its gaps through Soulseek."
-version = "1.0.0"
+version = "1.0.1"
 edition = "2021"
 rust-version = "1.89"
 license = "MIT"
