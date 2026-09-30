@@ -4,6 +4,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-09-30
+
 The project went from ad-hoc scripts and a Nicotine+ plugin to one `stk`
 command, first in Python and then rewritten in Rust.
 
@@ -62,3 +64,6 @@ command, first in Python and then rewritten in Rust.
 ### Removed
 
 - The Python implementation, the Textual review app and the Nicotine+ plugin.
+
+[Unreleased]: https://github.com/lboeglin/soulseektools/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/lboeglin/soulseektools/releases/tag/v1.0.0
