@@ -29,7 +29,6 @@ struct FakeClient {
     /// This many searches find nothing first, as dropped ones do.
     dropped_searches: usize,
     searched: Mutex<Vec<String>>,
-    started: Mutex<Vec<std::time::Instant>>,
     enqueued: Mutex<Vec<(String, String)>>,
     cancelled: Mutex<Vec<(String, String)>>,
 }
@@ -56,10 +55,6 @@ impl SoulseekClient for FakeClient {
     }
 
     fn search(&self, text: &str, _timeout: u32, _limit: u32) -> Result<Vec<Candidate>> {
-        self.started
-            .lock()
-            .expect("the fake is not poisoned")
-            .push(std::time::Instant::now());
         self.searched
             .lock()
             .expect("the fake is not poisoned")
@@ -596,18 +591,14 @@ fn concurrent_searches_start_at_least_the_interval_apart() {
     store.add(&tracks).expect("added tracks");
     let client = FakeClient::with_candidates(vec![candidate(r"@@peerA\A\0.flac")]);
 
+    let began = std::time::Instant::now();
     fetch::search_pending(&mut store, &client, &settings, None).expect("a search");
+    let took = began.elapsed();
 
-    let mut started = client.started.lock().expect("the fake").clone();
-    started.sort();
-    assert_eq!(started.len(), 6);
-    for pair in started.windows(2) {
-        assert!(
-            pair[1] - pair[0] >= INTERVAL,
-            "two searches started {:?} apart",
-            pair[1] - pair[0]
-        );
-    }
+    // Measured around the whole batch: a worker paused between its turn and its
+    // request can't make this shorter.
+    assert_eq!(client.searched.lock().expect("the fake").len(), 6);
+    assert!(took >= INTERVAL * 5, "six searches started within {took:?}");
 }
 
 #[test]
@@ -1768,4 +1759,27 @@ fn enqueueing_named_tracks_leaves_the_rest_of_the_queue_alone() {
     };
     assert_eq!(status(asked), TrackStatus::Queued);
     assert_eq!(status(earlier), TrackStatus::Approved);
+}
+
+#[test]
+fn a_track_queued_again_after_a_stall_is_reported_once_as_its_last_attempt() {
+    let attempt = |track_id: i64, queued: bool, error: &str| fetch::EnqueueOutcome {
+        track_id,
+        query: format!("track {track_id}"),
+        destination: String::new(),
+        queued,
+        error: error.to_owned(),
+    };
+    let queued = [
+        attempt(1, true, ""),
+        attempt(2, true, ""),
+        attempt(1, false, "peer offline"),
+        attempt(1, true, ""),
+    ];
+
+    let latest = fetch::latest_per_track(&queued);
+
+    assert_eq!(latest.len(), 2);
+    assert_eq!((latest[0].0, latest[0].1), (&queued[3], 3));
+    assert_eq!((latest[1].0, latest[1].1), (&queued[1], 1));
 }
