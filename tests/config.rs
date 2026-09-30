@@ -253,7 +253,9 @@ fn an_explicit_override_beats_the_environment() {
     )
     .expect("settings");
 
-    let flag = scratch.join("from-flag");
+    let flag = std::env::current_dir()
+        .expect("a working directory")
+        .join("from-flag");
     assert_eq!(resolved.settings.library.root, flag);
     assert_eq!(resolved.settings.library.all_roots(), vec![flag]);
 }
