@@ -1,5 +1,9 @@
 # SoulseekTools
 
+[![CI](https://github.com/lboeglin/soulseektools/actions/workflows/ci.yml/badge.svg)](https://github.com/lboeglin/soulseektools/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/lboeglin/soulseektools)](https://github.com/lboeglin/soulseektools/releases)
+[![Licence: MIT](https://img.shields.io/badge/licence-MIT-blue)](LICENSE)
+
 `stk` keeps a music library clean: it finds FLACs that are really transcoded
 MP3s, duplicates, missing cover art and genres, fixes tags, files everything
 into one layout and writes ReplayGain. It can also fetch what the library lacks
