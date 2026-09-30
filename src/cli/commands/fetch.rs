@@ -139,11 +139,18 @@ fn download(context: &AppContext, limit: Option<usize>, collect_only: bool) -> R
 
     context.say(&format!(
         "Queued {} track(s); recorded {} finished transfer(s); cancelled {} stalled one(s)",
-        queued.iter().filter(|outcome| outcome.queued).count(),
+        queued_tracks(&queued),
         collected.len(),
         stalled.tracks.len()
     ));
     Ok(failed)
+}
+
+pub(crate) fn queued_tracks(queued: &[fetch::EnqueueOutcome]) -> usize {
+    fetch::latest_per_track(queued)
+        .iter()
+        .filter(|(outcome, _)| outcome.queued)
+        .count()
 }
 
 pub(crate) fn search_row(outcome: &fetch::SearchOutcome) -> serde_json::Value {
@@ -306,15 +313,16 @@ pub(crate) fn report_queued(context: &AppContext, queued: &[fetch::EnqueueOutcom
     if queued.is_empty() {
         return;
     }
-    let rows: Vec<Vec<String>> = queued
-        .iter()
-        .map(|outcome| {
+    let rows: Vec<Vec<String>> = fetch::latest_per_track(queued)
+        .into_iter()
+        .map(|(outcome, attempts)| {
             let marker = if outcome.queued { "OK" } else { "--" };
-            vec![
-                marker.to_owned(),
-                outcome.query.clone(),
-                outcome.error.clone(),
-            ]
+            let note = match (attempts, outcome.error.is_empty()) {
+                (1, _) => outcome.error.clone(),
+                (_, true) => "after a retry".to_owned(),
+                (_, false) => format!("after a retry: {}", outcome.error),
+            };
+            vec![marker.to_owned(), outcome.query.clone(), note]
         })
         .collect();
     context.say(&table(&["", "Track", "Note"], &rows));

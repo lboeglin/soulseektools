@@ -567,7 +567,9 @@ fn download(
         return Ok(1);
     }
     context.say(&format!(
-        "Queued {} download(s). Set slskd.download_directory so get can wait for          them, check them and file them; until then, stk fetch download --collect          records them once they finish.",
+        "Queued {} download(s). Set slskd.download_directory so get can wait for \
+         them, check them and file them; until then, stk fetch download --collect \
+         records them once they finish.",
         queued.len()
     ));
     Ok(0)

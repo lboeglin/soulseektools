@@ -522,11 +522,7 @@ fn report_download(context: &AppContext, waited: &Waited) {
     fetch_command::report_collected(context, &waited.collected);
     context.say(&format!(
         "Queued {} track(s); recorded {} finished transfer(s); cancelled {} stalled one(s)",
-        waited
-            .queued
-            .iter()
-            .filter(|outcome| outcome.queued)
-            .count(),
+        fetch_command::queued_tracks(&waited.queued),
         waited.collected.len(),
         waited.stalled.len()
     ));

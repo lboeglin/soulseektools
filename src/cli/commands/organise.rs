@@ -179,21 +179,26 @@ pub(crate) fn report(
         context.say(&table(&["File", "Blocked"], &obstacles));
     }
 
-    context.say(&format!(
-        "{} file(s) would move; {settled} already in place; {} blocked",
-        ready.len(),
-        obstacles.len()
-    ));
-
     if apply {
-        context.say(&format!("Moved {} file(s)", ready.len() - failures.len()));
+        context.say(&format!(
+            "Moved {} file(s); {settled} already in place; {} blocked",
+            ready.len() - failures.len(),
+            obstacles.len()
+        ));
         if pruned > 0 {
             context.say(&format!("Removed {pruned} empty directory(ies)"));
         }
         for (path, reason) in failures {
             context.say_failure(path, reason);
         }
-    } else if !ready.is_empty() {
-        context.say("Nothing was written -- pass --apply to move them.");
+    } else {
+        context.say(&format!(
+            "{} file(s) would move; {settled} already in place; {} blocked",
+            ready.len(),
+            obstacles.len()
+        ));
+        if !ready.is_empty() {
+            context.say("Nothing was written -- pass --apply to move them.");
+        }
     }
 }

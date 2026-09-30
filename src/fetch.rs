@@ -52,6 +52,23 @@ pub struct CollectOutcome {
     pub retried_with_rank: Option<i64>,
 }
 
+/// A track queued again after a stall once, as its last attempt, with how
+/// many attempts it took.
+#[must_use]
+pub fn latest_per_track(queued: &[EnqueueOutcome]) -> Vec<(&EnqueueOutcome, usize)> {
+    let mut latest: Vec<(&EnqueueOutcome, usize)> = Vec::new();
+    for outcome in queued {
+        match latest
+            .iter_mut()
+            .find(|(seen, _)| seen.track_id == outcome.track_id)
+        {
+            Some(entry) => *entry = (outcome, entry.1 + 1),
+            None => latest.push((outcome, 1)),
+        }
+    }
+    latest
+}
+
 pub fn search_pending(
     store: &mut ReviewStore,
     client: &dyn SoulseekClient,
