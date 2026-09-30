@@ -3,11 +3,15 @@
 use clap::Subcommand;
 use serde_json::json;
 
+use crate::artwork::base::ArtProvider;
 use crate::artwork::service::{self, ArtworkResult};
 use crate::cli::context::{show, table, unix_now, AppContext};
+use crate::config::ArtworkSettings;
 use crate::errors::Result;
 use crate::library::changes::ChangeLog;
+use crate::library::index::LibraryIndex;
 use crate::library::tags;
+use crate::models::LibraryEntry;
 use crate::services::HttpTransport;
 
 #[derive(Subcommand, Debug)]
@@ -97,15 +101,10 @@ fn fetch(
         }
     };
 
-    let roots = context.library_roots();
     let mut index = context.open_index()?;
     let entries = index.entries()?;
 
-    let mut needing: Vec<_> = service::audit(&entries, &settings)
-        .into_iter()
-        .filter(|status| status.needs_artwork)
-        .map(|status| status.entry)
-        .collect();
+    let mut needing = needing_artwork(&entries, &settings);
     if let Some(limit) = limit {
         needing.truncate(limit);
     }
@@ -114,11 +113,37 @@ fn fetch(
         return Ok(0);
     }
 
+    let results = fetch_covers(context, &mut index, &needing, &providers, &settings, apply)?;
+    report(context, &results, apply);
+    Ok(0)
+}
+
+pub(crate) fn needing_artwork(
+    entries: &[LibraryEntry],
+    settings: &ArtworkSettings,
+) -> Vec<LibraryEntry> {
+    service::audit(entries, settings)
+        .into_iter()
+        .filter(|status| status.needs_artwork)
+        .map(|status| status.entry)
+        .collect()
+}
+
+/// Looks up a cover for each entry and, with `apply`, embeds the verified ones.
+pub(crate) fn fetch_covers(
+    context: &AppContext,
+    index: &mut LibraryIndex,
+    needing: &[LibraryEntry],
+    providers: &[Box<dyn ArtProvider>],
+    settings: &ArtworkSettings,
+    apply: bool,
+) -> Result<Vec<ArtworkResult>> {
+    let roots = context.library_roots();
     let http = HttpTransport::new(settings.request_timeout_seconds, &settings.contact)?;
-    let log = ChangeLog::open(&index, "art fetch", unix_now())?;
+    let log = ChangeLog::open(index, "art fetch", unix_now())?;
     let mut results = Vec::new();
-    for entry in &needing {
-        let mut result = service::find_artwork(entry, &providers, &settings, &http);
+    for entry in needing {
+        let mut result = service::find_artwork(entry, providers, settings, &http);
         if result.ok() && apply {
             // Read before embedding: afterwards the cover this replaced is gone.
             let previous = tags::read_artwork(&entry.path).ok().flatten();
@@ -126,7 +151,7 @@ fn fetch(
                 result.error = error.to_string();
             } else {
                 log.artwork(
-                    &mut index,
+                    index,
                     &entry.path,
                     previous.as_ref(),
                     result.artwork.as_ref(),
@@ -136,31 +161,33 @@ fn fetch(
         }
         results.push(result);
     }
-
-    report(context, &results, apply);
-    Ok(0)
+    Ok(results)
 }
 
-fn report(context: &AppContext, results: &[ArtworkResult], applied: bool) {
+pub(crate) fn artwork_row(result: &ArtworkResult, applied: bool) -> serde_json::Value {
+    json!({
+        "path": show(&result.entry.path),
+        "ok": result.ok(),
+        "reason": if result.error.is_empty() {
+            result.selection.reason.clone()
+        } else {
+            result.error.clone()
+        },
+        "url": result
+            .selection
+            .candidate
+            .as_ref()
+            .map_or_else(String::new, |candidate| candidate.url.clone()),
+        "bytes": result.artwork.as_ref().map_or(0, |artwork| artwork.data.len()),
+        "applied": applied && result.ok(),
+    })
+}
+
+pub(crate) fn report(context: &AppContext, results: &[ArtworkResult], applied: bool) {
     if context.as_json {
         context.emit(&json!(results
             .iter()
-            .map(|result| json!({
-                "path": show(&result.entry.path),
-                "ok": result.ok(),
-                "reason": if result.error.is_empty() {
-                    result.selection.reason.clone()
-                } else {
-                    result.error.clone()
-                },
-                "url": result
-                    .selection
-                    .candidate
-                    .as_ref()
-                    .map_or_else(String::new, |candidate| candidate.url.clone()),
-                "bytes": result.artwork.as_ref().map_or(0, |artwork| artwork.data.len()),
-                "applied": applied && result.ok(),
-            }))
+            .map(|result| artwork_row(result, applied))
             .collect::<Vec<_>>()));
         return;
     }

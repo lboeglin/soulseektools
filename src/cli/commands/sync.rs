@@ -6,14 +6,17 @@ use std::path::PathBuf;
 use clap::Args;
 use serde_json::json;
 
+use crate::artwork::service::{self, ArtworkResult};
 use crate::cli::commands::library::{self, Scanned};
 use crate::cli::commands::wantlist::ExportArgs;
-use crate::cli::commands::{fetch as fetch_command, organise as organise_command};
+use crate::cli::commands::{
+    art as art_command, fetch as fetch_command, organise as organise_command,
+};
 use crate::cli::context::{candidate_count, show, table, unix_now, AppContext};
 use crate::errors::{Error, Result};
 use crate::fetch::{self, Patience, SearchOutcome, SystemClock, Waited};
 use crate::library::index::LibraryIndex;
-use crate::models::TrackStatus;
+use crate::models::{LibraryEntry, TrackStatus};
 use crate::organise::{self, Applied, Pattern, PlannedMove};
 use crate::retag::TagPolicy;
 use crate::review::picker;
@@ -68,6 +71,8 @@ struct Target {
 struct Organised {
     planned: Vec<PlannedMove>,
     applied: Applied,
+    /// Covers looked up for the files just filed that arrived without one.
+    covers: Vec<ArtworkResult>,
 }
 
 impl Organised {
@@ -309,6 +314,9 @@ fn report_organised(context: &AppContext, organised: &Organised, applied: bool) 
         applied,
         organised.applied.pruned,
     );
+    if !organised.covers.is_empty() {
+        art_command::report(context, &organised.covers, applied);
+    }
 }
 
 /// `true` when something went wrong.
@@ -472,13 +480,48 @@ fn organise_downloads(
         roots,
         Some(destination.as_path()),
     );
-    let applied = if apply {
+    let (applied, covers) = if apply {
         let ready: Vec<&PlannedMove> = planned.iter().filter(|move_| move_.ready()).collect();
-        organise::apply_moves(index, &ready, roots, Some(downloads), settings, unix_now())?
+        let applied =
+            organise::apply_moves(index, &ready, roots, Some(downloads), settings, unix_now())?;
+        let filed: Vec<&PathBuf> = ready.iter().map(|move_| &move_.destination).collect();
+        (applied, cover_arrivals(context, index, &filed)?)
     } else {
-        Applied::default()
+        (Applied::default(), Vec::new())
     };
-    Ok(Some(Organised { planned, applied }))
+    Ok(Some(Organised {
+        planned,
+        applied,
+        covers,
+    }))
+}
+
+/// A lookup service that can't be set up is reported, not fatal: the files
+/// are already filed.
+fn cover_arrivals(
+    context: &AppContext,
+    index: &mut LibraryIndex,
+    filed: &[&PathBuf],
+) -> Result<Vec<ArtworkResult>> {
+    let settings = &context.settings().artwork;
+    let arrived: Vec<LibraryEntry> = index
+        .entries()?
+        .into_iter()
+        .filter(|entry| filed.contains(&&entry.path))
+        .collect();
+    let needing = art_command::needing_artwork(&arrived, settings);
+    if needing.is_empty() {
+        return Ok(Vec::new());
+    }
+    match service::build_providers(settings) {
+        Ok(providers) => {
+            art_command::fetch_covers(context, index, &needing, &providers, settings, true)
+        }
+        Err(error) => {
+            context.say(&format!("Covers not looked up: {error}"));
+            Ok(Vec::new())
+        }
+    }
 }
 
 fn download_json(waited: &Waited) -> serde_json::Value {
@@ -512,6 +555,11 @@ fn organise_json(organised: &Organised) -> serde_json::Value {
             .failures
             .iter()
             .map(|(path, error)| json!({"path": show(path), "error": error}))
+            .collect::<Vec<_>>(),
+        "artwork": organised
+            .covers
+            .iter()
+            .map(|result| art_command::artwork_row(result, true))
             .collect::<Vec<_>>(),
     })
 }
