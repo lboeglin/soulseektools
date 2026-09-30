@@ -14,7 +14,7 @@ use context::{report, AppContext};
 #[command(
     name = "stk",
     version,
-    about = "Build a music library from a streaming export via Soulseek, and keep it clean.",
+    about = "Keep a music library clean: transcodes, duplicates, covers, genres and tags, and fill its gaps through Soulseek.",
     arg_required_else_help = true
 )]
 pub struct Cli {

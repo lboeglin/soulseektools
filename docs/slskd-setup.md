@@ -93,3 +93,17 @@ Soulseek works because people share: every file you download is one someone
 else chose to share. Sharing back keeps the network useful, but it is your
 call, and some networks forbid running a P2P node at all. `stk` works the same
 either way.
+
+Searches weigh on the whole network, since the server passes each one on to
+many peers. `stk` runs at most `slskd.search_concurrency` at once, starts
+them at least `slskd.search_interval_seconds` apart, and backs off when slskd
+says it is busy. When downloading, it prefers one peer per batch and cancels transfers
+that stall rather than waiting in every queue.
+
+A large export is best fetched in parts, a few dozen tracks a run:
+
+```bash
+stk sync "My Library.csv" --limit 50 --apply
+```
+
+Each run skips what the library already has and carries on with the queue.

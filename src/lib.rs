@@ -1,5 +1,4 @@
-//! `stk`: build a music library from a streaming export via Soulseek, and keep
-//! it clean afterwards.
+//! `stk`: keep a music library clean, and fill its gaps through Soulseek.
 
 pub mod artwork;
 pub mod audio;

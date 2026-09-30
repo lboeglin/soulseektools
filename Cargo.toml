@@ -1,6 +1,6 @@
 [package]
 name = "stk"
-description = "Build a music library from a streaming export via Soulseek, and keep it clean afterwards."
+description = "Keep a music library clean: transcodes, duplicates, covers, genres and tags, and fill its gaps through Soulseek."
 version = "0.1.0"
 edition = "2021"
 rust-version = "1.89"
