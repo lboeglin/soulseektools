@@ -355,9 +355,46 @@ fn optional_f64(value: Option<&Value>) -> Option<f64> {
     (number != 0.0).then_some(number)
 }
 
+/// What slskd shares with the network.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Shares {
+    pub folders: usize,
+    pub files: u64,
+}
+
 impl<H: Http> SlskdClient<H> {
     pub fn into_http(self) -> H {
         self.http
+    }
+
+    /// Excluded folders are left out: slskd lists them as shares that hide a
+    /// subfolder.
+    pub fn shares(&self) -> Result<Shares> {
+        let response = self.get("/shares")?;
+        // A flat list from older slskd, a list per host from newer ones.
+        let listed = match response {
+            Some(Value::Object(hosts)) => hosts
+                .values()
+                .flat_map(|host| as_list(Some(host)))
+                .collect(),
+            other => as_list(other.as_ref()),
+        };
+        let shared: Vec<&Value> = listed
+            .iter()
+            .filter(|share| {
+                !share
+                    .get("isExcluded")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false)
+            })
+            .collect();
+        Ok(Shares {
+            folders: shared.len(),
+            files: shared
+                .iter()
+                .filter_map(|share| share.get("files").and_then(Value::as_u64))
+                .sum(),
+        })
     }
 }
 

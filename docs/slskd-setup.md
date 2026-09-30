@@ -84,7 +84,8 @@ download_directory = "/path/to/downloads"   # the host side of the /downloads mo
 ```
 
 `stk` needs `download_directory` to find finished files, since slskd only
-reports their remote path. Then run `stk doctor` to check the connection.
+reports their remote path. Then run `stk doctor`: it says whether slskd is
+logged in to Soulseek, and what it shares.
 
 ## Being a good peer
 

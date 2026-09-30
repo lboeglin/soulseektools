@@ -5,10 +5,11 @@ use std::sync::Mutex;
 
 use serde_json::{json, Value};
 
+use stk::cli::commands::doctor::slskd_checks;
 use stk::config::SlskdSettings;
 use stk::errors::{Error, Result};
 use stk::soulseek::base::{SoulseekClient, TransferState};
-use stk::soulseek::slskd::{state_from, Http, SlskdClient};
+use stk::soulseek::slskd::{state_from, Http, Shares, SlskdClient};
 
 #[derive(Default)]
 struct Recorded {
@@ -353,4 +354,110 @@ fn concurrent_searches_get_distinct_ids() {
         .collect();
     let distinct: std::collections::HashSet<&String> = ids.iter().collect();
     assert_eq!((ids.len(), distinct.len()), (160, 160));
+}
+
+fn logged_in() -> Recorded {
+    Recorded::default().with(
+        "GET",
+        "/server",
+        json!({"isConnected": true, "isLoggedIn": true}),
+    )
+}
+
+#[test]
+fn shares_are_counted_across_hosts_leaving_out_excluded_folders() {
+    let shares = client(Recorded::default().with(
+        "GET",
+        "/shares",
+        json!({
+            "local": [
+                {"localPath": "/music", "isExcluded": false, "directories": 40, "files": 900},
+                {"localPath": "/music/private", "isExcluded": true, "files": 12}
+            ],
+            "laptop": [{"localPath": "/more", "files": 100}]
+        }),
+    ))
+    .shares()
+    .expect("shares");
+
+    assert_eq!(
+        shares,
+        Shares {
+            folders: 2,
+            files: 1000
+        }
+    );
+}
+
+#[test]
+fn shares_read_the_flat_list_of_older_slskd() {
+    let shares = client(Recorded::default().with(
+        "GET",
+        "/shares",
+        json!([{"localPath": "/music", "files": 5}]),
+    ))
+    .shares()
+    .expect("shares");
+
+    assert_eq!(
+        shares,
+        Shares {
+            folders: 1,
+            files: 5
+        }
+    );
+}
+
+#[test]
+fn doctor_reports_what_a_logged_in_slskd_shares() {
+    let checks = slskd_checks(&client(logged_in().with(
+        "GET",
+        "/shares",
+        json!({"local": [{"localPath": "/music", "files": 900}]}),
+    )));
+
+    let rows: Vec<(&str, bool, &str)> = checks
+        .iter()
+        .map(|check| (check.name, check.ok, check.detail.as_str()))
+        .collect();
+    assert_eq!(
+        rows,
+        [
+            ("slskd", true, "logged in to Soulseek"),
+            ("slskd shares", true, "1 folder, 900 files"),
+        ]
+    );
+}
+
+#[test]
+fn doctor_says_nothing_is_shared_without_failing() {
+    let checks = slskd_checks(&client(logged_in().with(
+        "GET",
+        "/shares",
+        json!({"local": []}),
+    )));
+
+    let shares = checks
+        .iter()
+        .find(|check| check.name == "slskd shares")
+        .expect("a shares row");
+    assert!(shares.ok);
+    assert!(
+        shares.detail.starts_with("nothing shared"),
+        "{}",
+        shares.detail
+    );
+}
+
+#[test]
+fn doctor_marks_slskd_optional_when_it_is_down_and_skips_its_shares() {
+    let checks = slskd_checks(&client(Recorded::default().failing(
+        "GET",
+        "/server",
+        "connection refused",
+    )));
+
+    assert_eq!(checks.len(), 1);
+    assert_eq!(checks[0].name, "slskd");
+    assert_eq!(checks[0].status(), "optional");
 }

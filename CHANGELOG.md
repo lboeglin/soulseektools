@@ -40,6 +40,8 @@ command, first in Python and then rewritten in Rust.
   `genre` and `artist`.
 - `stk library scan`, `stats` and `trend`, over several roots with exclusions.
 - `stk changes list` and `undo` for everything `--apply` writes.
+- `stk doctor`, which checks the configuration, the library roots and, when
+  an API key is set, whether slskd is logged in and what it shares.
 - `--json` on every command, and `stk completions`.
 - Layered configuration: flag, environment variable, `stk.toml`, user config,
   defaults.

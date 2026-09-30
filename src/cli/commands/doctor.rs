@@ -4,16 +4,19 @@ use serde_json::json;
 
 use crate::cli::context::{show, table, AppContext};
 use crate::errors::Result;
+use crate::soulseek::base::SoulseekClient;
+use crate::soulseek::slskd::{Http, HttpTransport, SlskdClient};
 
-struct Check {
-    name: &'static str,
-    ok: bool,
-    detail: String,
-    required: bool,
+pub struct Check {
+    pub name: &'static str,
+    pub ok: bool,
+    pub detail: String,
+    pub required: bool,
 }
 
 impl Check {
-    fn status(&self) -> &'static str {
+    #[must_use]
+    pub fn status(&self) -> &'static str {
         if self.ok {
             "ok"
         } else if self.required {
@@ -29,7 +32,7 @@ fn checks(context: &AppContext) -> Vec<Check> {
     let roots = context.library_roots();
     let index_path = &settings.index.path;
 
-    vec![
+    let mut checks = vec![
         Check {
             name: "config",
             ok: context.resolved.source_path.is_some(),
@@ -72,6 +75,14 @@ fn checks(context: &AppContext) -> Vec<Check> {
             },
             required: false,
         },
+    ];
+    if settings.slskd.api_key.is_some() {
+        checks.extend(match HttpTransport::new(&settings.slskd) {
+            Ok(http) => slskd_checks(&SlskdClient::new(settings.slskd.clone(), http)),
+            Err(error) => vec![slskd_down(error.to_string())],
+        });
+    }
+    checks.extend([
         Check {
             name: "discogs token",
             ok: settings.wantlist.discogs_token.is_some(),
@@ -93,7 +104,60 @@ fn checks(context: &AppContext) -> Vec<Check> {
             },
             required: false,
         },
+    ]);
+    checks
+}
+
+/// Whether slskd is logged in, and what it shares. Sharing is reported, never
+/// judged: some networks forbid it.
+pub fn slskd_checks<H: Http>(client: &SlskdClient<H>) -> Vec<Check> {
+    if !client.is_connected() {
+        return vec![slskd_down(
+            "not running, or not logged in; needed only to search and download".to_owned(),
+        )];
+    }
+    let shared = match client.shares() {
+        Ok(shares) if shares.folders == 0 => {
+            "nothing shared (optional, see docs/slskd-setup.md)".to_owned()
+        }
+        Ok(shares) => format!(
+            "{}, {}",
+            counted(shares.folders as u64, "folder"),
+            counted(shares.files, "file")
+        ),
+        Err(error) => format!("unknown: {error}"),
+    };
+    vec![
+        Check {
+            name: "slskd",
+            ok: true,
+            detail: "logged in to Soulseek".to_owned(),
+            required: false,
+        },
+        Check {
+            name: "slskd shares",
+            ok: true,
+            detail: shared,
+            required: false,
+        },
     ]
+}
+
+fn counted(count: u64, noun: &str) -> String {
+    if count == 1 {
+        format!("1 {noun}")
+    } else {
+        format!("{count} {noun}s")
+    }
+}
+
+fn slskd_down(detail: String) -> Check {
+    Check {
+        name: "slskd",
+        ok: false,
+        detail,
+        required: false,
+    }
 }
 
 pub fn run(context: &AppContext) -> Result<i32> {
