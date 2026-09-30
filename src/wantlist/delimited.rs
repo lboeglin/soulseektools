@@ -81,6 +81,7 @@ pub(super) fn read(path: &Path) -> Result<Vec<Track>> {
                 .and_then(|at| record.get(at))
                 .and_then(parse_duration),
             title_guessed,
+            typed: false,
             source_row: headers
                 .iter()
                 .zip(record.iter())

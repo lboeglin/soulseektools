@@ -182,6 +182,7 @@ fn track(item: &Value, loved: bool) -> Track {
         album: String::new(),
         duration_seconds: duration.map(f64::from),
         title_guessed: false,
+        typed: false,
         source_row: COLUMNS
             .iter()
             .map(|&column| column.to_owned())

@@ -66,6 +66,9 @@ const V3_COLUMNS: &[(&str, &str)] = &[("attempted", "INTEGER NOT NULL DEFAULT 0"
 /// Whether the title was guessed from a filename, so `fetch download` won't write it over the peer's.
 const V4_COLUMNS: &[(&str, &str)] = &[("title_guessed", "INTEGER NOT NULL DEFAULT 0")];
 
+/// Whether the name was typed into `stk get`, so no download replaces tags with it.
+const V5_COLUMNS: &[(&str, &str)] = &[("typed", "INTEGER NOT NULL DEFAULT 0")];
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct ReviewTrack {
     pub id: i64,
@@ -114,6 +117,7 @@ impl ReviewStore {
         add_missing_columns(&connection, "tracks", V2_COLUMNS)?;
         add_missing_columns(&connection, "candidates", V3_COLUMNS)?;
         add_missing_columns(&connection, "tracks", V4_COLUMNS)?;
+        add_missing_columns(&connection, "tracks", V5_COLUMNS)?;
 
         connection
             .execute(
@@ -137,8 +141,8 @@ impl ReviewStore {
                 .execute(
                     "INSERT OR IGNORE INTO tracks \
                      (query, artist, title, album, duration_seconds, status, source_row, \
-                      title_guessed, added_at) \
-                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+                      title_guessed, typed, added_at) \
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
                     params![
                         track.query(),
                         track.artist,
@@ -148,6 +152,7 @@ impl ReviewStore {
                         TrackStatus::Pending.as_str(),
                         source_row_json(&track.source_row),
                         i64::from(track.title_guessed),
+                        i64::from(track.typed),
                         now,
                     ],
                 )
@@ -564,6 +569,7 @@ fn partial_track(row: &rusqlite::Row<'_>) -> rusqlite::Result<PartialTrack> {
             album: row.get("album")?,
             duration_seconds: row.get("duration_seconds")?,
             title_guessed: row.get::<_, Option<i64>>("title_guessed")?.unwrap_or(0) != 0,
+            typed: row.get::<_, Option<i64>>("typed")?.unwrap_or(0) != 0,
             source_row: parse_source_row(&source_row),
         },
         status: status.parse().unwrap_or(TrackStatus::Pending),

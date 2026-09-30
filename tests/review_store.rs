@@ -17,6 +17,7 @@ fn track(artist: &str, title: &str) -> Track {
         album: "Ghost".to_owned(),
         duration_seconds: Some(215.0),
         title_guessed: false,
+        typed: false,
         source_row: Vec::new(),
     }
 }
@@ -66,6 +67,29 @@ fn the_same_track_is_not_queued_twice() {
 
     assert_eq!(store.add(&[roki()]).expect("no second add"), 0);
     assert_eq!(store.tracks(&[], None).expect("tracks").len(), 1);
+}
+
+#[test]
+fn a_typed_name_is_remembered_as_typed() {
+    let scratch = Scratch::new("review-typed");
+    let mut store = store(&scratch);
+    let typed = Track {
+        typed: true,
+        ..track("DECO*27", "Vampire")
+    };
+    store.add(&[typed, roki()]).expect("added tracks");
+
+    let tracks = store.tracks(&[], None).expect("tracks");
+    let typed_of = |title: &str| {
+        tracks
+            .iter()
+            .find(|entry| entry.track.title == title)
+            .expect("a queued track")
+            .track
+            .typed
+    };
+    assert!(typed_of("Vampire"));
+    assert!(!typed_of("Roki"));
 }
 
 #[test]

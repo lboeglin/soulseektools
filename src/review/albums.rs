@@ -270,6 +270,7 @@ pub fn album_rows(offer: &FolderOffer, artist: &str, album: &str) -> Vec<(Track,
             title,
             album: album.to_owned(),
             title_guessed: true,
+            typed: true,
             // Read back by `retag::RowTags::of` through the column names an
             // export is read with, so a download lands with its number on it.
             source_row: track_number(filename)

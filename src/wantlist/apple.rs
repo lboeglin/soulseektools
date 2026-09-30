@@ -57,6 +57,7 @@ fn track(item: &Dictionary) -> Option<Track> {
         album: text(item, "Album"),
         duration_seconds: parse_duration(&text(item, "Total Time")),
         title_guessed: false,
+        typed: false,
         source_row: item
             .iter()
             .filter_map(|(key, value)| Some((key.clone(), scalar(value)?)))

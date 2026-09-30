@@ -205,6 +205,7 @@ fn track(
         album: album.to_owned(),
         duration_seconds: parse_duration(&duration),
         title_guessed: false,
+        typed: false,
         source_row,
     })
 }

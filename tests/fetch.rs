@@ -1262,6 +1262,28 @@ fn a_completed_download_is_tagged_from_its_review_row() {
 }
 
 #[test]
+fn a_typed_name_only_fills_even_where_downloads_replace() {
+    let scratch = Scratch::new("fetch-tag-typed");
+    let settings = settings(&scratch);
+    let mut store = store(&scratch);
+    let typed = Track {
+        typed: true,
+        ..roki_with_album()
+    };
+    let (_, path) = arrived(&mut store, &settings, &typed);
+
+    let outcome = &collect(&mut store, &completed(), &settings, false).expect("a collect")[0];
+
+    let read = tags::read_tags(&path).expect("readable tags");
+    assert_eq!(read.title, "Track 01");
+    assert_eq!(read.artist, "Unknown Artist");
+    assert_eq!(
+        outcome.tags.as_ref().expect("a tag outcome").policy,
+        TagPolicy::Fill
+    );
+}
+
+#[test]
 fn a_download_still_being_moved_into_place_waits_for_the_next_collect() {
     let scratch = Scratch::new("fetch-partial-file");
     let settings = settings(&scratch);

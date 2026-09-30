@@ -103,7 +103,10 @@ pub fn wanted_tracks(args: &GetArgs) -> Result<Vec<Track>> {
         .map(|line| {
             let (parsed_artist, title) = split_query(line);
             // `--artist` applies to every line.
-            Track::new(args.artist.as_deref().unwrap_or(&parsed_artist), &title)
+            Track {
+                typed: !args.rename,
+                ..Track::new(args.artist.as_deref().unwrap_or(&parsed_artist), &title)
+            }
         })
         .filter(|track| !track.title.is_empty())
         .collect())

@@ -125,6 +125,10 @@ pub struct Track {
     /// [`crate::retag::plan`] won't write a guess over the peer's own title.
     pub title_guessed: bool,
 
+    /// Whether the name was typed into `stk get` rather than read from an
+    /// export. [`crate::retag::apply`] only fills tags from a typed name.
+    pub typed: bool,
+
     pub source_row: Vec<(String, String)>,
 }
 

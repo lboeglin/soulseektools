@@ -155,6 +155,12 @@ pub fn apply(
     if policy == TagPolicy::Keep {
         return Ok(None);
     }
+    // A typed query names the song no better than the file's own tags,
+    // whichever command downloads it.
+    let policy = match (policy, track.typed) {
+        (TagPolicy::Replace, true) => TagPolicy::Fill,
+        (policy, _) => policy,
+    };
 
     let mut outcome = Retagged {
         policy,
