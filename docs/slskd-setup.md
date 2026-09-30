@@ -25,10 +25,35 @@ services:
       - SLSKD_DOWNLOADS_DIR=/downloads   # slskd's default is /app/downloads
     volumes:
       - ./slskd:/app                     # config and state; keep it
-      - /path/to/music:/music:ro         # what you share back
       - /path/to/downloads:/downloads   # where finished files land
-    restart: unless-stopped
 ```
+
+Start it before searching or downloading, and stop it afterwards:
+
+```bash
+docker compose up -d
+docker compose down
+```
+
+There is no `restart:` policy on purpose. With `restart: unless-stopped`,
+slskd comes back whenever Docker starts and stays on the network as a Soulseek
+peer around the clock. Some networks, student residences for one, forbid
+that.
+
+### Sharing
+
+slskd shares nothing by default, and mounting a folder into the container
+doesn't change that. To share a folder, mount it and name it:
+
+```yaml
+    environment:
+      - SLSKD_SHARED_DIR=/music
+    volumes:
+      - /path/to/music:/music:ro
+```
+
+or list it under `shares.directories` in `slskd.yml`. Sharing is optional; see
+[being a good peer](#being-a-good-peer).
 
 ## API key
 
@@ -60,3 +85,10 @@ download_directory = "/path/to/downloads"   # the host side of the /downloads mo
 
 `stk` needs `download_directory` to find finished files, since slskd only
 reports their remote path. Then run `stk doctor` to check the connection.
+
+## Being a good peer
+
+Soulseek works because people share: every file you download is one someone
+else chose to share. Sharing back keeps the network useful, but it is your
+call, and some networks forbid running a P2P node at all. `stk` works the same
+either way.
