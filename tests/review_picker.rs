@@ -185,3 +185,57 @@ fn declining_a_track_is_not_abandoning_the_queue() {
     assert_eq!(status_of(&store, "Roki"), TrackStatus::AwaitingReview);
     assert_eq!(approved_rank(&store, "Ghost Rule"), Some(2));
 }
+
+fn flag_first(store: &mut ReviewStore, title: &str, flag: &str) {
+    let id = id_of(store, title);
+    store
+        .set_candidates(id, &[scored(title, 1, &[flag]), scored(title, 2, &[])])
+        .expect("recorded candidates");
+}
+
+fn waiting(store: &ReviewStore) -> Vec<stk::review::store::ReviewTrack> {
+    store
+        .tracks(&[TrackStatus::AwaitingReview], None)
+        .expect("tracks")
+}
+
+#[test]
+fn yes_takes_a_clean_best_candidate_even_from_the_preferred_peer() {
+    let scratch = Scratch::new("picker-take-clean");
+    let mut store = queue(&scratch);
+    let entries = waiting(&store);
+
+    let taken = picker::take_best(&mut store, &entries, false).expect("taken");
+
+    assert_eq!(taken.approved.len(), 2);
+    assert!(taken.held.is_empty());
+    assert_eq!(approved_rank(&store, "Roki"), Some(1));
+}
+
+#[test]
+fn yes_leaves_a_flagged_best_candidate_for_review() {
+    let scratch = Scratch::new("picker-take-flagged");
+    let mut store = queue(&scratch);
+    flag_first(&mut store, "Roki", "extra:eurobeat mix");
+    let entries = waiting(&store);
+
+    let taken = picker::take_best(&mut store, &entries, false).expect("taken");
+
+    assert_eq!(taken.approved, vec![id_of(&store, "Ghost Rule")]);
+    assert_eq!(taken.held.len(), 1);
+    assert_eq!(status_of(&store, "Roki"), TrackStatus::AwaitingReview);
+    assert_eq!(approved_rank(&store, "Roki"), None);
+}
+
+#[test]
+fn force_takes_a_flagged_best_candidate() {
+    let scratch = Scratch::new("picker-take-forced");
+    let mut store = queue(&scratch);
+    flag_first(&mut store, "Roki", "remix");
+    let entries = waiting(&store);
+
+    let taken = picker::take_best(&mut store, &entries, true).expect("taken");
+
+    assert_eq!(taken.approved.len(), 2);
+    assert_eq!(approved_rank(&store, "Roki"), Some(1));
+}

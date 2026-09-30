@@ -882,6 +882,7 @@ fn get_accepts_one_track_several_tracks_and_a_list() {
         lossless: false,
         min_bitrate: None,
         yes: false,
+        force: false,
         queue_only: false,
         rename: false,
         timeout: None,
@@ -1233,4 +1234,10 @@ fn a_table_lines_up_rows_holding_wide_characters() {
         starts.windows(2).all(|pair| pair[0] == pair[1]),
         "{rendered}"
     );
+}
+
+#[test]
+fn force_is_refused_without_yes() {
+    assert_eq!(run(&["get", "DECO*27 - Roki", "--force"]), 2);
+    assert_eq!(run(&["sync", "list.csv", "--force"]), 2);
 }

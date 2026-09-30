@@ -46,6 +46,30 @@ pub struct Tally {
     pub skipped: usize,
 }
 
+/// What `--yes` did with the tracks it was given.
+#[derive(Debug, Default, Clone, PartialEq)]
+pub struct Taken {
+    pub approved: Vec<i64>,
+    /// Rank 1 carries a warning, so the track waits for `stk review pick`.
+    pub held: Vec<ReviewTrack>,
+}
+
+/// Approves rank 1 of each track, unless it is flagged and `force` is off.
+pub fn take_best(store: &mut ReviewStore, entries: &[ReviewTrack], force: bool) -> Result<Taken> {
+    let mut taken = Taken::default();
+    for entry in entries {
+        let Some(best) = entry.candidates.first() else {
+            continue;
+        };
+        if best.needs_a_look() && !force {
+            taken.held.push(entry.clone());
+        } else if store.approve(entry.id, 1).is_ok() {
+            taken.approved.push(entry.id);
+        }
+    }
+    Ok(taken)
+}
+
 pub fn walk(
     store: &mut ReviewStore,
     input: &mut impl BufRead,

@@ -12,11 +12,11 @@ use crate::config::SlskdSettings;
 use crate::errors::Error;
 use crate::errors::Result;
 use crate::fetch;
-use crate::models::{Candidate, ScoredCandidate, Track};
+use crate::models::{Candidate, ScoredCandidate, Track, TrackStatus};
 use crate::retag::TagPolicy;
 use crate::review::albums::{self, FolderOffer};
 use crate::review::picker;
-use crate::review::store::ReviewStore;
+use crate::review::store::{ReviewStore, ReviewTrack};
 use crate::soulseek::base::SoulseekClient;
 use crate::soulseek::ranking;
 use crate::text::normalize::{flatten, normalize};
@@ -48,9 +48,13 @@ pub struct GetArgs {
     #[arg(long)]
     pub min_bitrate: Option<u32>,
 
-    /// Take the best candidate without asking.
+    /// Take the best candidate without asking, unless it is flagged.
     #[arg(short = 'y', long)]
     pub yes: bool,
+
+    /// With --yes, take the best candidate even when it is flagged.
+    #[arg(long, requires = "yes")]
+    pub force: bool,
 
     /// Choose a candidate but do not download it; stk fetch download does that later.
     #[arg(long)]
@@ -161,7 +165,8 @@ pub fn run(context: &AppContext, args: &GetArgs) -> Result<i32> {
     }
 
     print_candidates(context, &scored);
-    let Some(choice) = (if args.yes { Some(1) } else { ask(scored.len()) }) else {
+    let flagged = scored[0].needs_a_look().then(|| scored[0].flags.join(", "));
+    let Some(choice) = choose(context, args, flagged, scored.len()) else {
         context.say("Nothing downloaded.");
         return Ok(0);
     };
@@ -259,7 +264,10 @@ fn album(context: &AppContext, args: &GetArgs) -> Result<i32> {
     }
 
     print_folders(context, &offers);
-    let Some(choice) = (if args.yes { Some(1) } else { ask(offers.len()) }) else {
+    let flagged = offers[0]
+        .needs_a_look()
+        .then(|| folder_warnings(&offers[0]));
+    let Some(choice) = choose(context, args, flagged, offers.len()) else {
         context.say("Nothing downloaded.");
         return Ok(0);
     };
@@ -393,6 +401,26 @@ fn print_candidates(context: &AppContext, scored: &[ScoredCandidate]) {
     context.say(&table(&["#", "Detail"], &rows));
 }
 
+/// `--yes` takes rank 1 unless it is `flagged`, and then asks like a run without it.
+fn choose(
+    context: &AppContext,
+    args: &GetArgs,
+    flagged: Option<String>,
+    count: usize,
+) -> Option<usize> {
+    match (args.yes, flagged) {
+        (true, None) => Some(1),
+        (true, Some(_)) if args.force => Some(1),
+        (true, Some(flags)) => {
+            context.say(&format!(
+                "Rank 1 is flagged ({flags}): pick one, or pass --force to take it."
+            ));
+            ask(count)
+        }
+        (false, _) => ask(count),
+    }
+}
+
 /// An exhausted stdin declines rather than taking the default, so nothing downloads unattended.
 fn ask(count: usize) -> Option<usize> {
     println!("Take which? [1-{count}, or n for none] (1): ");
@@ -487,12 +515,15 @@ fn batch(context: &AppContext, args: &GetArgs, tracks: &[Track]) -> Result<i32> 
         return Ok(0);
     }
 
-    let mut ids = Vec::new();
-    for outcome in &outcomes {
-        if outcome.found > 0 && store.approve(outcome.track_id, 1).is_ok() {
-            ids.push(outcome.track_id);
-        }
-    }
+    let searched: Vec<i64> = outcomes.iter().map(|outcome| outcome.track_id).collect();
+    let waiting: Vec<ReviewTrack> = store
+        .tracks(&[TrackStatus::AwaitingReview], None)?
+        .into_iter()
+        .filter(|entry| searched.contains(&entry.id))
+        .collect();
+    let taken = picker::take_best(&mut store, &waiting, args.force)?;
+    sync_command::report_held(context, &taken.held);
+    let ids = taken.approved;
     let approved = ids.len();
 
     if args.queue_only {

@@ -9,7 +9,7 @@ use serde_json::json;
 use crate::cli::commands::library::{self, Scanned};
 use crate::cli::commands::wantlist::ExportArgs;
 use crate::cli::commands::{fetch as fetch_command, organise as organise_command};
-use crate::cli::context::{show, unix_now, AppContext};
+use crate::cli::context::{show, table, unix_now, AppContext};
 use crate::errors::{Error, Result};
 use crate::fetch::{self, Patience, SearchOutcome, SystemClock, Waited};
 use crate::library::index::LibraryIndex;
@@ -35,6 +35,10 @@ pub struct SyncArgs {
     /// Take the best candidate for every track instead of asking.
     #[arg(short = 'y', long)]
     pub yes: bool,
+
+    /// With --yes, take the best candidate even when it is flagged.
+    #[arg(long, requires = "yes")]
+    pub force: bool,
 
     /// Search, and download, at most this many tracks.
     #[arg(long)]
@@ -79,6 +83,7 @@ struct Synced {
     diffed: Diffed,
     searched: Vec<SearchOutcome>,
     approved: usize,
+    held: Vec<ReviewTrack>,
     download: Download,
     organised: Option<Organised>,
     rescanned: Option<Scanned>,
@@ -137,7 +142,7 @@ pub fn run(context: &AppContext, args: &SyncArgs) -> Result<i32> {
         fetch_command::report_searched(context, &searched);
     }
 
-    let approved = pick(context, &mut store, args.yes)?;
+    let (approved, held) = pick(context, &mut store, args.yes, args.force)?;
 
     let mut index = context.open_index()?;
     let download = if args.apply {
@@ -182,6 +187,7 @@ pub fn run(context: &AppContext, args: &SyncArgs) -> Result<i32> {
         diffed,
         searched,
         approved,
+        held,
         download,
         organised,
         rescanned,
@@ -238,7 +244,14 @@ impl Synced {
                 "queued": self.diffed.queued,
             },
             "search": self.searched.iter().map(fetch_command::search_row).collect::<Vec<_>>(),
-            "pick": {"approved": self.approved},
+            "pick": {
+                "approved": self.approved,
+                "needs_a_look": self.held.iter().map(|entry| json!({
+                    "track_id": entry.id,
+                    "query": entry.track.query(),
+                    "flags": entry.candidates.first().map(|best| best.flags.clone()),
+                })).collect::<Vec<_>>(),
+            },
             "download": match &self.download {
                 Download::Waited(waited) => download_json(waited),
                 Download::Would(approved) => json!({
@@ -322,17 +335,21 @@ pub(crate) fn download_and_file(
     Ok(failed)
 }
 
-fn pick(context: &AppContext, store: &mut ReviewStore, yes: bool) -> Result<usize> {
+fn pick(
+    context: &AppContext,
+    store: &mut ReviewStore,
+    yes: bool,
+    force: bool,
+) -> Result<(usize, Vec<ReviewTrack>)> {
     if yes {
         let waiting = store.tracks(&[TrackStatus::AwaitingReview], None)?;
-        let mut approved = 0;
-        for entry in &waiting {
-            if store.approve(entry.id, 1).is_ok() {
-                approved += 1;
-            }
-        }
-        context.say(&format!("Took the best candidate for {approved} track(s)."));
-        return Ok(approved);
+        let taken = picker::take_best(store, &waiting, force)?;
+        context.say(&format!(
+            "Took the best candidate for {} track(s).",
+            taken.approved.len()
+        ));
+        report_held(context, &taken.held);
+        return Ok((taken.approved.len(), taken.held));
     }
 
     let tally = picker::walk(
@@ -348,7 +365,30 @@ fn pick(context: &AppContext, store: &mut ReviewStore, yes: bool) -> Result<usiz
             tally.waiting - tally.approved - tally.rejected
         ));
     }
-    Ok(tally.approved)
+    Ok((tally.approved, Vec::new()))
+}
+
+/// Tracks `--yes` left alone because their best candidate is flagged.
+pub(crate) fn report_held(context: &AppContext, held: &[ReviewTrack]) {
+    if held.is_empty() {
+        return;
+    }
+    let rows: Vec<Vec<String>> = held
+        .iter()
+        .map(|entry| {
+            let flags = entry
+                .candidates
+                .first()
+                .map(|best| best.flags.join(", "))
+                .unwrap_or_default();
+            vec![entry.track.query(), flags]
+        })
+        .collect();
+    context.say(&table(&["Needs a look", "Rank 1 flagged"], &rows));
+    context.say(&format!(
+        "Left {} track(s) for stk review pick; pass --force to take them anyway.",
+        held.len()
+    ));
 }
 
 fn wait(
