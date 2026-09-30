@@ -1487,6 +1487,7 @@ fn a_download_inside_the_library_is_reindexed_after_the_write() {
 struct LiveClient {
     transfers: Mutex<Vec<Transfer>>,
     enqueued: Mutex<Vec<String>>,
+    gone: std::sync::atomic::AtomicBool,
 }
 
 impl LiveClient {
@@ -1513,6 +1514,9 @@ impl SoulseekClient for LiveClient {
     }
 
     fn transfers(&self) -> Result<Vec<Transfer>> {
+        if self.gone.load(std::sync::atomic::Ordering::SeqCst) {
+            return Err(Error::SoulseekClient("cannot reach slskd".to_owned()));
+        }
         Ok(self
             .transfers
             .lock()
@@ -1661,6 +1665,33 @@ fn a_stall_during_the_wait_sends_the_next_candidate_in_the_same_wait() {
     );
     assert_eq!(waited.unfinished, 0);
     assert_eq!(status(&store, track_id), TrackStatus::Downloaded);
+}
+
+#[test]
+fn slskd_going_away_ends_the_wait_with_what_already_arrived() {
+    let scratch = Scratch::new("fetch-wait-slskd-gone");
+    let settings = settings(&scratch);
+    let mut store = store(&scratch);
+    let arrived_id = approved(&mut store, &settings, &roki(), &["peerA"]);
+    let pending_id = approved(
+        &mut store,
+        &settings,
+        &Track::new("DECO*27", "Ghost Rule"),
+        &["peerB"],
+    );
+    let client = LiveClient::default();
+    client.show(vec![arrived_from("peerA")]);
+    let mut clock = TickingClock::new(|_| {
+        client.gone.store(true, std::sync::atomic::Ordering::SeqCst);
+    });
+
+    let waited = wait(&mut store, &client, &settings, None, PATIENCE, &mut clock);
+
+    assert_eq!(waited.slskd_lost.as_deref(), Some("cannot reach slskd"));
+    assert_eq!(waited.collected.len(), 1);
+    assert_eq!(waited.unfinished, 1);
+    assert_eq!(status(&store, arrived_id), TrackStatus::Downloaded);
+    assert_eq!(status(&store, pending_id), TrackStatus::Queued);
 }
 
 #[test]

@@ -10,6 +10,7 @@ use rayon::prelude::*;
 
 use crate::audio::verify::verify_file;
 use crate::config::{Settings, UploaderSettings, STORED_CANDIDATES};
+use crate::errors::Error;
 use crate::library::changes::ChangeLog;
 use crate::library::index::LibraryIndex;
 use crate::library::scan::{LOSSLESS_EXTENSIONS, LOSSY_VERIFIED_EXTENSIONS};
@@ -698,14 +699,15 @@ pub struct Waited {
     pub queued: Vec<EnqueueOutcome>,
     pub collected: Vec<CollectOutcome>,
     pub rounds: usize,
-    /// Nonzero only on a timeout.
+    /// Nonzero on a timeout, or once slskd stops answering.
     pub unfinished: usize,
+    pub slskd_lost: Option<String>,
 }
 
 impl Waited {
     #[must_use]
     pub fn went_wrong(&self) -> bool {
-        downloads_went_wrong(&self.queued, &self.collected)
+        self.slskd_lost.is_some() || downloads_went_wrong(&self.queued, &self.collected)
     }
 }
 
@@ -776,33 +778,62 @@ pub fn wait_for_downloads(
     }
 
     loop {
-        let now = clock.now();
-        // Collect first, so a transfer that just finished isn't taken as stalled.
-        waited
-            .collected
-            .extend(collect(store, client, settings, index, roots, now, true)?);
-        let stalled = retry_stalled(store, client, settings, now)?;
-        waited.stalled.extend(stalled.tracks);
-        waited.stalled_peers.extend(stalled.peers);
-        let promoted: Vec<ReviewTrack> = store
-            .tracks(&[TrackStatus::Approved], None)?
-            .into_iter()
-            .filter(|entry| ours.contains(&entry.id))
-            .collect();
-        waited.queued.extend(enqueue(store, client, promoted, now)?);
-        waited.rounds += 1;
-
+        let round = poll(
+            store,
+            client,
+            settings,
+            index,
+            roots,
+            &ours,
+            clock.now(),
+            &mut waited,
+        );
         waited.unfinished = store
             .tracks(&[TrackStatus::Queued, TrackStatus::Approved], None)?
             .iter()
             .filter(|entry| ours.contains(&entry.id))
             .count();
+        // What already arrived is still filed; the rest waits for the next run.
+        if let Err(Error::SoulseekClient(error)) = round {
+            waited.slskd_lost = Some(error);
+            return Ok(waited);
+        }
+        round?;
+        waited.rounds += 1;
+
         progress(&waited);
         if waited.unfinished == 0 || clock.now() - start >= patience.timeout_seconds {
             return Ok(waited);
         }
         clock.sleep(patience.poll_seconds);
     }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn poll(
+    store: &mut ReviewStore,
+    client: &dyn SoulseekClient,
+    settings: &Settings,
+    index: &mut LibraryIndex,
+    roots: &[PathBuf],
+    ours: &HashSet<i64>,
+    now: f64,
+    waited: &mut Waited,
+) -> crate::errors::Result<()> {
+    // Collect first, so a transfer that just finished isn't taken as stalled.
+    waited
+        .collected
+        .extend(collect(store, client, settings, index, roots, now, true)?);
+    let stalled = retry_stalled(store, client, settings, now)?;
+    waited.stalled.extend(stalled.tracks);
+    waited.stalled_peers.extend(stalled.peers);
+    let promoted: Vec<ReviewTrack> = store
+        .tracks(&[TrackStatus::Approved], None)?
+        .into_iter()
+        .filter(|entry| ours.contains(&entry.id))
+        .collect();
+    waited.queued.extend(enqueue(store, client, promoted, now)?);
+    Ok(())
 }
 
 /// Rebuilt from download dir, artist folder and filename; must match `enqueue_approved`.

@@ -534,6 +534,7 @@ fn download_json(waited: &Waited) -> serde_json::Value {
         "collected": waited.collected.iter().map(fetch_command::collect_row).collect::<Vec<_>>(),
         "rounds": waited.rounds,
         "unfinished": waited.unfinished,
+        "slskd_lost": waited.slskd_lost,
     })
 }
 
@@ -572,7 +573,13 @@ fn report_download(context: &AppContext, waited: &Waited) {
         waited.collected.len(),
         waited.stalled.len()
     ));
-    if waited.unfinished > 0 {
+    if let Some(error) = &waited.slskd_lost {
+        context.say(&format!(
+            "slskd stopped answering ({error}); filing what arrived. {} still on their way \
+             are collected by the next sync once slskd is back.",
+            waited.unfinished
+        ));
+    } else if waited.unfinished > 0 {
         context.say(&format!(
             "Stopped waiting with {} still on their way; the next sync or \
              stk fetch download --collect records them.",
