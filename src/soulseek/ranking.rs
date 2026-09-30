@@ -63,8 +63,9 @@ pub fn rank(
         .filter_map(|candidate| score(candidate, track, &artist, &title, &wanted, settings))
         .collect();
 
-    // Stable, so ties keep the order the peer returned them in.
-    scored.sort_by_key(|scored| std::cmp::Reverse(scored.score));
+    // Among equal scores an unflagged file comes first; otherwise ties keep
+    // the order peers answered in.
+    scored.sort_by_key(|scored| (std::cmp::Reverse(scored.score), scored.needs_a_look()));
     if let Some(limit) = limit {
         scored.truncate(limit);
     }
@@ -415,7 +416,10 @@ fn within_window<'a>(
 
     for scored in list {
         let sacrifice = best.score - scored.score;
-        if scored.rejected() || sacrifice > settings.score_window {
+        if scored.rejected()
+            || sacrifice > settings.score_window
+            || flagged_over_clean(best, scored)
+        {
             continue;
         }
         let peer = peers
@@ -431,10 +435,16 @@ fn best_from(
     username: &str,
     settings: &UploaderSettings,
 ) -> Option<usize> {
-    let best = list.first().filter(|scored| !scored.rejected())?.score;
+    let best = list.first().filter(|scored| !scored.rejected())?;
     list.iter().position(|scored| {
         scored.candidate.username == username
             && !scored.rejected()
-            && best - scored.score <= settings.score_window
+            && best.score - scored.score <= settings.score_window
+            && !flagged_over_clean(best, scored)
     })
+}
+
+/// Sharing a peer is worth a little score, never a warning the best file lacks.
+fn flagged_over_clean(best: &ScoredCandidate, other: &ScoredCandidate) -> bool {
+    other.needs_a_look() && !best.needs_a_look()
 }

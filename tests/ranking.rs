@@ -458,3 +458,37 @@ fn being_the_preferred_peer_is_not_a_warning() {
     result.flags.push("extra:eurobeat mix".to_owned());
     assert!(result.needs_a_look());
 }
+
+#[test]
+fn an_unflagged_file_leads_a_tie() {
+    let wanted = Track::new("DECO*27", "弱虫モンブラン (Reloaded)");
+    let results = ranked(
+        &wanted,
+        &[
+            candidate(r"Music\DECO＊27\DECOUSTIC\05 - 弱虫モンブラン.flac"),
+            candidate(
+                r"Jellyfin.Music\DECO_27\(2025) 弱虫モンブラン (Reloaded)\1. 弱虫モンブラン (Reloaded).flac",
+            ),
+        ],
+    );
+
+    assert!(results[0].flags.is_empty(), "{:?}", results[0]);
+    assert_eq!(results[1].flags, vec!["missing:reloaded".to_owned()]);
+}
+
+#[test]
+fn a_shared_peer_is_never_promoted_over_a_file_without_warnings() {
+    let mut batch: Vec<Vec<ScoredCandidate>> = (0..4)
+        .map(|index| {
+            vec![
+                scored(&format!("solo{index}"), 37_000_000),
+                scored("bulk", 36_999_500),
+            ]
+        })
+        .collect();
+    batch[3][1].flags = vec!["missing:reloaded".to_owned()];
+
+    prefer_one_uploader(&mut batch, &uploader());
+
+    assert_eq!(first_peers(&batch), ["bulk", "bulk", "bulk", "solo3"]);
+}
