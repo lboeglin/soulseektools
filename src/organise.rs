@@ -1,15 +1,17 @@
 //! Laying files out on disk from what their tags say.
 
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
-use crate::config::OrganiseSettings;
+use crate::config::{OrganiseSettings, CREDIT_SEPARATORS};
 use crate::errors::{Error, Result};
 use crate::library::changes::ChangeLog;
 use crate::library::index::{describe, LibraryIndex};
 use crate::library::scan::{iter_audio_files, owning_root, Excludes};
+use crate::matching::NameForms;
 use crate::models::LibraryEntry;
 use crate::text::normalize::{sanitize_folder_name, UNKNOWN_ARTIST};
+use unicode_normalization::UnicodeNormalization;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Placeholder {
@@ -85,6 +87,18 @@ impl std::str::FromStr for Pattern {
 }
 
 impl Pattern {
+    /// Whether the first directory is the artist alone, so an existing artist
+    /// folder can stand in for it.
+    fn leads_with_artist(&self) -> bool {
+        self.components.len() > 1
+            && matches!(
+                self.components[0].as_slice(),
+                [Segment::Field(
+                    Placeholder::Artist | Placeholder::AlbumArtist
+                )]
+            )
+    }
+
     pub fn parse(text: &str) -> Result<Self> {
         let bad = |detail: &str| Err(Error::Config(format!("organise.pattern: {detail}")));
 
@@ -235,6 +249,15 @@ pub fn render(
     Some(relative.join(name))
 }
 
+fn with_artist_folder(relative: &Path, known: &ArtistFolders) -> PathBuf {
+    let mut parts = relative.components();
+    let Some(first) = parts.next() else {
+        return relative.to_path_buf();
+    };
+    let artist = known.resolve(&first.as_os_str().to_string_lossy());
+    Path::new(&artist).join(parts.as_path())
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Obstacle {
     AlreadyInPlace,
@@ -275,6 +298,76 @@ impl PlannedMove {
 
 /// Without `destination`, each file stays under its own root.
 #[must_use]
+/// The artist folders already under a root, by how their names read, so a
+/// file tagged `稲葉曇` joins an existing `Inabakumori`.
+pub struct ArtistFolders {
+    by_reading: HashMap<String, String>,
+}
+
+impl ArtistFolders {
+    /// Aliases win over a folder that merely reads the same.
+    pub fn read(root: &Path, aliases: &BTreeMap<String, String>) -> Self {
+        let mut names: Vec<String> = std::fs::read_dir(root)
+            .map(|listing| {
+                listing
+                    .filter_map(std::result::Result::ok)
+                    .filter(|item| item.path().is_dir())
+                    .map(|item| item.file_name().to_string_lossy().into_owned())
+                    .collect()
+            })
+            .unwrap_or_default();
+        names.sort();
+
+        let mut by_reading = HashMap::new();
+        for name in names {
+            let key = reading(&name);
+            if !key.is_empty() {
+                by_reading.entry(key).or_insert(name);
+            }
+        }
+        for (spelling, folder) in aliases {
+            let key = reading(spelling);
+            if !key.is_empty() {
+                by_reading.insert(key, folder.clone());
+            }
+        }
+        Self { by_reading }
+    }
+
+    /// The folder for the whole credit, else for its lead artist; a new
+    /// artist keeps the name it came with.
+    #[must_use]
+    pub fn resolve(&self, artist: &str) -> String {
+        [artist, lead_artist(artist)]
+            .iter()
+            .find_map(|name| self.by_reading.get(&reading(name)))
+            .cloned()
+            .unwrap_or_else(|| artist.to_owned())
+    }
+}
+
+fn lead_artist(credit: &str) -> &str {
+    let lowered = credit.to_lowercase();
+    let end = CREDIT_SEPARATORS
+        .iter()
+        .filter_map(|separator| lowered.find(separator))
+        .min()
+        .filter(|at| credit.is_char_boundary(*at))
+        .unwrap_or(credit.len());
+    credit[..end].trim()
+}
+
+/// Romaji without accents, spaces or punctuation: `稲葉曇`, `Inabakumori` and
+/// `INABAKUMORI` all read `inabakumori`, `Jäger` reads `jager`.
+fn reading(name: &str) -> String {
+    NameForms::of(name)
+        .romaji
+        .nfkd()
+        .filter(|character| character.is_alphanumeric())
+        .collect()
+}
+
+#[must_use]
 pub fn plan_moves(
     entries: &[LibraryEntry],
     pattern: &Pattern,
@@ -283,6 +376,7 @@ pub fn plan_moves(
     destination: Option<&Path>,
 ) -> Vec<PlannedMove> {
     let mut claimed: HashSet<String> = HashSet::new();
+    let mut folders: HashMap<PathBuf, ArtistFolders> = HashMap::new();
 
     entries
         .iter()
@@ -296,9 +390,15 @@ pub fn plan_moves(
             let Some(root) = destination.or_else(|| owning_root(&entry.path, roots)) else {
                 return blocked(entry.path.clone(), Obstacle::NoRoot);
             };
-            let Some(relative) = render(pattern, entry, settings) else {
+            let Some(mut relative) = render(pattern, entry, settings) else {
                 return blocked(entry.path.clone(), Obstacle::Unnameable);
             };
+            if pattern.leads_with_artist() {
+                let known = folders
+                    .entry(root.to_path_buf())
+                    .or_insert_with(|| ArtistFolders::read(root, &settings.artist_aliases));
+                relative = with_artist_folder(&relative, known);
+            }
 
             let target = root.join(relative);
             if same_path(&target, &entry.path) {

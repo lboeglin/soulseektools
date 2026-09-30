@@ -1,5 +1,6 @@
 //! Layered configuration: CLI flag, `STK_` environment, TOML file, defaults.
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
@@ -422,6 +423,12 @@ impl Default for WantlistSettings {
     }
 }
 
+/// What joins a lead artist to the rest of a credit, lowercased:
+/// `PinocchioP; Hatsune Miku`, `SAWTOWNE ft. 初音ミク`.
+pub const CREDIT_SEPARATORS: &[&str] = &[
+    ";", ",", "、", "，", " & ", " × ", " x ", " feat", " ft.", " ft ", " vo.", " with ",
+];
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, default)]
 pub struct OrganiseSettings {
@@ -435,6 +442,11 @@ pub struct OrganiseSettings {
 
     /// Where organised files go. Unset means each stays under its own root.
     pub destination: Option<PathBuf>,
+
+    /// Artist spellings to file under an existing folder, such as
+    /// `"Inaba Cumori" = "Inabakumori"`. Names that read the same in romaji
+    /// already share a folder without one.
+    pub artist_aliases: BTreeMap<String, String>,
 }
 
 impl Default for OrganiseSettings {
@@ -444,6 +456,7 @@ impl Default for OrganiseSettings {
             track_number_width: 2,
             remove_empty_directories: true,
             destination: None,
+            artist_aliases: BTreeMap::new(),
         }
     }
 }

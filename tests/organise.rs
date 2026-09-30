@@ -335,3 +335,154 @@ fn an_empty_placeholder_between_two_others_leaves_them_both() {
 
     assert_eq!(destination, PathBuf::from("AlbumTitle.flac"));
 }
+
+fn flat(entries: &[LibraryEntry], root: &Path, settings: &OrganiseSettings) -> Vec<PlannedMove> {
+    plan_moves(
+        entries,
+        &pattern("{artist}/{title}"),
+        settings,
+        std::slice::from_ref(&root.to_path_buf()),
+        Some(root),
+    )
+}
+
+#[test]
+fn a_file_joins_the_existing_folder_whose_name_reads_the_same() {
+    let scratch = Scratch::new("organise-reading");
+    let root = scratch.join("Music");
+    std::fs::create_dir_all(root.join("Inabakumori")).expect("an artist folder");
+    let arrived = entry(
+        &scratch
+            .join("downloads")
+            .join("ラグトレイン.flac")
+            .display()
+            .to_string(),
+        tagged("稲葉曇", "", "ラグトレイン", None),
+    );
+
+    let planned = flat(&[arrived], &root, &settings());
+
+    assert_eq!(
+        planned[0].destination,
+        root.join("Inabakumori").join("ラグトレイン.flac")
+    );
+}
+
+#[test]
+fn an_alias_files_a_spelling_the_reading_cannot_bridge() {
+    let scratch = Scratch::new("organise-alias");
+    let root = scratch.join("Music");
+    std::fs::create_dir_all(root.join("Inabakumori")).expect("an artist folder");
+    let mut settings = settings();
+    settings
+        .artist_aliases
+        .insert("Inaba Cumori".to_owned(), "Inabakumori".to_owned());
+    let arrived = entry(
+        &scratch
+            .join("downloads")
+            .join("Lost Umbrella.flac")
+            .display()
+            .to_string(),
+        tagged("Inaba Cumori", "", "Lost Umbrella", None),
+    );
+
+    let planned = flat(&[arrived], &root, &settings);
+
+    assert_eq!(
+        planned[0].destination,
+        root.join("Inabakumori").join("Lost Umbrella.flac")
+    );
+}
+
+#[test]
+fn an_artist_with_no_folder_yet_gets_one_named_from_its_tag() {
+    let scratch = Scratch::new("organise-new-artist");
+    let root = scratch.join("Music");
+    std::fs::create_dir_all(root.join("Inabakumori")).expect("an artist folder");
+    let arrived = entry(
+        &scratch
+            .join("downloads")
+            .join("Roki.flac")
+            .display()
+            .to_string(),
+        tagged("DECO*27", "", "Roki", None),
+    );
+
+    let planned = flat(&[arrived], &root, &settings());
+
+    assert_eq!(
+        planned[0].destination,
+        root.join("DECO_27").join("Roki.flac")
+    );
+}
+
+#[test]
+fn a_shared_credit_joins_its_lead_artists_folder() {
+    let scratch = Scratch::new("organise-lead-artist");
+    let root = scratch.join("Music");
+    for artist in ["PinocchioP", "SAWTOWNE", "Kairiki Bear"] {
+        std::fs::create_dir_all(root.join(artist)).expect("an artist folder");
+    }
+
+    for (credit, folder) in [
+        ("PinocchioP; Hatsune Miku; Kasane Teto", "PinocchioP"),
+        ("SAWTOWNE ft. 初音ミク", "SAWTOWNE"),
+        ("Kairiki bear; Flower", "Kairiki Bear"),
+    ] {
+        let arrived = entry(
+            &scratch
+                .join("downloads")
+                .join("Song.flac")
+                .display()
+                .to_string(),
+            tagged(credit, "", "Song", None),
+        );
+        let planned = flat(&[arrived], &root, &settings());
+        assert_eq!(
+            planned[0].destination,
+            root.join(folder).join("Song.flac"),
+            "{credit}"
+        );
+    }
+}
+
+#[test]
+fn a_shared_credit_with_no_folder_keeps_its_full_name() {
+    let scratch = Scratch::new("organise-lead-unknown");
+    let root = scratch.join("Music");
+    std::fs::create_dir_all(&root).expect("a root");
+    let arrived = entry(
+        &scratch
+            .join("downloads")
+            .join("Song.flac")
+            .display()
+            .to_string(),
+        tagged("Dejo & Fernando Bonini", "", "Song", None),
+    );
+
+    let planned = flat(&[arrived], &root, &settings());
+
+    assert_eq!(
+        planned[0].destination,
+        root.join("Dejo & Fernando Bonini").join("Song.flac")
+    );
+}
+
+#[test]
+fn an_accent_does_not_split_an_artist() {
+    let scratch = Scratch::new("organise-accent");
+    let root = scratch.join("Music");
+    std::fs::create_dir_all(root.join("Jager")).expect("an artist folder");
+    let arrived = entry(
+        &scratch
+            .join("downloads")
+            .join("Song.flac")
+            .display()
+            .to_string(),
+        tagged("Jäger", "", "Song", None),
+    );
+
+    let planned = flat(&[arrived], &root, &settings());
+
+    assert_eq!(planned[0].destination, root.join("Jager").join("Song.flac"));
+}
