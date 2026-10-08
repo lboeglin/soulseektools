@@ -171,6 +171,20 @@ fn parse_component(text: &str) -> Result<Vec<Segment>> {
 /// Characters a literal is left with when the placeholder after it renders empty.
 const STRANDED: &[char] = &['-', '_', '.', '(', ')', '[', ']', ' '];
 
+struct Piece {
+    text: String,
+    stranded: bool,
+}
+
+impl Piece {
+    fn kept(text: String) -> Self {
+        Self {
+            text,
+            stranded: false,
+        }
+    }
+}
+
 /// An empty placeholder takes the next literal with it: `{track} - {title}` gives `Title`.
 /// Only a stranded literal at an edge is trimmed, never a value: `{title}` keeps its `(Live)`.
 fn render_component(
@@ -178,8 +192,7 @@ fn render_component(
     entry: &LibraryEntry,
     settings: &OrganiseSettings,
 ) -> String {
-    // (text, stranded)
-    let mut pieces: Vec<(String, bool)> = Vec::new();
+    let mut pieces: Vec<Piece> = Vec::new();
     let mut last_was_literal = false;
     let mut skip_literal = false;
 
@@ -190,7 +203,7 @@ fn render_component(
                     skip_literal = false;
                     continue;
                 }
-                pieces.push((text.clone(), false));
+                pieces.push(Piece::kept(text.clone()));
                 last_was_literal = true;
             }
             Segment::Field(placeholder) => {
@@ -199,31 +212,31 @@ fn render_component(
                     // Only the literal immediately after, never one further on.
                     if matches!(segments.get(index + 1), Some(Segment::Literal(_))) {
                         skip_literal = true;
-                        if let (true, Some((_, stranded))) = (last_was_literal, pieces.last_mut()) {
-                            *stranded = true;
+                        if let (true, Some(piece)) = (last_was_literal, pieces.last_mut()) {
+                            piece.stranded = true;
                         }
                     } else if last_was_literal {
                         pieces.pop();
                         last_was_literal = false;
                     }
                 } else {
-                    pieces.push((value, false));
+                    pieces.push(Piece::kept(value));
                     last_was_literal = false;
                 }
             }
         }
     }
 
-    while let Some((text, true)) = pieces.first_mut() {
-        *text = text.trim_start_matches(STRANDED).to_owned();
-        if !text.is_empty() {
+    while let Some(piece) = pieces.first_mut().filter(|piece| piece.stranded) {
+        piece.text = piece.text.trim_start_matches(STRANDED).to_owned();
+        if !piece.text.is_empty() {
             break;
         }
         pieces.remove(0);
     }
-    while let Some((text, true)) = pieces.last_mut() {
-        *text = text.trim_end_matches(STRANDED).to_owned();
-        if !text.is_empty() {
+    while let Some(piece) = pieces.last_mut().filter(|piece| piece.stranded) {
+        piece.text = piece.text.trim_end_matches(STRANDED).to_owned();
+        if !piece.text.is_empty() {
             break;
         }
         pieces.pop();
@@ -231,7 +244,7 @@ fn render_component(
 
     pieces
         .into_iter()
-        .map(|(text, _)| text)
+        .map(|piece| piece.text)
         .collect::<String>()
         .split_whitespace()
         .collect::<Vec<_>>()
