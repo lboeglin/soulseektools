@@ -336,6 +336,85 @@ fn an_empty_placeholder_between_two_others_leaves_them_both() {
     assert_eq!(destination, PathBuf::from("AlbumTitle.flac"));
 }
 
+fn rendered_with(text: &str, tags: TrackTags) -> String {
+    render(&pattern(text), &entry("/d/a.flac", tags), &settings())
+        .expect("a destination")
+        .display()
+        .to_string()
+        .replace('\\', "/")
+}
+
+#[test]
+fn a_title_keeps_the_brackets_it_ends_with() {
+    for title in [
+        "Crazy on Emotion (Extended)",
+        "Karakuri Spirits [MEIKAI ARRANGE VERSION]",
+        "メズマライザー (feat. 初音ミク&重音テト)",
+    ] {
+        assert_eq!(
+            rendered_with("{artist}/{title}", tagged("Ace", "", title, None)),
+            format!("Ace/{title}.flac")
+        );
+    }
+}
+
+#[test]
+fn a_title_keeps_the_bracket_it_starts_with() {
+    assert_eq!(
+        rendered_with("{artist}/{title}", tagged("Ace", "", "(Intro) Theme", None)),
+        "Ace/(Intro) Theme.flac"
+    );
+}
+
+#[test]
+fn an_album_keeps_the_bracket_it_ends_with() {
+    assert_eq!(
+        rendered(
+            "/d/a.flac",
+            tagged(
+                "ZUN",
+                "Touhou Eiyashou ~ Imperishable Night. (Gamerip)",
+                "Reach for the Moon, Immortal Smoke",
+                Some(18)
+            )
+        ),
+        "ZUN/Touhou Eiyashou ~ Imperishable Night. (Gamerip)/18 - Reach for the Moon, Immortal Smoke.flac"
+    );
+}
+
+#[test]
+fn an_empty_album_takes_its_brackets_with_it() {
+    assert_eq!(
+        rendered_with(
+            "{artist}/{title} ({album})",
+            tagged("ZUN", "", "Title", None)
+        ),
+        "ZUN/Title.flac"
+    );
+}
+
+#[test]
+fn an_empty_leading_track_takes_its_brackets_with_it() {
+    assert_eq!(
+        rendered_with(
+            "{artist}/({track}) {title}",
+            tagged("ZUN", "", "Title", None)
+        ),
+        "ZUN/Title.flac"
+    );
+}
+
+#[test]
+fn a_present_album_keeps_the_brackets_around_it() {
+    assert_eq!(
+        rendered_with(
+            "{artist}/{title} ({album})",
+            tagged("ZUN", "Faith", "Title", None)
+        ),
+        "ZUN/Title (Faith).flac"
+    );
+}
+
 fn flat(entries: &[LibraryEntry], root: &Path, settings: &OrganiseSettings) -> Vec<PlannedMove> {
     plan_moves(
         entries,

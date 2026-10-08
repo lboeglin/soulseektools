@@ -168,16 +168,18 @@ fn parse_component(text: &str) -> Result<Vec<Segment>> {
     Ok(segments)
 }
 
-/// Characters left stranded when a placeholder renders empty.
+/// Characters a literal is left with when the placeholder after it renders empty.
 const STRANDED: &[char] = &['-', '_', '.', '(', ')', '[', ']', ' '];
 
 /// An empty placeholder takes the next literal with it: `{track} - {title}` gives `Title`.
+/// Only a stranded literal at an edge is trimmed, never a value: `{title}` keeps its `(Live)`.
 fn render_component(
     segments: &[Segment],
     entry: &LibraryEntry,
     settings: &OrganiseSettings,
 ) -> String {
-    let mut pieces: Vec<String> = Vec::new();
+    // (text, stranded)
+    let mut pieces: Vec<(String, bool)> = Vec::new();
     let mut last_was_literal = false;
     let mut skip_literal = false;
 
@@ -188,7 +190,7 @@ fn render_component(
                     skip_literal = false;
                     continue;
                 }
-                pieces.push(text.clone());
+                pieces.push((text.clone(), false));
                 last_was_literal = true;
             }
             Segment::Field(placeholder) => {
@@ -197,25 +199,43 @@ fn render_component(
                     // Only the literal immediately after, never one further on.
                     if matches!(segments.get(index + 1), Some(Segment::Literal(_))) {
                         skip_literal = true;
+                        if let (true, Some((_, stranded))) = (last_was_literal, pieces.last_mut()) {
+                            *stranded = true;
+                        }
                     } else if last_was_literal {
                         pieces.pop();
                         last_was_literal = false;
                     }
                 } else {
-                    pieces.push(value);
+                    pieces.push((value, false));
                     last_was_literal = false;
                 }
             }
         }
     }
 
-    let joined = pieces.concat();
-    joined
+    while let Some((text, true)) = pieces.first_mut() {
+        *text = text.trim_start_matches(STRANDED).to_owned();
+        if !text.is_empty() {
+            break;
+        }
+        pieces.remove(0);
+    }
+    while let Some((text, true)) = pieces.last_mut() {
+        *text = text.trim_end_matches(STRANDED).to_owned();
+        if !text.is_empty() {
+            break;
+        }
+        pieces.pop();
+    }
+
+    pieces
+        .into_iter()
+        .map(|(text, _)| text)
+        .collect::<String>()
         .split_whitespace()
         .collect::<Vec<_>>()
         .join(" ")
-        .trim_matches(|character| STRANDED.contains(&character))
-        .to_owned()
 }
 
 #[must_use]
