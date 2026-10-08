@@ -4,6 +4,18 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed
+
+- `organise` cut a closing bracket off a title or album it filed by
+  (`Crazy on Emotion (Extended`). Only a separator stranded by an empty
+  placeholder is trimmed now, never a tag's own characters.
+- A file with no title tag lost a number its name starts with (`32ki, …`
+  became `ki, …`), and one crediting more than its folder's artist lost that
+  artist (`, Hatsune Miku - …`). Titles already guessed this way are
+  re-guessed once when the index is upgraded.
+- A library already organised with these names moves back to the full ones on
+  the next `organise --apply`.
+
 ## [1.0.2] - 2026-10-01
 
 ### Fixed
