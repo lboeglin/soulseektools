@@ -17,7 +17,7 @@ use crate::matching::NameForms;
 use crate::models::{LibraryEntry, ReplayGainTags, TrackTags, Verdict};
 use crate::text::normalize::strip_artist_prefix;
 
-pub const SCHEMA_VERSION: i64 = 7;
+pub const SCHEMA_VERSION: i64 = 8;
 
 /// The oldest version this upgrades in place rather than refusing.
 pub const MINIMUM_SCHEMA_VERSION: i64 = 2;
@@ -234,16 +234,7 @@ pub fn describe(path: &Path, root: &Path) -> Result<LibraryEntry> {
     };
 
     let title = if read.title.is_empty() {
-        let stem = path
-            .file_stem()
-            .map(|stem| stem.to_string_lossy().into_owned())
-            .unwrap_or_default();
-        let against = if artist_folder.is_empty() {
-            &artist
-        } else {
-            &artist_folder
-        };
-        strip_artist_prefix(&stem, against)
+        guessed_title(path, &artist_folder, &artist)
     } else {
         read.title.clone()
     };
@@ -265,6 +256,46 @@ pub fn describe(path: &Path, root: &Path) -> Result<LibraryEntry> {
         sample_rate: stream.sample_rate,
         bit_depth: stream.bit_depth,
     })
+}
+
+fn guessed_title(path: &Path, artist_folder: &str, artist: &str) -> String {
+    let stem = path
+        .file_stem()
+        .map(|stem| stem.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let against = if artist_folder.is_empty() {
+        artist
+    } else {
+        artist_folder
+    };
+    strip_artist_prefix(&stem, against)
+}
+
+/// Before v8 a leading number glued to a word was taken for a track number
+/// (`32ki` guessed as `ki`), and a rescan keeps the row while size and mtime hold.
+fn reguess_titles(connection: &Connection) -> Result<()> {
+    let untitled: Vec<(String, String, String)> = connection
+        .prepare("SELECT path, folder_artist, artist_raw FROM files WHERE tag_title = ''")
+        .and_then(|mut statement| {
+            statement
+                .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))?
+                .collect()
+        })
+        .map_err(|error| sqlite_error(&error))?;
+
+    let transaction = connection
+        .unchecked_transaction()
+        .map_err(|error| sqlite_error(&error))?;
+    for (path, artist_folder, artist) in untitled {
+        let title = NameForms::of(&guessed_title(Path::new(&path), &artist_folder, &artist));
+        transaction
+            .execute(
+                "UPDATE files SET title_raw = ?2, title_normalized = ?3, title_romaji = ?4 WHERE path = ?1",
+                params![path, title.raw, title.normalized, title.romaji],
+            )
+            .map_err(|error| sqlite_error(&error))?;
+    }
+    transaction.commit().map_err(|error| sqlite_error(&error))
 }
 
 fn add_missing_columns(
@@ -342,6 +373,19 @@ impl LibraryIndex {
         connection
             .execute_batch(MIGRATED_INDEXES)
             .map_err(|error| sqlite_error(&error))?;
+
+        let recorded: Option<String> = connection
+            .query_row(
+                "SELECT value FROM meta WHERE key = 'schema_version'",
+                [],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(|error| sqlite_error(&error))?;
+        if matches!(recorded.and_then(|value| value.parse::<i64>().ok()), Some(version) if version < 8)
+        {
+            reguess_titles(&connection)?;
+        }
 
         connection
             .execute(

@@ -246,7 +246,7 @@ fn a_v2_database_is_upgraded_in_place_rather_than_rewritten() {
     assert_eq!(entry.tags.artist, "ZUN");
     assert_eq!(entry.codec, "");
     assert_eq!(entry.bitrate, None);
-    assert_eq!(index.schema_version().expect("a version"), 7);
+    assert_eq!(index.schema_version().expect("a version"), 8);
     assert!(index.snapshots(None).expect("a series").is_empty());
 }
 
@@ -320,6 +320,54 @@ fn the_backfill_leaves_a_recorded_verdict_where_it_was() {
 
     assert_eq!(
         index.verdict(&track).expect("a lookup"),
+        Some(stk::models::Verdict::Ok)
+    );
+}
+
+/// A rescan keeps the row while size and mtime hold, so only the upgrade re-guesses it.
+#[test]
+fn an_upgraded_database_re_guesses_untagged_titles_and_keeps_verdicts() {
+    let scratch = Scratch::new("index-reguess");
+    let root = scratch.join("Music");
+    let untagged = root
+        .join("32ki")
+        .join("32ki, Hatsune Miku - メズマライザー.flac");
+    encode(&untagged, &Encoded::default());
+    let tagged = root.join("DECO_27").join("01 - Roki.flac");
+    encode(
+        &tagged,
+        &Encoded {
+            metadata: &[("artist", "DECO*27"), ("title", "Roki")],
+            ..Encoded::default()
+        },
+    );
+
+    let mut index = open(&scratch, "index.db");
+    refresh(&mut index, &root);
+    index
+        .set_verdict(&untagged, stk::models::Verdict::Ok, 100.0)
+        .expect("a recorded verdict");
+    drop(index);
+
+    let connection = rusqlite::Connection::open(scratch.join("index.db")).expect("the database");
+    connection
+        .execute_batch(
+            "UPDATE files SET title_raw = 'ki, Hatsune Miku - メズマライザー' WHERE tag_title = '';
+             UPDATE meta SET value = '7' WHERE key = 'schema_version';",
+        )
+        .expect("a v7 guess");
+    drop(connection);
+
+    let index = open(&scratch, "index.db");
+    let entry = |path: &Path| index.entry(path).expect("a lookup").expect("an entry");
+
+    assert_eq!(
+        entry(&untagged).title.raw,
+        "32ki, Hatsune Miku - メズマライザー"
+    );
+    assert_eq!(entry(&tagged).title.raw, "Roki");
+    assert_eq!(
+        index.verdict(&untagged).expect("a lookup"),
         Some(stk::models::Verdict::Ok)
     );
 }
