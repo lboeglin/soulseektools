@@ -31,9 +31,10 @@ static PUNCTUATION: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(&format!("[^{ALNUM}{SPACE}]")).unwrap());
 static WHITESPACE: LazyLock<Regex> = LazyLock::new(|| Regex::new(&format!("[{SPACE}]+")).unwrap());
 static WORD: LazyLock<Regex> = LazyLock::new(|| Regex::new(&format!("[{ALNUM}_]+")).unwrap());
+/// The number must end at a bracket, separator, space or the end, so `32ki` keeps its `32`.
 static LEADING_TRACK_NUMBER: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(&format!(
-        r"^[{SPACE}]*[\(\[]?(?<disc>\d{{1,3}})(?:[.\-](?<track>\d{{1,3}}))?[\)\]]?[{SPACE}]*[-.\u{{2013}}\u{{2014}}_]?[{SPACE}]*"
+        r"^[{SPACE}]*[\(\[]?(?<disc>\d{{1,3}})(?:[.\-](?<track>\d{{1,3}}))?(?:[\)\]][{SPACE}]*[-.\u{{2013}}\u{{2014}}_]?|[{SPACE}]*[-.\u{{2013}}\u{{2014}}_]|[{SPACE}]+|$)[{SPACE}]*"
     ))
     .unwrap()
 });
@@ -106,8 +107,10 @@ pub fn strip_artist_prefix(stem: &str, artist: &str) -> String {
         let Some(end) = prefix_end(&name, &tokens[..count]) else {
             continue;
         };
-        if end > 0 && end < name.len() {
-            return name[end..].trim_matches(is_space).to_owned();
+        let rest = name[end..].trim_matches(is_space);
+        // "32ki, Hatsune Miku - X" credits more than the artist; the whole credit stays.
+        if end > 0 && !rest.is_empty() && !rest.starts_with([',', '&']) {
+            return rest.to_owned();
         }
     }
     name

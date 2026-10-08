@@ -1,7 +1,8 @@
 //! `normalize` and the filename helpers built on it.
 
 use stk::text::normalize::{
-    normalize, sanitize_folder_name, strip_artist_prefix, track_number, UNKNOWN_ARTIST,
+    normalize, sanitize_folder_name, strip_artist_prefix, strip_track_number, track_number,
+    UNKNOWN_ARTIST,
 };
 
 #[test]
@@ -64,6 +65,24 @@ fn strip_artist_prefix_survives_spellings_of_differing_length() {
 }
 
 #[test]
+fn strip_artist_prefix_keeps_a_credit_the_artist_only_starts() {
+    for (stem, artist) in [
+        ("32ki, Hatsune Miku, 重音テト - メズマライザー", "32ki"),
+        ("DECO_27, Hatsune Miku - Rabbit Hole", "DECO_27"),
+        ("ZUN & Taishi - Bad Apple", "ZUN"),
+    ] {
+        assert_eq!(strip_artist_prefix(stem, artist), stem);
+    }
+    assert_eq!(
+        strip_artist_prefix(
+            "08. Chris Stanton - A Perfect Hero (Extended Mix)",
+            "Chris Stanton"
+        ),
+        "A Perfect Hero (Extended Mix)"
+    );
+}
+
+#[test]
 fn sanitize_folder_name_replaces_characters_a_filesystem_rejects() {
     for (raw, expected) in [
         ("DECO*27", "DECO_27"),
@@ -87,6 +106,47 @@ fn sanitize_folder_name_replaces_characters_a_filesystem_rejects() {
 fn a_disc_prefixed_filename_yields_the_track_not_the_disc() {
     assert_eq!(track_number("1-05 Roki.flac"), Some(5));
     assert_eq!(track_number("2.03 - Ghost Rule.flac"), Some(3));
+}
+
+#[test]
+fn a_number_glued_to_a_word_is_not_a_track_number() {
+    for name in [
+        "32ki, Hatsune Miku, 重音テト - メズマライザー",
+        "2gether",
+        "10cc - I'm Not in Love",
+        "99Luftballons",
+    ] {
+        assert_eq!(strip_track_number(name), name);
+        assert_eq!(track_number(name), None, "track_number({name:?})");
+    }
+}
+
+#[test]
+fn a_track_number_before_a_separator_bracket_or_space_is_stripped() {
+    for (name, track) in [
+        ("01 - Title", 1),
+        ("01. Title", 1),
+        ("(04) Title", 4),
+        ("[04] Title", 4),
+        ("1-05 Title", 5),
+        ("08 Title", 8),
+        ("01_Title", 1),
+        ("01-Title", 1),
+        ("03 – Title", 3),
+    ] {
+        assert_eq!(
+            strip_track_number(name),
+            "Title",
+            "strip_track_number({name:?})"
+        );
+        assert_eq!(track_number(name), Some(track), "track_number({name:?})");
+    }
+}
+
+#[test]
+fn a_bare_number_is_a_track_number_and_still_a_name() {
+    assert_eq!(track_number("01"), Some(1));
+    assert_eq!(strip_track_number("01"), "01");
 }
 
 #[test]
