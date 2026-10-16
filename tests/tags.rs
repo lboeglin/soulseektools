@@ -414,9 +414,7 @@ fn stripping_the_extras_keeps_every_managed_field_and_the_cover() {
 
     tags::write_extras(&path, &[]).expect("stripped extras");
 
-    assert!(tags::read_extras(&path)
-        .expect("readable extras")
-        .is_empty());
+    assert_eq!(tags::read_extras(&path).expect("readable extras"), []);
     let read = tags::read_tags(&path).expect("readable tags");
     assert_eq!(read.artist, "Unknown Artist");
     assert_eq!(read.title, "Track 01");

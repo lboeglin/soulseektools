@@ -74,7 +74,7 @@ fn a_file_of_digital_silence_is_reported_rather_than_measured() {
     let result = measure_file(&path, &LoudnessSettings::default());
 
     assert_eq!(result.loudness, None);
-    assert!(!result.detail.is_empty());
+    assert_ne!(result.detail, "");
 }
 
 /// The gate is relative to the whole album, so it can't be averaged from tracks.

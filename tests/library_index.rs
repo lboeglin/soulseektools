@@ -184,13 +184,15 @@ fn reindex_picks_up_a_tag_this_tool_just_wrote() {
     let mut index = open(&scratch, "index.db");
     refresh(&mut index, &root);
 
-    assert!(index
-        .entry(&track)
-        .expect("a lookup")
-        .expect("an entry")
-        .tags
-        .genres
-        .is_empty());
+    assert_eq!(
+        index
+            .entry(&track)
+            .expect("a lookup")
+            .expect("an entry")
+            .tags
+            .genres,
+        Vec::<String>::new()
+    );
 
     tags::write_genres(&track, &["Touhou".to_owned()]).expect("written genres");
     index
@@ -247,7 +249,7 @@ fn a_v2_database_is_upgraded_in_place_rather_than_rewritten() {
     assert_eq!(entry.codec, "");
     assert_eq!(entry.bitrate, None);
     assert_eq!(index.schema_version().expect("a version"), 9);
-    assert!(index.snapshots(None).expect("a series").is_empty());
+    assert_eq!(index.snapshots(None).expect("a series"), []);
 }
 
 /// Adding a column changes neither size nor mtime, so nothing else would re-read the row.

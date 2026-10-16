@@ -270,7 +270,7 @@ fn a_source_directory_still_holding_a_cover_is_kept() {
 
     let removed = prune_empty(&folder.join("gone.flac"), &root);
 
-    assert!(removed.is_empty());
+    assert_eq!(removed, Vec::<PathBuf>::new());
     assert!(folder.join("cover.jpg").exists());
 }
 

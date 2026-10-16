@@ -250,7 +250,7 @@ fn a_transfer_sitting_too_long_is_reported_as_stalled() {
         .mark_queued(track_id, 1000.0, "queued")
         .expect("a queued mark");
 
-    assert!(store.stalled(1500.0, 3600.0).expect("stalled").is_empty());
+    assert_eq!(store.stalled(1500.0, 3600.0).expect("stalled"), []);
     assert_eq!(store.stalled(9000.0, 3600.0).expect("stalled").len(), 1);
 }
 

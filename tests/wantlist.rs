@@ -94,7 +94,7 @@ fn a_kanji_title_matches_its_romanised_file() {
         &[entry("Hatsune Miku", "Senbonzakura")],
     );
 
-    assert!(result.missing.is_empty());
+    assert_eq!(result.missing, []);
 }
 
 #[test]
@@ -127,7 +127,7 @@ fn blocking_finds_a_match_inside_a_large_library() {
 
     let result = split(&wanted("DECO_27", "Roki"), &library);
 
-    assert!(result.missing.is_empty());
+    assert_eq!(result.missing, []);
 }
 
 #[test]

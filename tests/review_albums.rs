@@ -158,7 +158,7 @@ fn a_track_already_decided_leaves_the_offer_it_was_part_of() {
 
     store.approve(first, 1).expect("an approval");
 
-    assert!(waiting(&store, 2).is_empty());
+    assert_eq!(waiting(&store, 2), []);
 }
 
 /// Approval resolves by `rank - 1` and the retry assumes dense ranks.
@@ -267,7 +267,7 @@ fn a_file_shared_at_a_peers_root_is_not_an_album() {
         &[scored("bulk", r"@@bulk\Ghost Rule.flac", 100)],
     );
 
-    assert!(waiting(&store, 2).is_empty());
+    assert_eq!(waiting(&store, 2), []);
 }
 
 fn found(username: &str, remote_path: &str) -> Candidate {

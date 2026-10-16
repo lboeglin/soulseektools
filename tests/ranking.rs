@@ -70,7 +70,7 @@ fn a_term_the_track_itself_contains_is_not_held_against_it() {
     let wanted = Track::new("Crush 40", "Live and Learn");
     let result = candidate("@@peer\\Sonic Adventure 2\\01 Live and Learn.flac");
 
-    assert!(ranked(&wanted, &[result])[0].flags.is_empty());
+    assert_eq!(ranked(&wanted, &[result])[0].flags, Vec::<String>::new());
 }
 
 #[test]
@@ -88,7 +88,7 @@ fn a_wanted_word_that_merely_contains_a_term_keeps_its_penalty() {
 fn a_term_inside_a_longer_word_is_not_a_match() {
     let result = candidate("@@peer\\Discover Weekly\\03 - Roki.flac");
 
-    assert!(ranked(&track(), &[result])[0].flags.is_empty());
+    assert_eq!(ranked(&track(), &[result])[0].flags, Vec::<String>::new());
 }
 
 #[test]
@@ -124,17 +124,22 @@ fn lossless_outranks_lossy_whatever_the_bitrate() {
 
 #[test]
 fn a_file_named_after_another_song_is_dropped() {
-    assert!(ranked(
-        &track(),
-        &[candidate("@@peer\\Music\\Night of Knights.flac")]
-    )
-    .is_empty());
+    assert_eq!(
+        ranked(
+            &track(),
+            &[candidate("@@peer\\Music\\Night of Knights.flac")]
+        ),
+        []
+    );
 }
 
 #[test]
 fn a_file_named_after_the_artist_alone_is_kept() {
     // Peers file untitled rips under the artist's name.
-    assert!(!ranked(&track(), &[candidate("@@peer\\Music\\DECO 27.flac")]).is_empty());
+    assert_ne!(
+        ranked(&track(), &[candidate("@@peer\\Music\\DECO 27.flac")]),
+        []
+    );
 }
 
 #[test]
@@ -375,7 +380,7 @@ fn a_version_named_in_the_folder_counts_and_a_missing_one_costs_nothing() {
     );
 
     assert_eq!(results[0].score, results[1].score);
-    assert!(results[0].flags.is_empty());
+    assert_eq!(results[0].flags, Vec::<String>::new());
     assert_eq!(results[1].flags, vec!["missing:reloaded".to_owned()]);
 }
 
@@ -431,7 +436,7 @@ fn a_wanted_cover_flags_the_original_and_spares_the_cover() {
         ranked(&wanted, &[original])[0].flags,
         vec!["missing:cover".to_owned()]
     );
-    assert!(ranked(&wanted, &[cover])[0].flags.is_empty());
+    assert_eq!(ranked(&wanted, &[cover])[0].flags, Vec::<String>::new());
 }
 
 #[test]

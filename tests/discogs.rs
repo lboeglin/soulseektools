@@ -247,5 +247,5 @@ fn a_failed_lookup_names_the_release_and_keeps_what_came_before() {
     let resumed = read(&write_collection(&scratch, &[STOCKHOLM]), &offline, &client)
         .expect("the cached release");
     assert_eq!(resumed.len(), 6);
-    assert!(offline.requested_urls().is_empty());
+    assert_eq!(offline.requested_urls(), Vec::<String>::new());
 }

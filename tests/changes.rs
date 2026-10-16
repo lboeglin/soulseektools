@@ -379,9 +379,7 @@ fn undoing_dropped_extras_puts_the_comment_back() {
 
     let log = ChangeLog::open(&index, "fetch download", 100.0).expect("a run");
     strip_extras(&mut index, &log, &track);
-    assert!(tags::read_extras(&track)
-        .expect("readable extras")
-        .is_empty());
+    assert_eq!(tags::read_extras(&track).expect("readable extras"), []);
 
     let change = index
         .changes(&ChangeFilter::default())

@@ -144,7 +144,7 @@ fn the_request_carries_the_key_the_whole_seconds_and_the_compressed_print() {
         .lookup(&http, &fingerprint)
         .expect("an answer");
 
-    assert!(!http.form("client").expect("a client key").is_empty());
+    assert_ne!(http.form("client").expect("a client key"), "");
     assert_eq!(http.form("duration").as_deref(), Some("261"));
     assert_eq!(http.form("fingerprint"), Some(fingerprint.compressed()));
     assert!(http.form("meta").expect("meta").contains("releases"));

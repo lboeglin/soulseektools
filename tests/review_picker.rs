@@ -211,7 +211,7 @@ fn yes_takes_a_clean_best_candidate_even_from_the_preferred_peer() {
     let taken = picker::take_best(&mut store, &entries, false).expect("taken");
 
     assert_eq!(taken.approved.len(), 2);
-    assert!(taken.held.is_empty());
+    assert_eq!(taken.held, []);
     assert_eq!(approved_rank(&store, "Roki"), Some(1));
 }
 

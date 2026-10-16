@@ -385,9 +385,10 @@ fn a_transfer_for_another_track_is_ignored() {
         "",
     )]);
 
-    assert!(collect(&mut store, &client, &settings, true)
-        .expect("a collect")
-        .is_empty());
+    assert_eq!(
+        collect(&mut store, &client, &settings, true).expect("a collect"),
+        []
+    );
 }
 
 #[test]
@@ -712,7 +713,7 @@ fn a_transfer_still_inside_its_grace_period_is_left_alone() {
         .expect("a retry")
         .tracks;
 
-    assert!(outcomes.is_empty());
+    assert_eq!(outcomes, []);
     assert!(client
         .cancelled
         .lock()
@@ -996,9 +997,9 @@ fn a_peer_stalling_on_one_file_while_delivering_the_rest_is_not_down() {
     )
     .expect("a retry");
 
-    assert!(stalled.peers.is_empty());
+    assert_eq!(stalled.peers, []);
     assert_eq!(stalled.tracks.len(), 1);
-    assert!(stalled.tracks[0].peer_group.is_empty());
+    assert_eq!(stalled.tracks[0].peer_group, "");
     assert_eq!(cancelled_ids(&client), vec![format!("bulk:{}", BATCH[0])]);
     assert_eq!(approved_peer(&store, ids[0]), "solo0");
 }
@@ -1090,7 +1091,7 @@ fn a_moved_group_never_goes_back_to_the_peer_that_stalled() {
         stalled_after(&settings, second),
     )
     .expect("a retry");
-    assert!(stalled.peers.is_empty());
+    assert_eq!(stalled.peers, []);
     assert!(stalled
         .tracks
         .iter()
@@ -1327,7 +1328,7 @@ fn a_download_still_being_moved_into_place_waits_for_the_next_collect() {
 
     let outcomes = collect(&mut store, &moving, &settings, false).expect("a collect");
 
-    assert!(outcomes.is_empty());
+    assert_eq!(outcomes, []);
     let entry = store.track(track_id).expect("a lookup").expect("the track");
     assert_eq!(entry.status, TrackStatus::Queued);
     assert_eq!(
@@ -1373,9 +1374,7 @@ fn replace_keeps_what_the_row_cannot_say_and_drops_the_rest() {
     let cover = tags::read_artwork(&path).expect("readable tags");
     assert_eq!(cover.expect("the peer's cover").data.len(), 512);
     // Comments and lyrics go; the date is about the music and stays.
-    assert!(tags::read_extras(&path)
-        .expect("readable extras")
-        .is_empty());
+    assert_eq!(tags::read_extras(&path).expect("readable extras"), []);
     assert_eq!(read.year, "2016-11-02");
     assert_eq!(outcome.tags.as_ref().expect("a tag outcome").dropped, 2);
 }
@@ -1451,10 +1450,12 @@ fn keep_leaves_the_file_and_the_log_alone() {
         tags::read_tags(&path).expect("readable tags").artist,
         "Unknown Artist"
     );
-    assert!(index(&settings)
-        .changes(&ChangeFilter::default())
-        .expect("the logged rows")
-        .is_empty());
+    assert_eq!(
+        index(&settings)
+            .changes(&ChangeFilter::default())
+            .expect("the logged rows"),
+        []
+    );
     assert_eq!(
         store
             .track(track_id)
@@ -1726,7 +1727,7 @@ fn a_track_queued_before_the_wait_began_is_waited_for_too() {
 
     let waited = wait(&mut store, &client, &settings, None, PATIENCE, &mut clock);
 
-    assert!(waited.queued.is_empty());
+    assert_eq!(waited.queued, []);
     assert_eq!(waited.collected.len(), 1);
     assert_eq!(status(&store, track_id), TrackStatus::Downloaded);
 }

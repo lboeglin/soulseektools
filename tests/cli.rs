@@ -251,7 +251,7 @@ fn dupes_resolve_without_the_flag_moves_nothing() {
     assert!(flac.is_file());
     assert!(mp3.is_file());
     assert!(!harness.join("quarantine").exists());
-    assert!(logged(&harness).is_empty());
+    assert_eq!(logged(&harness), []);
     assert_eq!(indexed(&harness), 3);
     drop(harness);
 }
@@ -311,8 +311,8 @@ fn genre_apply_writes_and_logs_only_with_the_flag() {
 
     let track = root.join("ZUN").join("Heian Alien.flac");
     assert_eq!(run(&["genre", "apply"]), 0);
-    assert!(genres_of(&track).is_empty());
-    assert!(logged(&harness).is_empty());
+    assert_eq!(genres_of(&track), Vec::<String>::new());
+    assert_eq!(logged(&harness), []);
 
     assert_eq!(run(&["genre", "apply", "--apply"]), 0);
 
@@ -377,7 +377,7 @@ fn changes_undo_puts_a_genre_back_only_with_apply() {
     assert_eq!(genres_of(&track), vec!["Touhou".to_owned()]);
 
     assert_eq!(run(&["changes", "undo", "--last", "--apply"]), 0);
-    assert!(genres_of(&track).is_empty());
+    assert_eq!(genres_of(&track), Vec::<String>::new());
     drop(harness);
 }
 
@@ -503,7 +503,7 @@ fn tags_apply_without_the_flag_writes_nothing() {
         title_of(&root.join("ZUN").join("Heian Alien.flac")),
         "Heian Alien"
     );
-    assert!(logged(&harness).is_empty());
+    assert_eq!(logged(&harness), []);
     drop(harness);
 }
 
@@ -562,7 +562,7 @@ fn tags_identify_reports_a_file_it_cannot_fingerprint() {
     assert_eq!(run(&["--json", "tags", "identify"]), 0);
 
     assert_eq!(title_of(&track), "");
-    assert!(logged(&harness).is_empty());
+    assert_eq!(logged(&harness), []);
     drop(harness);
 }
 
@@ -993,7 +993,7 @@ fn loudness_leaves_a_file_that_already_carries_a_gain_alone() {
     );
 
     assert_eq!(gain_of(&track), Some("-99.00 dB".to_owned()));
-    assert!(logged(&harness).is_empty());
+    assert_eq!(logged(&harness), []);
     drop(harness);
 }
 
@@ -1139,7 +1139,7 @@ fn sync_without_apply_queues_what_is_missing_and_moves_nothing() {
 
     assert_eq!(queued_titles(&harness), vec!["Senbonzakura".to_owned()]);
     assert!(download.is_file(), "nothing moves without --apply");
-    assert!(logged(&harness).is_empty());
+    assert_eq!(logged(&harness), []);
     drop(harness);
 }
 
@@ -1315,7 +1315,7 @@ fn an_invalid_year_refuses_the_whole_sheet() {
         "no row of the sheet is written"
     );
     assert_eq!(year_of(&track), "");
-    assert!(logged(&harness).is_empty());
+    assert_eq!(logged(&harness), []);
     drop(harness);
 }
 
@@ -1356,7 +1356,7 @@ fn art_set_embeds_a_chosen_cover_only_with_apply_and_undo_puts_the_old_one_back(
 
     assert_eq!(run(&["art", "set", &target, &image]), 0);
     assert_eq!(cover_of(&track), Some(old.data.clone()));
-    assert!(logged(&harness).is_empty());
+    assert_eq!(logged(&harness), []);
 
     assert_eq!(run(&["art", "set", &target, &image, "--apply"]), 0);
     assert_eq!(cover_of(&track), Some(bytes.clone()));

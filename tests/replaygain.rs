@@ -145,7 +145,7 @@ fn a_half_scanned_album_is_measured_entire() {
 
     assert_eq!(selection.wanted.len(), 1);
     assert_eq!(selection.wanted[0].targets.len(), 2);
-    assert!(selection.skipped.is_empty());
+    assert_eq!(selection.skipped, []);
 }
 
 #[test]
@@ -154,7 +154,7 @@ fn an_opus_file_carrying_only_r128_counts_as_scanned() {
     scanned.r128 = true;
     scanned.current.r128_track_gain = Some("-2022".to_owned());
 
-    assert!(select(group(vec![scanned], true), false).wanted.is_empty());
+    assert_eq!(select(group(vec![scanned], true), false).wanted, []);
 }
 
 #[test]

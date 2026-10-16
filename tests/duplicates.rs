@@ -120,13 +120,13 @@ fn the_same_title_by_a_clearly_different_artist_is_not_paired() {
         entry("beatMARIO/Idol.flac", "beatMARIO", "Idol"),
     ];
 
-    assert!(by_title(&entries).is_empty());
+    assert_eq!(by_title(&entries), []);
 }
 
 #[test]
 fn a_file_is_never_paired_with_itself() {
     let single = entry("Ado/Odo.flac", "Ado", "Odo");
-    assert!(by_title(&[single.clone(), single]).is_empty());
+    assert_eq!(by_title(&[single.clone(), single]), []);
 }
 
 #[test]
@@ -199,13 +199,15 @@ fn different_audio_of_the_same_length_is_not_paired() {
         entry_with("Y/b.flac", "Two", "Other", 1_000_000, Some(200.0)),
     ];
 
-    assert!(by_audio(
-        &entries,
-        duplicates::DEFAULT_AUDIO_THRESHOLD,
-        duplicates::DEFAULT_DURATION_TOLERANCE_SECONDS,
-        table(&[("a.flac", print(0, 40)), ("b.flac", print(3, 40))]),
-    )
-    .is_empty());
+    assert_eq!(
+        by_audio(
+            &entries,
+            duplicates::DEFAULT_AUDIO_THRESHOLD,
+            duplicates::DEFAULT_DURATION_TOLERANCE_SECONDS,
+            table(&[("a.flac", print(0, 40)), ("b.flac", print(3, 40))]),
+        ),
+        []
+    );
 }
 
 #[test]
@@ -433,7 +435,7 @@ fn quarantined_files_leave_the_index_and_an_undo_puts_them_back() {
     .expect("a quarantine");
 
     assert_eq!(applied.moved, 2);
-    assert!(applied.failures.is_empty());
+    assert_eq!(applied.failures, []);
     assert_eq!(applied.pruned, 1, "only the folder left genuinely empty");
     assert!(keeper.is_file());
     assert!(!root.join("Loose").exists());

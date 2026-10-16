@@ -263,7 +263,7 @@ fn a_year_cell_is_planned_as_written() {
     let changes = changed(&planned);
     assert_eq!(changes[0].fields, vec![TagField::Year]);
     assert_eq!(changes[0].proposed.year, "2016-11-02");
-    assert!(invalid_years(&planned).is_empty());
+    assert_eq!(invalid_years(&planned), Vec::<String>::new());
 }
 
 #[test]
@@ -304,5 +304,5 @@ fn a_year_the_file_already_holds_is_not_refused_however_it_is_spelled() {
     let planned = plan_changes(&edits, &[entry(&path, purchased)]);
 
     assert_eq!(changed(&planned)[0].fields, vec![TagField::Title]);
-    assert!(invalid_years(&planned).is_empty());
+    assert_eq!(invalid_years(&planned), Vec::<String>::new());
 }
