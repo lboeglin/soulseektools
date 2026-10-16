@@ -35,9 +35,9 @@ completions.
 |---|---|
 | `verify` | finds fake lossless, fake hi-res and upsampled MP3s |
 | `dupes titles` / `content` / `resolve` | finds duplicates, quarantines extras |
-| `art check` / `fetch` | finds and embeds missing covers |
+| `art check` / `fetch` / `set` | finds and embeds missing covers, or one you choose |
 | `genre check` / `apply` | tags genres from a map ([example](data/genres.example.toml)) |
-| `tags dump` / `apply` / `identify` | edits tags as CSV, or identifies files via AcoustID |
+| `tags dump` / `apply` / `identify` | edits tags and the year as CSV, or identifies files via AcoustID |
 | `organise` | moves files into `{artist}/{album}/{track} - {title}` |
 | `loudness` | writes ReplayGain tags |
 | `playlist` | writes M3U8 playlists |

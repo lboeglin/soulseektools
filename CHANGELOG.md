@@ -4,7 +4,21 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- A `year` column in `tags dump --round-trip`. `tags apply` writes it as
+  given (`2000`, `2000-09` or `2000-09-09`), refuses any other form with
+  the sheet's line, and `changes undo` puts the previous year back.
+- `tags identify`, `art fetch` and `sync` fill in a missing year from the
+  release they matched, never over one already there. `art fetch` only does
+  so for a verified cover; `artwork.fill_year = false` turns that off.
+- `stk art set <file|folder> <image|url>` embeds a cover you choose, in one
+  file or every file directly in a folder, and `changes undo` puts the old
+  one back.
+
 ### Fixed
+
+- Undoing a cover change put a PNG back labelled as a JPEG.
 
 - `organise` cut a closing bracket off a title or album it filed by
   (`Crazy on Emotion (Extended`). Only a separator stranded by an empty
