@@ -246,7 +246,7 @@ fn a_v2_database_is_upgraded_in_place_rather_than_rewritten() {
     assert_eq!(entry.tags.artist, "ZUN");
     assert_eq!(entry.codec, "");
     assert_eq!(entry.bitrate, None);
-    assert_eq!(index.schema_version().expect("a version"), 8);
+    assert_eq!(index.schema_version().expect("a version"), 9);
     assert!(index.snapshots(None).expect("a series").is_empty());
 }
 
@@ -293,6 +293,39 @@ fn an_upgraded_database_fills_its_loudness_columns_at_the_next_scan() {
         .expect("the migrated row");
     assert_eq!(entry.replay_gain.track_gain, Some("-7.29 dB".to_owned()));
     assert!(entry.is_level_matched());
+}
+
+#[test]
+fn an_upgraded_database_fills_its_year_column_without_a_rescan_of_the_file() {
+    let scratch = Scratch::new("index-year-backfill");
+    let root = library_root(&scratch);
+    let track = root.join("DECO_27").join("01 - Roki.flac");
+    let mut tags = stk::library::tags::read_tags(&track).expect("readable tags");
+    tags.year = "2016-11-02".to_owned();
+    stk::library::tags::write_tags(&track, &tags).expect("a year");
+
+    let mut index = open(&scratch, "index.db");
+    refresh(&mut index, &root);
+    drop(index);
+    let connection = rusqlite::Connection::open(scratch.join("index.db")).expect("the database");
+    connection
+        .execute_batch(
+            "ALTER TABLE files DROP COLUMN tag_year;
+             UPDATE meta SET value = '8' WHERE key = 'schema_version';",
+        )
+        .expect("a v8 database");
+    drop(connection);
+
+    let mut index = open(&scratch, "index.db");
+    assert_eq!(index.schema_version().expect("a version"), 9);
+    let result = refresh(&mut index, &root);
+
+    assert_eq!(result.updated, 0);
+    let entry = index
+        .entry(&track)
+        .expect("a lookup")
+        .expect("the migrated row");
+    assert_eq!(entry.tags.year, "2016-11-02");
 }
 
 /// `upsert` replaces a whole row and would drop the verdict.

@@ -8,6 +8,7 @@ fn peer() -> TrackTags {
         artist: "Unknown Artist".to_owned(),
         album_artist: "Various".to_owned(),
         album: "www.something.ru".to_owned(),
+        year: "2003".to_owned(),
         title: "Track 01".to_owned(),
         genres: vec!["Vocaloid".to_owned()],
         track_number: Some(7),

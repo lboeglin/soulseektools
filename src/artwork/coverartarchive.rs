@@ -3,7 +3,7 @@
 
 use serde_json::Value;
 
-use crate::artwork::base::{ArtCandidate, ArtProvider};
+use crate::artwork::base::{leading_year, ArtCandidate, ArtProvider};
 use crate::errors::Result;
 use crate::services::{RateLimiter, ServiceHttp};
 
@@ -71,6 +71,8 @@ impl ArtProvider for CoverArtArchiveProvider {
                     artist: credited_artist(recording),
                     title: text(recording.get("title")),
                     album: release_title(recording),
+                    year: first_release(recording)
+                        .and_then(|release| leading_year(release.get("date"))),
                     source: self.name().to_owned(),
                 })
             })
@@ -78,17 +80,17 @@ impl ArtProvider for CoverArtArchiveProvider {
     }
 }
 
+fn first_release(recording: &Value) -> Option<&Value> {
+    recording.get("releases")?.as_array()?.first()
+}
+
 fn first_release_id(recording: &Value) -> Option<String> {
-    let first = recording.get("releases")?.as_array()?.first()?;
-    let id = first.get("id")?.as_str()?;
+    let id = first_release(recording)?.get("id")?.as_str()?;
     (!id.is_empty()).then(|| id.to_owned())
 }
 
 fn release_title(recording: &Value) -> String {
-    recording
-        .get("releases")
-        .and_then(Value::as_array)
-        .and_then(|releases| releases.first())
+    first_release(recording)
         .map(|release| text(release.get("title")))
         .unwrap_or_default()
 }

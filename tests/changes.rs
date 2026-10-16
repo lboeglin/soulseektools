@@ -408,3 +408,121 @@ fn undoing_dropped_extras_puts_the_comment_back() {
     assert_eq!(undone.command, "changes undo");
     assert_eq!(undone.old_value.as_deref(), Some("[]"));
 }
+
+#[test]
+fn undoing_a_year_puts_the_old_one_back_or_none() {
+    let scratch = Scratch::new("changes-year-undo");
+    let root = library(&scratch);
+    let dated = root.join("ZUN").join("Heian Alien.flac");
+    let undated = root.join("ZUN").join("Bad Apple.flac");
+    let mut index = indexed(&scratch, &root);
+    let mut start = tags::read_tags(&dated).expect("readable tags");
+    start.year = "1998-09-09".to_owned();
+    tags::write_tags(&dated, &start).expect("a starting year");
+
+    let log = ChangeLog::open(&index, "tags apply", 100.0).expect("a run");
+    write_field(&mut index, &log, &dated, TagField::Year, "2000");
+    write_field(&mut index, &log, &undated, TagField::Year, "2000");
+
+    let undo = ChangeLog::open(&index, "changes undo", 200.0).expect("a run");
+    let mut descriptions = Vec::new();
+    for change in index
+        .changes(&ChangeFilter::default())
+        .expect("the logged rows")
+    {
+        assert_eq!(change.field, "year");
+        let plan = plan_undo(&index, change).expect("a plan");
+        assert!(plan.ready(), "{:?}", plan.blocked);
+        descriptions.push(plan.description.clone());
+        apply_undo(&mut index, &plan, &undo, std::slice::from_ref(&root)).expect("an undo");
+    }
+
+    descriptions.sort();
+    assert_eq!(
+        descriptions,
+        vec!["remove the year tag", "set the year back to 1998-09-09"]
+    );
+    assert_eq!(
+        tags::read_tags(&dated).expect("readable tags").year,
+        "1998-09-09"
+    );
+    assert_eq!(tags::read_tags(&undated).expect("readable tags").year, "");
+}
+
+#[test]
+fn an_extras_row_logged_with_the_date_among_them_still_undoes() {
+    // Before the year was managed, a dropped comment was logged alongside the
+    // kept DATE; the date now reads as a field, not an extra.
+    let scratch = Scratch::new("changes-extras-dated");
+    let root = library(&scratch);
+    let track = commented(&scratch);
+    let mut start = tags::read_tags(&track).expect("readable tags");
+    start.year = "2016".to_owned();
+    tags::write_tags(&track, &start).expect("a year");
+    let mut index = indexed(&scratch, &root);
+
+    let date = tags::Extra {
+        key: "DATE".to_owned(),
+        value: "2016".to_owned(),
+        locator: false,
+    };
+    let comment = tags::read_extras(&track).expect("readable extras");
+    tags::write_extras(&track, &[]).expect("stripped extras");
+    let log = ChangeLog::open(&index, "fetch download", 100.0).expect("a run");
+    log.extras(
+        &mut index,
+        &track,
+        &[vec![date.clone()], comment.clone()].concat(),
+        &[date],
+    )
+    .expect("a logged change");
+
+    let change = index.change(1).expect("a lookup").expect("the row");
+    let plan = plan_undo(&index, change).expect("a plan");
+    assert!(plan.ready(), "{:?}", plan.blocked);
+    let undo = ChangeLog::open(&index, "changes undo", 200.0).expect("a run");
+    apply_undo(&mut index, &plan, &undo, std::slice::from_ref(&root)).expect("an undo");
+
+    assert_eq!(tags::read_extras(&track).expect("readable extras"), comment);
+    assert_eq!(date_comments(&track), vec!["2016".to_owned()]);
+}
+
+fn date_comments(track: &Path) -> Vec<String> {
+    use lofty::file::AudioFile;
+    let mut file = std::fs::File::open(track).expect("a readable file");
+    lofty::flac::FlacFile::read_from(&mut file, lofty::config::ParseOptions::new())
+        .expect("a flac")
+        .vorbis_comments()
+        .map(|comments| comments.get_all("DATE").map(str::to_owned).collect())
+        .unwrap_or_default()
+}
+
+#[test]
+fn a_png_cover_is_restored_as_a_png() {
+    let scratch = Scratch::new("changes-art-png");
+    let root = library(&scratch);
+    let track = root.join("ZUN").join("Heian Alien.flac");
+    let mut index = indexed(&scratch, &root);
+    let mut png = b"\x89PNG\r\n\x1a\n".to_vec();
+    png.resize(2048, 7);
+    let old = Artwork {
+        data: png,
+        mime: "image/png".to_owned(),
+    };
+    tags::write_artwork(&track, &old).expect("a starting cover");
+
+    let log = ChangeLog::open(&index, "art set", 100.0).expect("a run");
+    tags::write_artwork(&track, &cover(2)).expect("a replacement cover");
+    log.artwork(&mut index, &track, Some(&old), Some(&cover(2)))
+        .expect("a logged change");
+
+    let change = index.change(1).expect("a lookup").expect("the row");
+    let plan = plan_undo(&index, change).expect("a plan");
+    let undo = ChangeLog::open(&index, "changes undo", 200.0).expect("a run");
+    apply_undo(&mut index, &plan, &undo, &[root]).expect("an undo");
+
+    assert_eq!(
+        tags::read_artwork(&track).expect("readable artwork"),
+        Some(old)
+    );
+}

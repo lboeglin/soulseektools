@@ -13,7 +13,8 @@ use stk::artwork::base::{select, ArtCandidate, ArtProvider};
 use stk::artwork::coverartarchive::CoverArtArchiveProvider;
 use stk::artwork::itunes::ITunesProvider;
 use stk::artwork::service::{
-    audit, build_providers, detect_mime, embed, find_artwork, ArtworkResult,
+    audit, build_providers, cover_targets, detect_mime, embed, find_artwork, load_image,
+    ArtworkResult,
 };
 use stk::config::ArtworkSettings;
 use stk::errors::{Error, Result};
@@ -100,6 +101,7 @@ fn candidate(artist: &str, source: &str) -> ArtCandidate {
         title: "Roki".to_owned(),
         source: source.to_owned(),
         album: String::new(),
+        year: None,
     }
 }
 
@@ -192,7 +194,8 @@ fn itunes_parses_results_and_upscales_the_thumbnail() {
                 "artworkUrl100": "https://is1.test/image/100x100bb.jpg",
                 "artistName": "DECO*27",
                 "trackName": "Roki",
-                "collectionName": "Ghost"
+                "collectionName": "Ghost",
+                "releaseDate": "2017-02-24T08:00:00Z"
             }]
         }),
     );
@@ -204,6 +207,7 @@ fn itunes_parses_results_and_upscales_the_thumbnail() {
     assert_eq!(candidates[0].url, "https://is1.test/image/1200x1200bb.jpg");
     assert_eq!(candidates[0].artist, "DECO*27");
     assert_eq!(candidates[0].album, "Ghost");
+    assert_eq!(candidates[0].year, Some(2017));
     assert_eq!(candidates[0].source, "itunes");
 }
 
@@ -215,7 +219,7 @@ fn coverartarchive_builds_an_archive_url_from_the_recordings_release() {
             "recordings": [{
                 "title": "Roki",
                 "artist-credit": [{"name": "DECO*27"}, {"name": "Hatsune Miku"}],
-                "releases": [{"id": "abc-123", "title": "Ghost"}]
+                "releases": [{"id": "abc-123", "title": "Ghost", "date": "2016-11-02"}]
             }]
         }),
     );
@@ -230,6 +234,7 @@ fn coverartarchive_builds_an_archive_url_from_the_recordings_release() {
     );
     assert_eq!(candidates[0].artist, "DECO*27 Hatsune Miku");
     assert_eq!(candidates[0].album, "Ghost");
+    assert_eq!(candidates[0].year, Some(2016));
 }
 
 #[test]
@@ -358,6 +363,7 @@ fn embeds_a_verified_cover_into_a_real_file() {
             data: jpeg(10_000),
             mime: "image/jpeg".to_owned(),
         }),
+        year: None,
         error: String::new(),
     };
 
@@ -411,4 +417,169 @@ fn an_artist_tag_crediting_several_people_falls_back_to_the_album_artist() {
     assert!(result.ok(), "{}", result.error);
     let searches = http.requested.lock().expect("the recorder").clone();
     assert!(searches[1].contains("term=Duca Nekoichi"), "{searches:?}");
+}
+
+fn itunes_dated(release_date: &str) -> Recorded {
+    Recorded::default()
+        .json_at(
+            stk::artwork::itunes::SEARCH_URL,
+            json!({"results": [{
+                "artworkUrl100": "https://is1.test/100x100bb.jpg",
+                "artistName": "DECO*27", "trackName": "Roki",
+                "releaseDate": release_date
+            }]}),
+        )
+        .bytes_at("https://is1.test/1200x1200bb.jpg", jpeg(10_000))
+}
+
+#[test]
+fn a_verified_cover_brings_its_year_to_a_file_without_one() {
+    let settings = itunes_only();
+    let providers = build_providers(&settings).expect("providers");
+    let http = itunes_dated("2017-02-24T08:00:00Z");
+    let mut dated = entry("DECO*27", "Roki", 0);
+    dated.tags.year = "2016".to_owned();
+
+    let undated = find_artwork(&entry("DECO*27", "Roki", 0), &providers, &settings, &http);
+    let kept = find_artwork(&dated, &providers, &settings, &http);
+
+    assert_eq!(undated.year.as_deref(), Some("2017"));
+    assert_eq!(kept.year, None);
+    assert!(kept.ok());
+}
+
+#[test]
+fn an_unverified_cover_or_a_run_told_not_to_brings_no_year() {
+    let http = itunes_dated("2017-02-24T08:00:00Z");
+    for settings in [
+        ArtworkSettings {
+            require_artist_match: false,
+            ..itunes_only()
+        },
+        ArtworkSettings {
+            fill_year: false,
+            ..itunes_only()
+        },
+    ] {
+        let providers = build_providers(&settings).expect("providers");
+        let result = find_artwork(&entry("DECO*27", "Roki", 0), &providers, &settings, &http);
+
+        assert!(result.ok(), "{}", result.error);
+        assert_eq!(result.year, None);
+    }
+}
+
+#[test]
+fn a_date_that_does_not_start_with_a_year_is_no_year() {
+    let settings = itunes_only();
+    let providers = build_providers(&settings).expect("providers");
+    let http = itunes_dated("unknown");
+
+    let result = find_artwork(&entry("DECO*27", "Roki", 0), &providers, &settings, &http);
+
+    assert!(result.ok(), "{}", result.error);
+    assert_eq!(result.year, None);
+}
+
+/// Noise, so neither format compresses it under `min_bytes`.
+fn image_bytes(side: u32, format: image::ImageFormat) -> Vec<u8> {
+    let picture = image::RgbImage::from_fn(side, side, |x, y| {
+        let seed = x.wrapping_mul(2_654_435_761) ^ y.wrapping_mul(40_503);
+        let [r, g, b, _] = seed.wrapping_mul(seed | 1).to_le_bytes();
+        image::Rgb([r, g, b])
+    });
+    let mut bytes = std::io::Cursor::new(Vec::new());
+    picture
+        .write_to(&mut bytes, format)
+        .expect("an encoded image");
+    bytes.into_inner()
+}
+
+fn small_covers() -> ArtworkSettings {
+    ArtworkSettings {
+        preferred_size: 64,
+        ..ArtworkSettings::default()
+    }
+}
+
+#[test]
+fn a_chosen_cover_loads_from_a_file_or_a_url() {
+    let scratch = Scratch::new("artwork-load");
+    let png = image_bytes(64, image::ImageFormat::Png);
+    let jpeg = image_bytes(64, image::ImageFormat::Jpeg);
+    let local = scratch.join("cover.png");
+    std::fs::write(&local, &png).expect("a written image");
+    let url = "https://i1.sndcdn.test/artworks-t500x500.jpg";
+    let http = Recorded::default().bytes_at(url, jpeg.clone());
+
+    let (from_file, warning) =
+        load_image(&local.display().to_string(), &http, &small_covers()).expect("a cover");
+    assert_eq!(from_file.data, png);
+    assert_eq!(from_file.mime, "image/png");
+    assert_eq!(warning, None);
+
+    let (from_url, _) = load_image(url, &http, &small_covers()).expect("a cover");
+    assert_eq!(from_url.data, jpeg);
+    assert_eq!(from_url.mime, "image/jpeg");
+}
+
+#[test]
+fn a_chosen_cover_under_the_preferred_size_is_loaded_with_a_warning() {
+    let scratch = Scratch::new("artwork-load-small");
+    let local = scratch.join("cover.png");
+    std::fs::write(&local, image_bytes(64, image::ImageFormat::Png)).expect("a written image");
+
+    let (_, warning) = load_image(
+        &local.display().to_string(),
+        &Recorded::default(),
+        &ArtworkSettings::default(),
+    )
+    .expect("a cover");
+
+    assert_eq!(
+        warning.as_deref(),
+        Some("64x64 is under artwork.preferred_size (1200)")
+    );
+}
+
+#[test]
+fn a_chosen_cover_that_is_not_an_image_or_is_too_small_is_refused() {
+    let scratch = Scratch::new("artwork-load-refused");
+    let text = scratch.join("cover.jpg");
+    std::fs::write(&text, b"<html>not found</html>".repeat(500)).expect("a written file");
+    let broken = scratch.join("broken.jpg");
+    std::fs::write(&broken, jpeg(10_000)).expect("a written file");
+    let tiny = scratch.join("tiny.png");
+    std::fs::write(&tiny, image_bytes(4, image::ImageFormat::Png)).expect("a written image");
+
+    for (path, reason) in [
+        (&text, "not a JPEG or PNG image"),
+        (&broken, "not a readable image"),
+        (&tiny, "under artwork.min_bytes (3000)"),
+    ] {
+        let error = load_image(
+            &path.display().to_string(),
+            &Recorded::default(),
+            &small_covers(),
+        )
+        .expect_err("a refused image");
+        assert!(error.to_string().contains(reason), "{error}");
+    }
+}
+
+#[test]
+fn a_folder_gives_the_covered_files_directly_inside_it() {
+    let scratch = Scratch::new("artwork-targets");
+    let folder = scratch.join("UNDEAD CORPORATION");
+    let flac = encode(&folder.join("b.flac"), &Encoded::default());
+    let mp3 = encode(&folder.join("a.mp3"), &Encoded::default());
+    encode(&folder.join("c.wav"), &Encoded::default());
+    std::fs::write(folder.join("notes.txt"), b"").expect("a written file");
+    encode(&folder.join("Album").join("d.flac"), &Encoded::default());
+
+    assert_eq!(
+        cover_targets(&folder).expect("a listing"),
+        vec![mp3, flac.clone()]
+    );
+    assert_eq!(cover_targets(&flac).expect("a file"), vec![flac]);
 }

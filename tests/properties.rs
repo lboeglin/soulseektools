@@ -306,14 +306,16 @@ mod undo {
             value(),
             value(),
             value(),
+            value(),
             proptest::collection::vec(value(), 0..3),
             proptest::option::of(1i64..1000),
         )
             .prop_map(
-                |(artist, album_artist, album, title, genres, track_number)| TrackTags {
+                |(artist, album_artist, album, year, title, genres, track_number)| TrackTags {
                     artist,
                     album_artist,
                     album,
+                    year,
                     title,
                     genres: genres
                         .into_iter()

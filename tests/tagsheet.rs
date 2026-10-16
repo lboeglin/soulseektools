@@ -8,7 +8,9 @@ use stk::library::index::describe;
 use stk::library::tags::{self, TagField};
 use stk::matching::NameForms;
 use stk::models::{LibraryEntry, ReplayGainTags, TrackTags};
-use stk::tagsheet::{plan_changes, read_sheet, Blanks, PlannedEdit, Skipped, TagChange};
+use stk::tagsheet::{
+    invalid_years, plan_changes, read_sheet, Blanks, PlannedEdit, Skipped, TagChange,
+};
 use support::{encode, Encoded, Scratch};
 
 /// The planner checks the file still exists, so the stand-in must.
@@ -43,6 +45,7 @@ fn tagged() -> TrackTags {
         artist: "DECO*27".to_owned(),
         album_artist: "DECO*27".to_owned(),
         album: "Ghost".to_owned(),
+        year: "2018".to_owned(),
         title: "Roki".to_owned(),
         genres: vec!["Vocaloid".to_owned()],
         track_number: Some(3),
@@ -246,4 +249,60 @@ fn a_field_edited_on_disk_since_the_plan_blocks_that_row() {
         tags::read_tags(&path).expect("readable tags").title,
         "Someone Fixed This By Hand"
     );
+}
+
+#[test]
+fn a_year_cell_is_planned_as_written() {
+    let scratch = Scratch::new("sheet-year");
+    let path = scratch.join("a.flac");
+    let body = rows(&path, "year", "2016-11-02");
+
+    let edits = read_sheet(&sheet(&scratch, &body), Blanks::LeaveAlone).expect("a sheet");
+    let planned = plan_changes(&edits, &[entry(&path, tagged())]);
+
+    let changes = changed(&planned);
+    assert_eq!(changes[0].fields, vec![TagField::Year]);
+    assert_eq!(changes[0].proposed.year, "2016-11-02");
+    assert!(invalid_years(&planned).is_empty());
+}
+
+#[test]
+fn an_invalid_year_is_reported_with_its_line_whatever_ends_the_lines() {
+    // The dump ends lines with `\r\n`; an editor may write `\n`.
+    let scratch = Scratch::new("sheet-year-invalid");
+    let first = scratch.join("a.flac");
+    let second = scratch.join("b.flac");
+    for end in ["\n", "\r\n"] {
+        let body = format!(
+            "path,year{end}\"{}\",2001{end}\"{}\",2000/01{end}",
+            first.display(),
+            second.display()
+        );
+
+        let edits = read_sheet(&sheet(&scratch, &body), Blanks::LeaveAlone).expect("a sheet");
+        let planned = plan_changes(&edits, &[entry(&first, tagged()), entry(&second, tagged())]);
+
+        assert_eq!(
+            invalid_years(&planned),
+            vec!["line 3: year '2000/01' is not YYYY, YYYY-MM or YYYY-MM-DD".to_owned()],
+            "{end:?}"
+        );
+    }
+}
+
+#[test]
+fn a_year_the_file_already_holds_is_not_refused_however_it_is_spelled() {
+    let scratch = Scratch::new("sheet-year-odd");
+    let path = scratch.join("a.m4a");
+    let purchased = TrackTags {
+        year: "2000-01-01T08:00:00Z".to_owned(),
+        ..tagged()
+    };
+    let body = rows(&path, "year,title", "2000-01-01T08:00:00Z,Ghost Rule");
+
+    let edits = read_sheet(&sheet(&scratch, &body), Blanks::LeaveAlone).expect("a sheet");
+    let planned = plan_changes(&edits, &[entry(&path, purchased)]);
+
+    assert_eq!(changed(&planned)[0].fields, vec![TagField::Title]);
+    assert!(invalid_years(&planned).is_empty());
 }

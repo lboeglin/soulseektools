@@ -1253,3 +1253,187 @@ fn candidates_is_bounded_by_what_a_search_keeps() {
 fn get_no_longer_takes_limit_for_candidates() {
     assert_eq!(run(&["get", "DECO*27 - Roki", "--limit", "5"]), 2);
 }
+
+fn year_of(track: &Path) -> String {
+    stk::library::tags::read_tags(track)
+        .expect("readable tags")
+        .year
+}
+
+#[test]
+fn a_year_edited_in_the_sheet_is_written_logged_and_undone() {
+    let _guard = exclusive();
+    let harness = Harness::new("cli-tags-year");
+    let root = library(&harness);
+    harness.with_config(&root);
+    run(&["library", "scan"]);
+
+    let sheet = edited_dump(&harness, ",ZUN,,,,Heian Alien,", ",ZUN,,,2000,Heian Alien,");
+    let header = std::fs::read_to_string(&sheet).expect("a written dump");
+    assert!(header.contains(",album,year,title,"), "{header}");
+    assert_eq!(
+        run(&["tags", "apply", &sheet.display().to_string(), "--apply"]),
+        0
+    );
+
+    let track = root.join("ZUN").join("Heian Alien.flac");
+    assert_eq!(year_of(&track), "2000");
+    let changes = logged(&harness);
+    assert_eq!(changes.len(), 1);
+    assert_eq!(changes[0].field, "year");
+
+    assert_eq!(run(&["changes", "undo", "--last", "--apply"]), 0);
+    assert_eq!(year_of(&track), "");
+    drop(harness);
+}
+
+#[test]
+fn an_invalid_year_refuses_the_whole_sheet() {
+    let _guard = exclusive();
+    let harness = Harness::new("cli-tags-year-invalid");
+    let root = library(&harness);
+    harness.with_config(&root);
+    run(&["library", "scan"]);
+
+    let sheet = edited_dump(
+        &harness,
+        ",ZUN,,,,Heian Alien,",
+        ",ZUN,,,2000/01,Native Faith,",
+    );
+    for arguments in [vec![], vec!["--apply"]] {
+        let mut full = vec!["tags", "apply"];
+        let path = sheet.display().to_string();
+        full.push(&path);
+        full.extend(arguments);
+        assert_eq!(run(&full), 1);
+    }
+
+    let track = root.join("ZUN").join("Heian Alien.flac");
+    assert_eq!(
+        title_of(&track),
+        "Heian Alien",
+        "no row of the sheet is written"
+    );
+    assert_eq!(year_of(&track), "");
+    assert!(logged(&harness).is_empty());
+    drop(harness);
+}
+
+fn chosen_cover(harness: &Harness) -> (PathBuf, Vec<u8>) {
+    let picture = image::RgbImage::from_fn(64, 64, |x, y| {
+        let seed = x.wrapping_mul(2_654_435_761) ^ y.wrapping_mul(40_503);
+        let [r, g, b, _] = seed.wrapping_mul(seed | 1).to_le_bytes();
+        image::Rgb([r, g, b])
+    });
+    let path = harness.join("cover.png");
+    picture.save(&path).expect("a written image");
+    let bytes = std::fs::read(&path).expect("a readable image");
+    (path, bytes)
+}
+
+fn cover_of(track: &Path) -> Option<Vec<u8>> {
+    stk::library::tags::read_artwork(track)
+        .expect("readable artwork")
+        .map(|artwork| artwork.data)
+}
+
+#[test]
+fn art_set_embeds_a_chosen_cover_only_with_apply_and_undo_puts_the_old_one_back() {
+    let _guard = exclusive();
+    let harness = Harness::new("cli-art-set");
+    let root = library(&harness);
+    let track = root.join("ZUN").join("Heian Alien.flac");
+    let old = stk::models::Artwork {
+        data: [b"\xff\xd8\xff".as_slice(), &[7; 4096]].concat(),
+        mime: "image/jpeg".to_owned(),
+    };
+    stk::library::tags::write_artwork(&track, &old).expect("a starting cover");
+    // A root written with `/` keys the index `…/Music\ZUN\…`, unlike the typed path.
+    harness.with_config(Path::new(&root.display().to_string().replace('\\', "/")));
+    run(&["library", "scan"]);
+    let (cover, bytes) = chosen_cover(&harness);
+    let (target, image) = (track.display().to_string(), cover.display().to_string());
+
+    assert_eq!(run(&["art", "set", &target, &image]), 0);
+    assert_eq!(cover_of(&track), Some(old.data.clone()));
+    assert!(logged(&harness).is_empty());
+
+    assert_eq!(run(&["art", "set", &target, &image, "--apply"]), 0);
+    assert_eq!(cover_of(&track), Some(bytes.clone()));
+    let entries = stk::library::index::LibraryIndex::open(&harness.join("library.db"))
+        .expect("the index")
+        .entries()
+        .expect("the rows");
+    assert_eq!(entries.len(), 2, "the row is refreshed, not doubled");
+    assert!(entries
+        .iter()
+        .any(|entry| entry.artwork_bytes == bytes.len() as u64));
+    let changes = logged(&harness);
+    assert_eq!(changes.len(), 1);
+    assert_eq!(
+        (changes[0].command.as_str(), changes[0].field.as_str()),
+        ("art set", "artwork")
+    );
+
+    assert_eq!(run(&["changes", "undo", "--last", "--apply"]), 0);
+    assert_eq!(cover_of(&track), Some(old.data));
+    drop(harness);
+}
+
+#[test]
+fn art_set_on_a_folder_covers_the_files_directly_inside_it() {
+    let _guard = exclusive();
+    let harness = Harness::new("cli-art-set-folder");
+    let root = library(&harness);
+    let nested = encode(
+        &root.join("ZUN").join("Album").join("Bad Apple.flac"),
+        &Encoded::default(),
+    );
+    harness.with_config(&root);
+    run(&["library", "scan"]);
+    let (cover, bytes) = chosen_cover(&harness);
+
+    let folder = root.join("ZUN").display().to_string();
+    assert_eq!(
+        run(&[
+            "art",
+            "set",
+            &folder,
+            &cover.display().to_string(),
+            "--apply"
+        ]),
+        0
+    );
+
+    assert_eq!(
+        cover_of(&root.join("ZUN").join("Heian Alien.flac")),
+        Some(bytes)
+    );
+    assert_eq!(cover_of(&nested), None);
+    assert_eq!(cover_of(&root.join("DECO_27").join("01 - Roki.flac")), None);
+    drop(harness);
+}
+
+#[test]
+fn art_set_refuses_what_is_not_an_image() {
+    let _guard = exclusive();
+    let harness = Harness::new("cli-art-set-refused");
+    let root = library(&harness);
+    harness.with_config(&root);
+    let notes = harness.join("cover.jpg");
+    std::fs::write(&notes, "not a picture".repeat(1000)).expect("a written file");
+    let track = root.join("ZUN").join("Heian Alien.flac");
+
+    assert_eq!(
+        run(&[
+            "art",
+            "set",
+            &track.display().to_string(),
+            &notes.display().to_string(),
+            "--apply",
+        ]),
+        1
+    );
+    assert_eq!(cover_of(&track), None);
+    drop(harness);
+}

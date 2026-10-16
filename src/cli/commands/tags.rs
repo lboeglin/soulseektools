@@ -34,6 +34,7 @@ pub const ROUND_TRIP_FIELDS: &[&str] = &[
     "artist",
     "album_artist",
     "album",
+    "year",
     "title",
     "track_number",
     "genres",
@@ -218,6 +219,14 @@ fn apply_sheet(context: &AppContext, sheet: &Path, apply: bool, clear_blanks: bo
     let roots = context.library_roots();
     let mut index = context.open_index()?;
     let planned = tagsheet::plan_changes(&edits, &index.entries()?);
+    let invalid = tagsheet::invalid_years(&planned);
+    if !invalid.is_empty() {
+        for problem in invalid {
+            eprintln!("error: {}: {problem}", show(sheet));
+        }
+        eprintln!("Nothing was written.");
+        return Ok(1);
+    }
 
     let changes: Vec<&TagChange> = planned
         .iter()
@@ -491,6 +500,7 @@ fn identified_row(identification: &Identification) -> Option<serde_json::Value> 
             "artist": found.proposed.artist,
             "album_artist": found.proposed.album_artist,
             "album": found.proposed.album,
+            "year": found.proposed.year,
             "title": found.proposed.title,
             "track_number": found.proposed.track_number,
         },

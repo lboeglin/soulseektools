@@ -28,7 +28,7 @@ pub struct Match {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Outcome {
-    Match(Match),
+    Match(Box<Match>),
     NoMatch(String),
     Failed(String),
 }
@@ -126,6 +126,10 @@ pub fn choose(hits: &[Hit], entry: &LibraryEntry, settings: &IdentifySettings) -
         },
         artist,
         album: release.title.clone(),
+        year: release
+            .date
+            .map(|date| format!("{:04}", date.year))
+            .unwrap_or_default(),
         title: release
             .track
             .as_ref()
@@ -134,14 +138,14 @@ pub fn choose(hits: &[Hit], entry: &LibraryEntry, settings: &IdentifySettings) -
         genres: entry.tags.genres.clone(),
     };
 
-    Outcome::Match(Match {
+    Outcome::Match(Box::new(Match {
         score: best.score,
         recording_id: recording.id.clone(),
         release_id: release.id.clone(),
         year: release.date.map(|date| date.year),
         proposed,
         reason,
-    })
+    }))
 }
 
 struct Candidate<'a> {
@@ -259,7 +263,8 @@ fn folder_name(path: &Path) -> String {
         .unwrap_or_default()
 }
 
-/// A field the release can't fill is left as it is, not blanked.
+/// A field the release can't fill is left as it is, not blanked. A year is
+/// only filled: the file's own may be the edition it is.
 #[must_use]
 pub fn edits(identifications: &[Identification]) -> Vec<TagEdit> {
     identifications
@@ -267,17 +272,21 @@ pub fn edits(identifications: &[Identification]) -> Vec<TagEdit> {
         .filter_map(|identification| match &identification.outcome {
             Outcome::Match(found) => Some(TagEdit {
                 path: identification.entry.path.clone(),
+                line: None,
                 cells: [
                     TagField::Artist,
                     TagField::AlbumArtist,
                     TagField::Album,
+                    TagField::Year,
                     TagField::Title,
                     TagField::TrackNumber,
                 ]
                 .into_iter()
                 .map(|field| {
                     let value = field.value(&found.proposed);
-                    let cell = if value.is_empty() {
+                    let kept =
+                        field == TagField::Year && !identification.entry.tags.year.is_empty();
+                    let cell = if value.is_empty() || kept {
                         Cell::Untouched
                     } else {
                         Cell::Set(value)

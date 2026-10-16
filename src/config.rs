@@ -351,6 +351,8 @@ pub struct ArtworkSettings {
     /// A URL or email address sent to every web service in the User-Agent.
     /// MusicBrainz and AcoustID throttle anonymous callers.
     pub contact: String,
+    /// Write the year of a verified cover's release into a file that has none.
+    pub fill_year: bool,
 }
 
 impl Default for ArtworkSettings {
@@ -364,6 +366,7 @@ impl Default for ArtworkSettings {
             preferred_size: 1200,
             min_request_interval_seconds: None,
             contact: String::new(),
+            fill_year: true,
         }
     }
 }

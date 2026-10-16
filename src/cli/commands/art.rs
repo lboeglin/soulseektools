@@ -1,4 +1,6 @@
-//! `stk art` -- audit and repair embedded cover art.
+//! `stk art` -- audit, repair and choose embedded cover art.
+
+use std::path::{Path, PathBuf};
 
 use clap::Subcommand;
 use serde_json::json;
@@ -8,9 +10,9 @@ use crate::artwork::service::{self, ArtworkResult};
 use crate::cli::context::{show, table, unix_now, AppContext};
 use crate::config::ArtworkSettings;
 use crate::errors::Result;
-use crate::library::changes::ChangeLog;
+use crate::library::changes::{digest, ChangeLog};
 use crate::library::index::LibraryIndex;
-use crate::library::tags;
+use crate::library::tags::{self, TagField};
 use crate::models::LibraryEntry;
 use crate::services::HttpTransport;
 
@@ -30,6 +32,16 @@ pub enum ArtCommand {
         #[arg(long)]
         allow_unverified: bool,
     },
+    /// Embed a cover of your choosing, replacing the one there.
+    Set {
+        /// A file, or a folder: every file directly inside it.
+        target: PathBuf,
+        /// A JPEG or PNG: a local path or an http(s) URL.
+        image: String,
+        /// Write the artwork. Without this, nothing is modified.
+        #[arg(long)]
+        apply: bool,
+    },
 }
 
 #[allow(clippy::needless_pass_by_value)]
@@ -41,6 +53,149 @@ pub fn run(context: &AppContext, command: ArtCommand) -> Result<i32> {
             limit,
             allow_unverified,
         } => fetch(context, apply, limit, allow_unverified),
+        ArtCommand::Set {
+            target,
+            image,
+            apply,
+        } => set(context, &target, &image, apply),
+    }
+}
+
+enum SetOutcome {
+    Embedded,
+    AlreadyThere,
+    Failed(String),
+}
+
+fn set(context: &AppContext, target: &Path, image: &str, apply: bool) -> Result<i32> {
+    let settings = &context.settings().artwork;
+    let target = std::path::absolute(target).unwrap_or_else(|_| target.to_path_buf());
+    let files = match service::cover_targets(&target) {
+        Ok(files) => files,
+        Err(error) => {
+            eprintln!("error: {error}");
+            return Ok(1);
+        }
+    };
+    if files.is_empty() {
+        eprintln!("error: {}: no file that can carry a cover", show(&target));
+        return Ok(1);
+    }
+
+    let http = HttpTransport::new(settings.request_timeout_seconds, &settings.contact)?;
+    let (artwork, warning) = match service::load_image(image, &http, settings) {
+        Ok(loaded) => loaded,
+        Err(error) => {
+            eprintln!("error: {error}");
+            return Ok(1);
+        }
+    };
+
+    let roots = context.library_roots();
+    let mut index = context.open_index()?;
+    let indexed: Vec<PathBuf> = index
+        .entries()?
+        .into_iter()
+        .map(|entry| entry.path)
+        .collect();
+    let log = ChangeLog::open(&index, "art set", unix_now())?;
+    let wanted = digest(&artwork.data);
+    let mut outcomes = Vec::new();
+    for file in files {
+        // The index's own spelling (`E:/Music\…` against `E:\Music\…`), so the
+        // row is refreshed rather than doubled.
+        let known = indexed.iter().find(|path| **path == file).cloned();
+        let path = known.clone().unwrap_or(file);
+        let outcome = match tags::read_artwork(&path) {
+            Err(error) => SetOutcome::Failed(error.to_string()),
+            Ok(previous)
+                if previous
+                    .as_ref()
+                    .is_some_and(|cover| digest(&cover.data) == wanted) =>
+            {
+                SetOutcome::AlreadyThere
+            }
+            Ok(_) if !apply => SetOutcome::Embedded,
+            Ok(previous) => {
+                if let Err(error) = tags::write_artwork(&path, &artwork) {
+                    SetOutcome::Failed(error.to_string())
+                } else {
+                    log.artwork(&mut index, &path, previous.as_ref(), Some(&artwork))?;
+                    if known.is_some() {
+                        index.reindex(&path, &roots)?;
+                    }
+                    SetOutcome::Embedded
+                }
+            }
+        };
+        outcomes.push((path, outcome));
+    }
+
+    report_set(
+        context,
+        image,
+        artwork.data.len(),
+        warning.as_deref(),
+        &outcomes,
+        apply,
+    );
+    Ok(0)
+}
+
+fn report_set(
+    context: &AppContext,
+    image: &str,
+    bytes: usize,
+    warning: Option<&str>,
+    outcomes: &[(PathBuf, SetOutcome)],
+    apply: bool,
+) {
+    if context.as_json {
+        context.emit(&json!({
+            "image": image,
+            "bytes": bytes,
+            "warning": warning,
+            "applied": apply,
+            "files": outcomes
+                .iter()
+                .map(|(path, outcome)| match outcome {
+                    SetOutcome::Embedded => json!({"path": show(path), "ok": true}),
+                    SetOutcome::AlreadyThere => {
+                        json!({"path": show(path), "ok": true, "skipped": "already this cover"})
+                    }
+                    SetOutcome::Failed(error) => {
+                        json!({"path": show(path), "ok": false, "error": error})
+                    }
+                })
+                .collect::<Vec<_>>(),
+        }));
+        return;
+    }
+
+    if let Some(warning) = warning {
+        context.say(&format!("warning: {warning}"));
+    }
+    let mut embedded = 0;
+    for (path, outcome) in outcomes {
+        match outcome {
+            SetOutcome::Embedded => embedded += 1,
+            SetOutcome::AlreadyThere => {
+                context.say(&format!("skipped {}: already this cover", show(path)));
+            }
+            SetOutcome::Failed(error) => context.say_failure(&show(path), error),
+        }
+    }
+    if apply {
+        context.say(&format!(
+            "Embedded the cover in {embedded} of {} file(s)",
+            outcomes.len()
+        ));
+    } else {
+        context.say(&format!(
+            "{embedded} of {} file(s) would get this cover. \
+             Nothing was written -- pass --apply to embed it.",
+            outcomes.len()
+        ));
     }
 }
 
@@ -155,12 +310,36 @@ pub(crate) fn fetch_covers(
                     previous.as_ref(),
                     result.artwork.as_ref(),
                 )?;
+                if let Some(year) = result.year.clone() {
+                    match fill_year(index, &log, &entry.path, &year) {
+                        Ok(true) => {}
+                        Ok(false) => result.year = None,
+                        Err(error) => {
+                            result.year = None;
+                            result.error =
+                                format!("cover embedded, but the year was not written: {error}");
+                        }
+                    }
+                }
                 index.reindex(&entry.path, &roots)?;
             }
         }
         results.push(result);
     }
     Ok(results)
+}
+
+/// False when the file gained a year since it was indexed: that one stays.
+fn fill_year(index: &mut LibraryIndex, log: &ChangeLog, path: &Path, year: &str) -> Result<bool> {
+    let before = tags::read_tags(path)?;
+    if !before.year.is_empty() {
+        return Ok(false);
+    }
+    let mut after = before.clone();
+    TagField::Year.set(&mut after, year);
+    tags::write_tags(path, &after)?;
+    log.tag(index, path, TagField::Year, &before, &after)?;
+    Ok(true)
 }
 
 pub(crate) fn artwork_row(result: &ArtworkResult, applied: bool) -> serde_json::Value {
@@ -178,6 +357,7 @@ pub(crate) fn artwork_row(result: &ArtworkResult, applied: bool) -> serde_json::
             .as_ref()
             .map_or_else(String::new, |candidate| candidate.url.clone()),
         "bytes": result.artwork.as_ref().map_or(0, |artwork| artwork.data.len()),
+        "year": result.year.as_ref().filter(|_| result.ok()),
         "applied": applied && result.ok(),
     })
 }
@@ -195,10 +375,12 @@ pub(crate) fn report(context: &AppContext, results: &[ArtworkResult], applied: b
         .iter()
         .map(|result| {
             let marker = if result.ok() { "OK" } else { "--" };
-            let outcome = if result.error.is_empty() {
-                result.selection.reason.clone()
-            } else {
-                result.error.clone()
+            let outcome = match (&result.error, &result.year) {
+                (error, _) if !error.is_empty() => error.clone(),
+                (_, Some(year)) if result.ok() => {
+                    format!("{}; year {year}", result.selection.reason)
+                }
+                _ => result.selection.reason.clone(),
             };
             vec![
                 marker.to_owned(),

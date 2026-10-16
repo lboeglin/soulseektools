@@ -1373,12 +1373,10 @@ fn replace_keeps_what_the_row_cannot_say_and_drops_the_rest() {
     let cover = tags::read_artwork(&path).expect("readable tags");
     assert_eq!(cover.expect("the peer's cover").data.len(), 512);
     // Comments and lyrics go; the date is about the music and stays.
-    let kept: Vec<String> = tags::read_extras(&path)
+    assert!(tags::read_extras(&path)
         .expect("readable extras")
-        .into_iter()
-        .map(|extra| extra.key.to_uppercase())
-        .collect();
-    assert_eq!(kept, vec!["DATE".to_owned()]);
+        .is_empty());
+    assert_eq!(read.year, "2016-11-02");
     assert_eq!(outcome.tags.as_ref().expect("a tag outcome").dropped, 2);
 }
 
@@ -1406,8 +1404,9 @@ fn undoing_the_collect_restores_the_peers_block() {
     assert_eq!(read.artist, "Unknown Artist");
     assert_eq!(read.title, "Track 01");
     assert_eq!(read.album, "www.something.ru");
+    assert_eq!(read.year, "2016-11-02");
     let extras = tags::read_extras(&path).expect("readable extras");
-    assert_eq!(extras.len(), 3);
+    assert_eq!(extras.len(), 2);
     assert!(extras
         .iter()
         .any(|extra| extra.value == "ripped by someone"));
@@ -1430,7 +1429,8 @@ fn fill_writes_only_what_the_peer_left_empty() {
     assert_eq!(read.title, "Roki");
     assert_eq!(read.artist, "Unknown Artist");
     assert_eq!(read.album, "www.something.ru");
-    assert_eq!(tags::read_extras(&path).expect("readable extras").len(), 3);
+    assert_eq!(read.year, "2016-11-02");
+    assert_eq!(tags::read_extras(&path).expect("readable extras").len(), 2);
     let retagged = outcome.tags.as_ref().expect("a tag outcome");
     assert_eq!(retagged.fields, vec![TagField::Title]);
     assert_eq!(retagged.dropped, 0);

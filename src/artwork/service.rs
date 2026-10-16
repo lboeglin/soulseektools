@@ -1,6 +1,8 @@
 //! Finding, verifying and embedding cover art for a library.
 
-use crate::artwork::base::{select, ArtProvider, ArtSelection};
+use std::path::{Path, PathBuf};
+
+use crate::artwork::base::{select, ArtCandidate, ArtProvider, ArtSelection};
 use crate::artwork::coverartarchive::{self, CoverArtArchiveProvider};
 use crate::artwork::itunes::{self, ITunesProvider};
 use crate::config::ArtworkSettings;
@@ -26,6 +28,8 @@ pub struct ArtworkResult {
     pub entry: LibraryEntry,
     pub selection: ArtSelection,
     pub artwork: Option<Artwork>,
+    /// The release year this fills into a file that has none.
+    pub year: Option<String>,
     pub error: String,
 }
 
@@ -133,6 +137,7 @@ pub fn find_artwork(
             entry: entry.clone(),
             selection,
             artwork: None,
+            year: None,
             error: String::new(),
         };
     };
@@ -142,21 +147,36 @@ pub fn find_artwork(
             entry: entry.clone(),
             selection,
             artwork: None,
+            year: None,
             error: error.to_string(),
         },
         Ok(artwork) if artwork.data.len() < settings.min_bytes => ArtworkResult {
             entry: entry.clone(),
             selection,
             artwork: None,
+            year: None,
             error: format!("downloaded image is only {} bytes", artwork.data.len()),
         },
         Ok(artwork) => ArtworkResult {
             entry: entry.clone(),
             selection,
             artwork: Some(artwork),
+            year: year_to_fill(entry, &candidate, settings),
             error: String::new(),
         },
     }
+}
+
+/// Only from a match whose artist was verified, so a wrong cover can't bring a wrong year.
+fn year_to_fill(
+    entry: &LibraryEntry,
+    candidate: &ArtCandidate,
+    settings: &ArtworkSettings,
+) -> Option<String> {
+    (settings.fill_year && settings.require_artist_match && entry.tags.year.is_empty())
+        .then_some(candidate.year)
+        .flatten()
+        .map(|year| format!("{year:04}"))
 }
 
 /// The type comes from the bytes, not the headers.
@@ -166,6 +186,67 @@ pub fn download(http: &dyn ServiceHttp, url: &str) -> Result<Artwork> {
         mime: detect_mime(&data).to_owned(),
         data,
     })
+}
+
+/// A cover chosen by hand, from a file or an `http(s)` URL, refused unless it
+/// decodes as JPEG or PNG and reaches `min_bytes`. The warning is for an image
+/// under `preferred_size`, which is embedded anyway.
+pub fn load_image(
+    source: &str,
+    http: &dyn ServiceHttp,
+    settings: &ArtworkSettings,
+) -> Result<(Artwork, Option<String>)> {
+    let refused = |reason: String| Error::Config(format!("{source}: {reason}"));
+    let data = if source.starts_with("http://") || source.starts_with("https://") {
+        http.get_bytes(source)?
+    } else {
+        std::fs::read(source).map_err(|error| refused(error.to_string()))?
+    };
+
+    let format = image::guess_format(&data)
+        .ok()
+        .filter(|format| matches!(format, image::ImageFormat::Jpeg | image::ImageFormat::Png))
+        .ok_or_else(|| refused("not a JPEG or PNG image".to_owned()))?;
+    let decoded = image::load_from_memory_with_format(&data, format)
+        .map_err(|error| refused(format!("not a readable image: {error}")))?;
+    if data.len() < settings.min_bytes {
+        return Err(refused(format!(
+            "only {} bytes, under artwork.min_bytes ({})",
+            data.len(),
+            settings.min_bytes
+        )));
+    }
+
+    let (width, height) = (decoded.width(), decoded.height());
+    let warning = (width.min(height) < settings.preferred_size).then(|| {
+        format!(
+            "{width}x{height} is under artwork.preferred_size ({})",
+            settings.preferred_size
+        )
+    });
+    Ok((
+        Artwork {
+            mime: detect_mime(&data).to_owned(),
+            data,
+        },
+        warning,
+    ))
+}
+
+/// A file is its own target; a folder gives the files directly inside it that
+/// can carry a cover, since an artist folder may mix albums below.
+pub fn cover_targets(path: &Path) -> Result<Vec<PathBuf>> {
+    if path.is_file() {
+        return Ok(vec![path.to_path_buf()]);
+    }
+    let listing = std::fs::read_dir(path)
+        .map_err(|error| Error::Config(format!("{}: {error}", path.display())))?;
+    let mut files: Vec<PathBuf> = listing
+        .filter_map(|item| Some(item.ok()?.path()))
+        .filter(|file| file.is_file() && tags::carries_artwork(file))
+        .collect();
+    files.sort();
+    Ok(files)
 }
 
 #[must_use]

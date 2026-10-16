@@ -94,9 +94,113 @@ fn full_tags() -> TrackTags {
         artist: "DECO*27".to_owned(),
         album_artist: "DECO*27".to_owned(),
         album: "Ghost".to_owned(),
+        year: "1998-09-09".to_owned(),
         title: "Roki".to_owned(),
         genres: vec!["Vocaloid".to_owned()],
         track_number: Some(3),
+    }
+}
+
+#[test]
+fn clearing_the_year_removes_it_from_every_container() {
+    // Regression: lofty reads an MP3's TDRC as a timestamp, so the write took
+    // the frame for absent and left it.
+    let scratch = Scratch::new("tags-year-clear");
+    for suffix in TAGGABLE {
+        let path = encode(&scratch.join(&format!("t.{suffix}")), &Encoded::default());
+        tags::write_tags(&path, &full_tags()).expect("written tags");
+
+        let mut cleared = full_tags();
+        cleared.year = String::new();
+        tags::write_tags(&path, &cleared).expect("a cleared year");
+
+        assert_eq!(
+            tags::read_tags(&path).expect("readable tags"),
+            cleared,
+            "{suffix}"
+        );
+    }
+}
+
+#[test]
+fn a_date_is_a_year_a_month_or_a_day() {
+    for valid in ["2000", "2000-09", "1998-09-09", "0999"] {
+        assert!(tags::is_date(valid), "{valid}");
+    }
+    for invalid in [
+        "",
+        "20000",
+        "200",
+        "2000/01",
+        "2000-13",
+        "2000-00",
+        "2000-1",
+        "2000-09-32",
+        "2000-09-9",
+        "year",
+        "2000-01-01T08:00:00Z",
+    ] {
+        assert!(!tags::is_date(invalid), "{invalid}");
+    }
+}
+
+#[test]
+fn an_id3v23_year_frame_reads_as_the_year_and_can_be_rewritten() {
+    let scratch = Scratch::new("tags-tyer");
+    let path = encode(&scratch.join("t.mp3"), &Encoded::default());
+    let mut frame = vec![0];
+    frame.extend(b"2000");
+    let mut tag = b"ID3\x03\x00\x00".to_vec();
+    tag.extend(syncsafe(10 + frame.len()));
+    tag.extend(b"TYER");
+    tag.extend(
+        u32::try_from(frame.len())
+            .expect("a small frame")
+            .to_be_bytes(),
+    );
+    tag.extend([0, 0]);
+    tag.extend(&frame);
+    let audio = std::fs::read(&path).expect("a readable file");
+    std::fs::write(&path, [tag, audio].concat()).expect("a written file");
+
+    let mut read = tags::read_tags(&path).expect("readable tags");
+    assert_eq!(read.year, "2000");
+
+    read.year = "2001-05".to_owned();
+    tags::write_tags(&path, &read).expect("a rewritten year");
+    assert_eq!(
+        tags::read_tags(&path).expect("readable tags").year,
+        "2001-05"
+    );
+}
+
+#[test]
+fn the_date_is_a_managed_field_not_an_extra() {
+    let scratch = Scratch::new("tags-date-managed");
+    for suffix in TAGGABLE {
+        let path = encode(
+            &scratch.join(&format!("t.{suffix}")),
+            &Encoded {
+                metadata: &[("date", "2016-11-02"), ("comment", "ripped by someone")],
+                ..Encoded::default()
+            },
+        );
+
+        assert_eq!(
+            tags::read_tags(&path).expect("readable tags").year,
+            "2016-11-02",
+            "{suffix}"
+        );
+        let extras = tags::read_extras(&path).expect("readable extras");
+        assert_eq!(extras.len(), 1, "{suffix}: {extras:?}");
+        assert!(!tags::is_managed_extra(&extras[0]), "{suffix}");
+
+        tags::write_extras(&path, &[]).expect("stripped extras");
+        assert_eq!(
+            tags::read_tags(&path).expect("readable tags").year,
+            "2016-11-02",
+            "{suffix}"
+        );
     }
 }
 

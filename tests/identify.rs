@@ -130,7 +130,7 @@ fn lookup(name: &str) -> Vec<stk::identify::acoustid::Hit> {
 
 fn matched(outcome: Outcome) -> Match {
     match outcome {
-        Outcome::Match(found) => found,
+        Outcome::Match(found) => *found,
         other => panic!("expected a match, got {other:?}"),
     }
 }
@@ -347,7 +347,7 @@ fn edits_set_what_the_release_says_and_leave_what_it_cannot() {
     let identifications = [
         Identification {
             entry: entry("Music/DECO_27/00 - DECO_27 - Ghost Rule.flac", ""),
-            outcome: Outcome::Match(found),
+            outcome: Outcome::Match(Box::new(found)),
         },
         Identification {
             entry: entry("Music/X/b.flac", ""),
@@ -374,4 +374,41 @@ fn edits_set_what_the_release_says_and_leave_what_it_cannot() {
         .cells
         .iter()
         .all(|(field, _)| *field != TagField::Genres));
+}
+
+#[test]
+fn the_release_year_fills_a_file_without_one_and_leaves_another_alone() {
+    let path =
+        "Music/Dave Rodgers/Super Eurobeat Presents Initial D World Hits Selection 3/01.flac";
+    let found = matched(choose(
+        &lookup("deja-vu.json"),
+        &entry(path, ""),
+        &settings(),
+    ));
+    assert_eq!(found.proposed.year, "2020");
+    let mut dated = entry(path, "");
+    dated.tags.year = "1999-12-01".to_owned();
+    let identifications = [
+        Identification {
+            entry: entry(path, ""),
+            outcome: Outcome::Match(Box::new(found.clone())),
+        },
+        Identification {
+            entry: dated,
+            outcome: Outcome::Match(Box::new(found)),
+        },
+    ];
+
+    let edits = edits(&identifications);
+
+    let year = |index: usize| {
+        edits[index]
+            .cells
+            .iter()
+            .find(|(field, _)| *field == TagField::Year)
+            .map(|(_, cell)| cell.clone())
+            .expect("a year cell")
+    };
+    assert_eq!(year(0), Cell::Set("2020".to_owned()));
+    assert_eq!(year(1), Cell::Untouched);
 }

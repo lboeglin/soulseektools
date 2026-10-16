@@ -53,6 +53,11 @@ fn tags_of(file: &TaggedFile) -> TrackTags {
             .unwrap_or_default()
             .to_owned(),
         album: tag.album().unwrap_or_default().into_owned(),
+        year: tag
+            .get_string(&ItemKey::RecordingDate)
+            .unwrap_or_default()
+            .trim()
+            .to_owned(),
         title: tag.title().unwrap_or_default().into_owned(),
         genres: tag
             .get_strings(&ItemKey::Genre)
@@ -190,7 +195,7 @@ pub struct Described {
 
 pub fn describe_file(path: &Path) -> Result<Described> {
     let file = read_file(path)?;
-    let artwork_bytes = if require_artwork_container(path).is_ok() {
+    let artwork_bytes = if carries_artwork(path) {
         artwork_of(&file).map_or(0, |artwork| artwork.data.len() as u64)
     } else {
         0
@@ -221,16 +226,18 @@ pub enum TagField {
     Artist,
     AlbumArtist,
     Album,
+    Year,
     Title,
     TrackNumber,
     Genres,
 }
 
 impl TagField {
-    pub const ALL: [Self; 6] = [
+    pub const ALL: [Self; 7] = [
         Self::Artist,
         Self::AlbumArtist,
         Self::Album,
+        Self::Year,
         Self::Title,
         Self::TrackNumber,
         Self::Genres,
@@ -242,6 +249,7 @@ impl TagField {
             Self::Artist => "artist",
             Self::AlbumArtist => "album_artist",
             Self::Album => "album",
+            Self::Year => "year",
             Self::Title => "title",
             Self::TrackNumber => "track_number",
             Self::Genres => "genres",
@@ -254,6 +262,7 @@ impl TagField {
             Self::Artist => tags.artist.clone(),
             Self::AlbumArtist => tags.album_artist.clone(),
             Self::Album => tags.album.clone(),
+            Self::Year => tags.year.clone(),
             Self::Title => tags.title.clone(),
             Self::TrackNumber => tags
                 .track_number
@@ -270,6 +279,7 @@ impl TagField {
             Self::Artist => value.clone_into(&mut tags.artist),
             Self::AlbumArtist => value.clone_into(&mut tags.album_artist),
             Self::Album => value.clone_into(&mut tags.album),
+            Self::Year => value.clone_into(&mut tags.year),
             Self::Title => value.clone_into(&mut tags.title),
             Self::TrackNumber => tags.track_number = value.parse().ok(),
             Self::Genres => {
@@ -303,12 +313,32 @@ impl FromStr for TagField {
 
 pub const GENRE_SEPARATOR: &str = "; ";
 
+/// `YYYY`, `YYYY-MM` or `YYYY-MM-DD`: the forms every tag format agrees on.
+#[must_use]
+pub fn is_date(value: &str) -> bool {
+    let number = |part: &str, digits: usize, range: std::ops::RangeInclusive<u32>| {
+        part.len() == digits
+            && part.chars().all(|c| c.is_ascii_digit())
+            && part.parse().is_ok_and(|number| range.contains(&number))
+    };
+    let parts: Vec<&str> = value.split('-').collect();
+    match parts.as_slice() {
+        [year] => number(year, 4, 0..=9999),
+        [year, month] => number(year, 4, 0..=9999) && number(month, 2, 1..=12),
+        [year, month, day] => {
+            number(year, 4, 0..=9999) && number(month, 2, 1..=12) && number(day, 2, 1..=31)
+        }
+        _ => false,
+    }
+}
+
 /// Total rather than a patch: an empty value removes the key. Pictures are left alone.
 pub fn write_tags(path: &Path, tags: &TrackTags) -> Result<()> {
     if let Some(mut file) = NativeFile::open(path)? {
         file.set(Field::Artist, &[&tags.artist]);
         file.set(Field::AlbumArtist, &[&tags.album_artist]);
         file.set(Field::Album, &[&tags.album]);
+        file.set(Field::Date, &[&tags.year]);
         file.set(Field::Title, &[&tags.title]);
         file.set_track(tags.track_number);
         let genres: Vec<&str> = tags.genres.iter().map(String::as_str).collect();
@@ -324,6 +354,7 @@ pub fn write_tags(path: &Path, tags: &TrackTags) -> Result<()> {
         (ItemKey::TrackArtist, tags.artist.as_str()),
         (ItemKey::AlbumArtist, tags.album_artist.as_str()),
         (ItemKey::AlbumTitle, tags.album.as_str()),
+        (ItemKey::RecordingDate, tags.year.as_str()),
         (ItemKey::TrackTitle, tags.title.as_str()),
     ] {
         tag.remove_key(&key);
@@ -403,6 +434,7 @@ fn is_kept(key: &ItemKey) -> bool {
             | ItemKey::TrackArtist
             | ItemKey::AlbumArtist
             | ItemKey::AlbumTitle
+            | ItemKey::RecordingDate
             | ItemKey::TrackTitle
             | ItemKey::TrackNumber
             | ItemKey::TrackTotal
@@ -412,6 +444,15 @@ fn is_kept(key: &ItemKey) -> bool {
     ) || REPLAY_GAIN_KEYS.contains(key)
         || *key == unknown_key(R128_TRACK_GAIN)
         || *key == unknown_key(R128_ALBUM_GAIN)
+}
+
+/// Whether a logged extra is now a managed field: the date, which older
+/// builds read as an extra.
+#[must_use]
+pub fn is_managed_extra(extra: &Extra) -> bool {
+    ["DATE", "TDRC", "\u{a9}day"]
+        .iter()
+        .any(|key| key.eq_ignore_ascii_case(&extra.key))
 }
 
 /// Binary items are skipped.
@@ -600,6 +641,11 @@ pub fn write_replay_gain(path: &Path, gain: &ReplayGainTags) -> Result<()> {
 /// nothing for a WAV; refusing instead stops `art fetch` believing it embedded.
 const ARTWORK_EXTENSIONS: &[&str] = &[".flac", ".mp3", ".m4a", ".mp4", ".ogg", ".opus"];
 
+#[must_use]
+pub fn carries_artwork(path: &Path) -> bool {
+    require_artwork_container(path).is_ok()
+}
+
 fn require_artwork_container(path: &Path) -> Result<()> {
     let suffix = path
         .extension()
@@ -733,6 +779,7 @@ enum Field {
     Artist,
     AlbumArtist,
     Album,
+    Date,
     Title,
     Genre,
 }
@@ -743,6 +790,7 @@ impl Field {
             Self::Artist => "ARTIST",
             Self::AlbumArtist => "ALBUMARTIST",
             Self::Album => "ALBUM",
+            Self::Date => "DATE",
             Self::Title => "TITLE",
             Self::Genre => "GENRE",
         }
@@ -753,6 +801,7 @@ impl Field {
             Self::Artist => "TPE1",
             Self::AlbumArtist => "TPE2",
             Self::Album => "TALB",
+            Self::Date => "TDRC",
             Self::Title => "TIT2",
             Self::Genre => "TCON",
         }
@@ -763,6 +812,7 @@ impl Field {
             Self::Artist => *b"\xa9ART",
             Self::AlbumArtist => *b"aART",
             Self::Album => *b"\xa9alb",
+            Self::Date => *b"\xa9day",
             Self::Title => *b"\xa9nam",
             Self::Genre => *b"\xa9gen",
         }
@@ -1054,7 +1104,13 @@ fn set_id3_text(tag: &mut lofty::id3::v2::Id3v2Tag, id: &'static str, value: &st
     use lofty::id3::v2::{Frame, FrameId, TextInformationFrame};
 
     let frame_id = FrameId::Valid(id.into());
-    if tag.get_text(&frame_id).unwrap_or_default() == value {
+    // lofty reads a date frame such as TDRC as a timestamp, not as text.
+    let current = match tag.get(&frame_id) {
+        Some(Frame::Text(text)) => text.value.clone(),
+        Some(Frame::Timestamp(date)) => date.timestamp.to_string(),
+        _ => String::new(),
+    };
+    if current == value {
         return;
     }
     tag.remove(&frame_id).for_each(drop);
@@ -1251,6 +1307,7 @@ const VORBIS_KEPT: &[&str] = &[
     "ARTIST",
     "ALBUMARTIST",
     "ALBUM",
+    "DATE",
     "TITLE",
     "TRACKNUMBER",
     "TRACKTOTAL",

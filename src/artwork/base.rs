@@ -11,6 +11,8 @@ pub struct ArtCandidate {
     pub title: String,
     pub source: String,
     pub album: String,
+    /// The release's year, when the provider gives one.
+    pub year: Option<u32>,
 }
 
 impl ArtCandidate {
@@ -18,6 +20,18 @@ impl ArtCandidate {
     pub fn artist_similarity(&self, wanted: &str) -> f64 {
         similarity(&NameForms::of(&self.artist), &NameForms::of(wanted))
     }
+}
+
+/// The year a provider's date starts with: only the year, since a reissue
+/// often carries the original's year with its own month and day.
+#[must_use]
+pub fn leading_year(value: Option<&serde_json::Value>) -> Option<u32> {
+    let date = value?.as_str()?;
+    let year = date.get(..4)?;
+    let tail = date.get(4..).unwrap_or_default();
+    (crate::library::tags::is_date(year) && (tail.is_empty() || tail.starts_with('-')))
+        .then(|| year.parse().ok())
+        .flatten()
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

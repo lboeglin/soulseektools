@@ -3,7 +3,7 @@
 
 use serde_json::Value;
 
-use crate::artwork::base::{ArtCandidate, ArtProvider};
+use crate::artwork::base::{leading_year, ArtCandidate, ArtProvider};
 use crate::errors::Result;
 use crate::services::{RateLimiter, ServiceHttp};
 
@@ -77,6 +77,7 @@ impl ArtProvider for ITunesProvider {
                     artist: text(result.get("artistName")),
                     title: text(result.get("trackName")),
                     album: text(result.get("collectionName")),
+                    year: leading_year(result.get("releaseDate")),
                     source: self.name().to_owned(),
                 })
             })

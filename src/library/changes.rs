@@ -21,6 +21,7 @@ pub enum ChangeField {
     Artist,
     AlbumArtist,
     Album,
+    Year,
     Title,
     TrackNumber,
     Move,
@@ -28,13 +29,14 @@ pub enum ChangeField {
 }
 
 impl ChangeField {
-    pub const ALL: [Self; 10] = [
+    pub const ALL: [Self; 11] = [
         Self::Genre,
         Self::Artwork,
         Self::ReplayGain,
         Self::Artist,
         Self::AlbumArtist,
         Self::Album,
+        Self::Year,
         Self::Title,
         Self::TrackNumber,
         Self::Move,
@@ -50,6 +52,7 @@ impl ChangeField {
             Self::Artist => "artist",
             Self::AlbumArtist => "album_artist",
             Self::Album => "album",
+            Self::Year => "year",
             Self::Title => "title",
             Self::TrackNumber => "track_number",
             Self::Move => "move",
@@ -64,6 +67,7 @@ impl ChangeField {
             TagField::Artist => Self::Artist,
             TagField::AlbumArtist => Self::AlbumArtist,
             TagField::Album => Self::Album,
+            TagField::Year => Self::Year,
             TagField::Title => Self::Title,
             TagField::TrackNumber => Self::TrackNumber,
         }
@@ -368,6 +372,7 @@ pub fn plan_undo(index: &LibraryIndex, change: Change) -> Result<UndoPlan> {
         ChangeField::Artist => planned_tag(&change, TagField::Artist)?,
         ChangeField::AlbumArtist => planned_tag(&change, TagField::AlbumArtist)?,
         ChangeField::Album => planned_tag(&change, TagField::Album)?,
+        ChangeField::Year => planned_tag(&change, TagField::Year)?,
         ChangeField::Title => planned_tag(&change, TagField::Title)?,
         ChangeField::TrackNumber => planned_tag(&change, TagField::TrackNumber)?,
         ChangeField::Move => {
@@ -390,7 +395,11 @@ pub fn plan_undo(index: &LibraryIndex, change: Change) -> Result<UndoPlan> {
         }
     };
 
-    let blocked = if current == change.new_value {
+    let logged = match field {
+        ChangeField::Extras => Some(encode_extras(&decode_extras(change.new_value.as_deref()))),
+        _ => change.new_value.clone(),
+    };
+    let blocked = if current == logged {
         // For a move, the hazard is that the original location is taken.
         match field {
             ChangeField::Move => source_occupied(&change),
@@ -429,10 +438,13 @@ pub fn apply_undo(
         ChangeField::Artwork => {
             let current = tags::read_artwork(&change.path)?;
             let restored = match &change.old_value {
-                Some(sha) => Some(Artwork {
-                    data: load_blob(index, sha)?,
-                    mime: "image/jpeg".to_owned(),
-                }),
+                Some(sha) => {
+                    let data = load_blob(index, sha)?;
+                    Some(Artwork {
+                        mime: crate::artwork::service::detect_mime(&data).to_owned(),
+                        data,
+                    })
+                }
                 None => None,
             };
             match &restored {
@@ -450,6 +462,7 @@ pub fn apply_undo(
         ChangeField::Artist => restore_tag(index, change, log, TagField::Artist)?,
         ChangeField::AlbumArtist => restore_tag(index, change, log, TagField::AlbumArtist)?,
         ChangeField::Album => restore_tag(index, change, log, TagField::Album)?,
+        ChangeField::Year => restore_tag(index, change, log, TagField::Year)?,
         ChangeField::Title => restore_tag(index, change, log, TagField::Title)?,
         ChangeField::TrackNumber => restore_tag(index, change, log, TagField::TrackNumber)?,
         ChangeField::Move => {
@@ -566,11 +579,15 @@ pub fn encode_extras(extras: &[Extra]) -> String {
     serde_json::to_string(extras).unwrap_or_else(|_| "[]".to_owned())
 }
 
+/// Without the fields stk now manages, which an older build logged as extras.
 #[must_use]
 pub fn decode_extras(value: Option<&str>) -> Vec<Extra> {
     value
-        .and_then(|text| serde_json::from_str(text).ok())
+        .and_then(|text| serde_json::from_str::<Vec<Extra>>(text).ok())
         .unwrap_or_default()
+        .into_iter()
+        .filter(|extra| !tags::is_managed_extra(extra))
+        .collect()
 }
 
 #[must_use]

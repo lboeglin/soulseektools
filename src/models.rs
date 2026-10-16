@@ -15,6 +15,8 @@ pub struct TrackTags {
     pub artist: String,
     pub album_artist: String,
     pub album: String,
+    /// As the file spells it, such as `2000` or `2000-09-09`.
+    pub year: String,
     pub title: String,
     pub genres: Vec<String>,
     pub track_number: Option<i64>,

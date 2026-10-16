@@ -25,6 +25,8 @@ pub enum Blanks {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TagEdit {
     pub path: PathBuf,
+    /// The sheet line the row was read from; `None` for an edit stk proposed.
+    pub line: Option<u64>,
     pub cells: Vec<(TagField, Cell)>,
 }
 
@@ -127,6 +129,9 @@ pub fn read_sheet(sheet: &Path, blanks: Blanks) -> Result<Vec<TagEdit>> {
 
         edits.push(TagEdit {
             path: PathBuf::from(path),
+            line: record
+                .position()
+                .map(|position| line_at(bytes, position.byte())),
             cells: columns
                 .iter()
                 .map(|(index, field)| (*field, cell(record.get(*index), blanks)))
@@ -134,6 +139,14 @@ pub fn read_sheet(sheet: &Path, blanks: Blanks) -> Result<Vec<TagEdit>> {
         });
     }
     Ok(edits)
+}
+
+/// The csv crate's own line count lags a line after a `\r\n` terminator, which
+/// the dump writes. A record starts after the `\n` ending the line before it,
+/// or on it when the `\r` already ended that record.
+fn line_at(bytes: &[u8], byte: u64) -> u64 {
+    let end = usize::try_from(byte).map_or(bytes.len(), |byte| (byte + 1).min(bytes.len()));
+    bytes[..end].split(|byte| *byte == b'\n').count() as u64
 }
 
 fn cell(value: Option<&str>, blanks: Blanks) -> Cell {
@@ -187,6 +200,31 @@ pub fn plan_changes(edits: &[TagEdit], entries: &[LibraryEntry]) -> Vec<PlannedE
                 proposed,
                 fields,
             }))
+        })
+        .collect()
+}
+
+/// A year the plan would write that isn't a date, one message per row. Only a
+/// changed year is checked, so a dump's own odd value can go back as it came.
+#[must_use]
+pub fn invalid_years(planned: &[PlannedEdit]) -> Vec<String> {
+    planned
+        .iter()
+        .filter_map(|edit| match edit {
+            PlannedEdit::Change(change) => Some(change),
+            PlannedEdit::Skip { .. } => None,
+        })
+        .filter(|change| change.fields.contains(&TagField::Year))
+        .filter(|change| !change.proposed.year.is_empty() && !tags::is_date(&change.proposed.year))
+        .map(|change| {
+            let row = change.edit.line.map_or_else(
+                || change.edit.path.display().to_string(),
+                |line| format!("line {line}"),
+            );
+            format!(
+                "{row}: year '{}' is not YYYY, YYYY-MM or YYYY-MM-DD",
+                change.proposed.year
+            )
         })
         .collect()
 }

@@ -17,7 +17,7 @@ use crate::matching::NameForms;
 use crate::models::{LibraryEntry, ReplayGainTags, TrackTags, Verdict};
 use crate::text::normalize::strip_artist_prefix;
 
-pub const SCHEMA_VERSION: i64 = 8;
+pub const SCHEMA_VERSION: i64 = 9;
 
 /// The oldest version this upgrades in place rather than refusing.
 pub const MINIMUM_SCHEMA_VERSION: i64 = 2;
@@ -118,6 +118,11 @@ const V7_COLUMNS: &[(&str, &str)] = &[("isrc", "TEXT")];
 /// Set while the v7 column still holds nothing for rows an older build wrote.
 const ISRC_BACKFILL_PENDING: &str = "isrc_backfill_pending";
 
+const V9_COLUMNS: &[(&str, &str)] = &[("tag_year", "TEXT NOT NULL DEFAULT ''")];
+
+/// Set while the v9 column still holds nothing for rows an older build wrote.
+const YEAR_BACKFILL_PENDING: &str = "year_backfill_pending";
+
 /// Nullable: an older measurement didn't count this, which isn't the same as zero.
 const V6_SNAPSHOT_COLUMNS: &[(&str, &str)] = &[("with_replay_gain", "INTEGER")];
 
@@ -131,6 +136,7 @@ const COLUMNS: &[&str] = &[
     "tag_artist",
     "tag_album_artist",
     "tag_album",
+    "tag_year",
     "tag_title",
     "tag_genres",
     "tag_track_number",
@@ -357,9 +363,11 @@ impl LibraryIndex {
         let loudness_columns_added = add_missing_columns(&connection, "files", V6_COLUMNS)?;
         add_missing_columns(&connection, "snapshots", V6_SNAPSHOT_COLUMNS)?;
         let isrc_column_added = add_missing_columns(&connection, "files", V7_COLUMNS)?;
+        let year_column_added = add_missing_columns(&connection, "files", V9_COLUMNS)?;
         for (added, key) in [
             (loudness_columns_added, BACKFILL_PENDING),
             (isrc_column_added, ISRC_BACKFILL_PENDING),
+            (year_column_added, YEAR_BACKFILL_PENDING),
         ] {
             if added {
                 connection
@@ -425,7 +433,10 @@ impl LibraryIndex {
         mut on_file: Option<&mut dyn FnMut(&Path)>,
     ) -> Result<RefreshResult> {
         self.backfill_replay_gain()?;
-        self.backfill_isrc()?;
+        self.backfill_column(ISRC_BACKFILL_PENDING, "isrc", tags::read_isrc)?;
+        self.backfill_column(YEAR_BACKFILL_PENDING, "tag_year", |path| {
+            Ok(Some(tags::read_tags(path)?.year))
+        })?;
 
         let known: HashMap<String, (i64, f64)> = self
             .connection
@@ -542,17 +553,23 @@ impl LibraryIndex {
         Ok(())
     }
 
-    fn backfill_isrc(&mut self) -> Result<()> {
-        let pending: Option<String> = self
+    /// The one-off fill of a single column added by a migration, while `pending` is set.
+    fn backfill_column(
+        &mut self,
+        pending: &str,
+        column: &str,
+        read: impl Fn(&Path) -> Result<Option<String>>,
+    ) -> Result<()> {
+        let flagged: Option<String> = self
             .connection
             .query_row(
                 "SELECT value FROM meta WHERE key = ?1",
-                params![ISRC_BACKFILL_PENDING],
+                params![pending],
                 |row| row.get(0),
             )
             .optional()
             .map_err(|error| sqlite_error(&error))?;
-        if pending.is_none() {
+        if flagged.is_none() {
             return Ok(());
         }
 
@@ -566,21 +583,18 @@ impl LibraryIndex {
             .transaction()
             .map_err(|error| sqlite_error(&error))?;
         for path in paths {
-            let Ok(isrc) = tags::read_isrc(Path::new(&path)) else {
+            let Ok(value) = read(Path::new(&path)) else {
                 continue;
             };
             transaction
                 .execute(
-                    "UPDATE files SET isrc = ?2 WHERE path = ?1",
-                    params![path, isrc],
+                    &format!("UPDATE files SET {column} = ?2 WHERE path = ?1"),
+                    params![path, value],
                 )
                 .map_err(|error| sqlite_error(&error))?;
         }
         transaction
-            .execute(
-                "DELETE FROM meta WHERE key = ?1",
-                params![ISRC_BACKFILL_PENDING],
-            )
+            .execute("DELETE FROM meta WHERE key = ?1", params![pending])
             .map_err(|error| sqlite_error(&error))?;
         transaction.commit().map_err(|error| sqlite_error(&error))?;
         Ok(())
@@ -987,6 +1001,7 @@ impl LibraryIndex {
                     entry.tags.artist,
                     entry.tags.album_artist,
                     entry.tags.album,
+                    entry.tags.year,
                     entry.tags.title,
                     serde_json::to_string(&entry.tags.genres).unwrap_or_else(|_| "[]".to_owned()),
                     entry.tags.track_number,
@@ -1029,6 +1044,7 @@ fn row_to_entry(row: &rusqlite::Row<'_>) -> rusqlite::Result<LibraryEntry> {
             artist: row.get("tag_artist")?,
             album_artist: row.get("tag_album_artist")?,
             album: row.get("tag_album")?,
+            year: row.get("tag_year")?,
             title: row.get("tag_title")?,
             genres: serde_json::from_str(&genres).unwrap_or_default(),
             track_number: row.get("tag_track_number")?,
