@@ -13,7 +13,7 @@ use stk::artwork::base::{select, ArtCandidate, ArtProvider};
 use stk::artwork::coverartarchive::CoverArtArchiveProvider;
 use stk::artwork::itunes::ITunesProvider;
 use stk::artwork::service::{
-    audit, build_providers, cover_targets, detect_mime, embed, find_artwork, load_image,
+    audit, build_providers, cover_targets, detect_mime, embed, fill_year, find_artwork, load_image,
     ArtworkResult,
 };
 use stk::config::ArtworkSettings;
@@ -582,4 +582,38 @@ fn a_folder_gives_the_covered_files_directly_inside_it() {
         vec![mp3, flac.clone()]
     );
     assert_eq!(cover_targets(&flac).expect("a file"), vec![flac]);
+}
+
+#[test]
+fn a_filled_year_is_logged_never_overwrites_and_can_be_undone() {
+    use stk::library::changes::{apply_undo, plan_undo, ChangeFilter, ChangeLog};
+    use stk::library::index::LibraryIndex;
+    use stk::library::tags;
+
+    let scratch = Scratch::new("artwork-fill-year");
+    let root = scratch.join("Music");
+    let track = encode(
+        &root.join("Rhapsody").join("Dawn of Victory.flac"),
+        &Encoded::default(),
+    );
+    let mut index = LibraryIndex::open(&scratch.join("library.db")).expect("an index");
+    let log = ChangeLog::open(&index, "art fetch", 100.0).expect("a run");
+
+    assert!(fill_year(&mut index, &log, &track, "2000").expect("a written year"));
+    assert!(!fill_year(&mut index, &log, &track, "2017").expect("a kept year"));
+    assert_eq!(tags::read_tags(&track).expect("readable tags").year, "2000");
+
+    let changes = index
+        .changes(&ChangeFilter::default())
+        .expect("the logged rows");
+    assert_eq!(changes.len(), 1);
+    assert_eq!(
+        (changes[0].command.as_str(), changes[0].field.as_str()),
+        ("art fetch", "year")
+    );
+
+    let plan = plan_undo(&index, changes[0].clone()).expect("a plan");
+    let undo = ChangeLog::open(&index, "changes undo", 200.0).expect("a run");
+    apply_undo(&mut index, &plan, &undo, &[root]).expect("an undo");
+    assert_eq!(tags::read_tags(&track).expect("readable tags").year, "");
 }

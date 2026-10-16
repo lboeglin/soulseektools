@@ -7,7 +7,9 @@ use crate::artwork::coverartarchive::{self, CoverArtArchiveProvider};
 use crate::artwork::itunes::{self, ITunesProvider};
 use crate::config::ArtworkSettings;
 use crate::errors::{Error, Result};
-use crate::library::tags;
+use crate::library::changes::ChangeLog;
+use crate::library::index::LibraryIndex;
+use crate::library::tags::{self, TagField};
 use crate::models::{Artwork, LibraryEntry};
 use crate::services::ServiceHttp;
 
@@ -177,6 +179,25 @@ fn year_to_fill(
         .then_some(candidate.year)
         .flatten()
         .map(|year| format!("{year:04}"))
+}
+
+/// Logged like any tag write. False when the file gained a year since it was
+/// indexed: that one stays.
+pub fn fill_year(
+    index: &mut LibraryIndex,
+    log: &ChangeLog,
+    path: &Path,
+    year: &str,
+) -> Result<bool> {
+    let before = tags::read_tags(path)?;
+    if !before.year.is_empty() {
+        return Ok(false);
+    }
+    let mut after = before.clone();
+    TagField::Year.set(&mut after, year);
+    tags::write_tags(path, &after)?;
+    log.tag(index, path, TagField::Year, &before, &after)?;
+    Ok(true)
 }
 
 /// The type comes from the bytes, not the headers.

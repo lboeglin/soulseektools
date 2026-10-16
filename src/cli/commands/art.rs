@@ -12,7 +12,7 @@ use crate::config::ArtworkSettings;
 use crate::errors::Result;
 use crate::library::changes::{digest, ChangeLog};
 use crate::library::index::LibraryIndex;
-use crate::library::tags::{self, TagField};
+use crate::library::tags;
 use crate::models::LibraryEntry;
 use crate::services::HttpTransport;
 
@@ -311,7 +311,7 @@ pub(crate) fn fetch_covers(
                     result.artwork.as_ref(),
                 )?;
                 if let Some(year) = result.year.clone() {
-                    match fill_year(index, &log, &entry.path, &year) {
+                    match service::fill_year(index, &log, &entry.path, &year) {
                         Ok(true) => {}
                         Ok(false) => result.year = None,
                         Err(error) => {
@@ -327,19 +327,6 @@ pub(crate) fn fetch_covers(
         results.push(result);
     }
     Ok(results)
-}
-
-/// False when the file gained a year since it was indexed: that one stays.
-fn fill_year(index: &mut LibraryIndex, log: &ChangeLog, path: &Path, year: &str) -> Result<bool> {
-    let before = tags::read_tags(path)?;
-    if !before.year.is_empty() {
-        return Ok(false);
-    }
-    let mut after = before.clone();
-    TagField::Year.set(&mut after, year);
-    tags::write_tags(path, &after)?;
-    log.tag(index, path, TagField::Year, &before, &after)?;
-    Ok(true)
 }
 
 pub(crate) fn artwork_row(result: &ArtworkResult, applied: bool) -> serde_json::Value {
