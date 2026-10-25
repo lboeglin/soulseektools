@@ -63,6 +63,15 @@ impl CollectOutcome {
             .as_ref()
             .is_some_and(|result| unfit(result.verdict))
     }
+
+    /// Why `verify` could not judge a download that was filed anyway.
+    #[must_use]
+    pub fn unverified(&self) -> Option<&str> {
+        self.verdict
+            .as_ref()
+            .filter(|result| result.verdict == Verdict::Error)
+            .map(|result| result.detail.as_str())
+    }
 }
 
 /// One row per track, its last attempt, with how many attempts it took.
@@ -765,7 +774,7 @@ fn retry_failed(
 }
 
 fn unfit(verdict: Verdict) -> bool {
-    matches!(verdict, Verdict::Fake | Verdict::Upsampled | Verdict::Error)
+    matches!(verdict, Verdict::Fake | Verdict::Upsampled)
 }
 
 /// `None` when another run already retried the track.

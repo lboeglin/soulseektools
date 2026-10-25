@@ -67,8 +67,8 @@ their own: `library scan`, `wantlist diff`, `fetch search`, `review pick`,
 Candidates that may be the wrong version are flagged, and `--yes` leaves those
 for you to pick. Downloads join the artist folder you already have (`稲葉曇`
 into `Inabakumori`; `organise.artist_aliases` for other spellings).
-A download `verify` rejects goes to the Recycle Bin, and the next candidate
-takes its place.
+A download `verify` finds FAKE or UPSAMPLED goes to the Recycle Bin, and the
+next candidate takes its place.
 
 Several `get` can run at once; each files only what it queued, and
 `fetch download --collect` files the rest.

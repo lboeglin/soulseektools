@@ -16,7 +16,7 @@ use stk::retag::TagPolicy;
 use stk::review::albums;
 use stk::review::store::ReviewStore;
 use stk::soulseek::base::{SoulseekClient, Transfer, TransferState};
-use support::{committed, encode, transcode_to_flac, Encoded, Scratch};
+use support::{committed, encode, silence, transcode_to_flac, Encoded, Scratch};
 
 #[derive(Default)]
 struct FakeClient {
@@ -496,6 +496,56 @@ fn a_downloaded_transcode_sends_the_next_candidate_in_its_place() {
         !outcomes[0].error.is_empty(),
         "a retried rejection only counts when the bin refused it"
     );
+}
+
+#[test]
+fn a_download_verify_cannot_judge_is_filed_and_nothing_else_is_tried() {
+    let scratch = Scratch::new("fetch-unjudged");
+    let settings = settings(&scratch);
+    let mut store = store(&scratch);
+    store.add(&[roki()]).expect("an added track");
+    let client = FakeClient::with_candidates(vec![
+        candidate("@@peerA\\Music\\Roki.flac"),
+        candidate("@@peerB\\Music\\Roki.flac"),
+    ]);
+    fetch::search_pending(&mut store, &client, &settings, None).expect("a search");
+    let track_id = store.tracks(&[], None).expect("tracks")[0].id;
+    store.approve(track_id, 1).expect("an approval");
+    fetch::enqueue_approved(&mut store, &FakeClient::default(), None, 1000.0).expect("an enqueue");
+    let download = arrived_as(
+        &scratch,
+        "Roki.flac",
+        &silence(&scratch.join("silent.flac"), 5, 44100),
+    );
+
+    let finished = FakeClient::with_transfers(vec![transfer(
+        "@@peerA\\Music\\Roki.flac",
+        TransferState::Completed,
+        "",
+    )]);
+    let outcomes = collect(&mut store, &finished, &settings, true).expect("a collect");
+    let outcome = &outcomes[0];
+
+    assert_eq!(
+        outcome.verdict.as_ref().expect("a verdict").verdict,
+        Verdict::Error
+    );
+    assert!(!outcome.rejected());
+    assert!(
+        outcome
+            .unverified()
+            .is_some_and(|detail| detail.contains("no audible content")),
+        "{outcome:?}"
+    );
+    assert!(download.is_file());
+    assert!(outcome.tags.is_some(), "tagged like any arrival");
+    assert_eq!(outcome.retried_with_rank, None);
+    let entry = store.track(track_id).expect("a lookup").expect("the track");
+    assert_eq!(entry.status, TrackStatus::Downloaded);
+    assert_eq!(entry.approved_rank, Some(1));
+    assert!(entry.detail.contains("ERROR"), "{}", entry.detail);
+    assert!(!fetch::downloads_went_wrong(&[], &outcomes));
+    assert!(fetch::left_behind(&outcomes).is_empty());
 }
 
 #[test]
@@ -1903,8 +1953,7 @@ fn what_counts_as_the_run_going_wrong() {
     let cases = [
         (collected("", None, Some(Verdict::Ok)), false),
         (collected("", None, Some(Verdict::Fake)), true),
-        // A peer's copy that stops decoding before its end.
-        (collected("", None, Some(Verdict::Error)), true),
+        (collected("", None, Some(Verdict::Error)), false),
         (collected("peer gone", Some(2), None), false),
         (collected("peer gone", None, None), true),
         (collected("", None, Some(Verdict::Upsampled)), true),

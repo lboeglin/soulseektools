@@ -223,6 +223,7 @@ pub(crate) fn collect_row(outcome: &fetch::CollectOutcome) -> serde_json::Value 
         "tags": outcome.tags.as_ref().map(tags_row),
         "error": outcome.error,
         "rejected": outcome.rejected(),
+        "unverified": outcome.unverified(),
         "retried_with_rank": outcome.retried_with_rank,
     })
 }
@@ -356,7 +357,12 @@ pub(crate) fn report_collected(context: &AppContext, collected: &[fetch::Collect
             } else if !outcome.error.is_empty() {
                 outcome.error.clone()
             } else {
-                outcome.tags.as_ref().map(describe_tags).unwrap_or_default()
+                let tags = outcome.tags.as_ref().map(describe_tags).unwrap_or_default();
+                match outcome.unverified() {
+                    Some(detail) if tags.is_empty() => format!("could not be verified: {detail}"),
+                    Some(detail) => format!("could not be verified: {detail}; {tags}"),
+                    None => tags,
+                }
             };
             vec![
                 outcome.state.to_string(),
