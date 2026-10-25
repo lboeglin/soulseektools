@@ -531,5 +531,5 @@ fn the_index_lets_readers_in_while_another_run_writes() {
         .execute_batch("BEGIN EXCLUSIVE; DELETE FROM files")
         .expect("a held write lock");
 
-    assert!(!index.entries().expect("entries").is_empty());
+    assert_ne!(index.entries().expect("entries").len(), 0);
 }

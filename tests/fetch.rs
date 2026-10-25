@@ -545,7 +545,7 @@ fn a_download_verify_cannot_judge_is_filed_and_nothing_else_is_tried() {
     assert_eq!(entry.approved_rank, Some(1));
     assert!(entry.detail.contains("ERROR"), "{}", entry.detail);
     assert!(!fetch::downloads_went_wrong(&[], &outcomes));
-    assert!(fetch::left_behind(&outcomes).is_empty());
+    assert_eq!(fetch::left_behind(&outcomes), [] as [&Path; 0]);
 }
 
 #[test]
