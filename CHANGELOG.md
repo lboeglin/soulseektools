@@ -16,8 +16,20 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   file or every file directly in a folder, and `changes undo` puts the old
   one back.
 
+### Changed
+
+- `library.db` and `review.db` use SQLite's WAL journal, so a command that
+  only reads never waits on another run's writes. SQLite keeps `-wal` and
+  `-shm` files next to each.
+
 ### Fixed
 
+- Two `get` running at once tagged, verified, retried and filed each other's
+  downloads, and one could move a file the other had not checked yet. Each
+  `get` now handles only the downloads it queued, says how many others are in
+  progress, and a failed transfer is retried once whichever run sees it.
+- The first scan after an upgrade read every file while holding the index's
+  write lock, so another run could fail with `database is locked`.
 - `get --lossless` took an AAC `.m4a` as lossless. An `.m4a` now counts as
   lossless only when the peer reports a bit depth.
 - A download `verify` called FAKE, UPSAMPLED or unreadable was still filed

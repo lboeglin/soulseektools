@@ -70,6 +70,9 @@ into `Inabakumori`; `organise.artist_aliases` for other spellings).
 A download `verify` rejects goes to the Recycle Bin, and the next candidate
 takes its place.
 
+Several `get` can run at once; each files only what it queued, and
+`fetch download --collect` files the rest.
+
 Download only what you have the right to: free releases, Creative Commons
 music, music you already own. You answer for what you download. See
 [being a good peer](docs/slskd-setup.md#being-a-good-peer) for sharing and
