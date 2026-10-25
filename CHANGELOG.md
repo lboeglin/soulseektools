@@ -18,6 +18,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- `get --lossless` took an AAC `.m4a` as lossless. An `.m4a` now counts as
+  lossless only when the peer reports a bit depth.
+- A download `verify` called FAKE, UPSAMPLED or unreadable was still filed
+  into the library, with a cover. It goes to the Recycle Bin now, and the
+  next candidate is downloaded in its place.
+- `verify` held an AAC `.m4a` to lossless, so an honest 128 kbps one came out
+  FAKE. Only an ALAC one is checked now, and `library stats` and
+  `dupes resolve --keep lossless` no longer count an AAC one as lossless.
 - Undoing a cover change put a PNG back labelled as a JPEG.
 
 - `organise` cut a closing bracket off a title or album it filed by
