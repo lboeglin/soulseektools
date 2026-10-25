@@ -108,7 +108,7 @@ fn download(context: &AppContext, limit: Option<usize>, collect_only: bool) -> R
         (fetch::Stalled::default(), Vec::new())
     } else {
         (
-            fetch::retry_stalled(&mut store, &client, context.settings(), now)?,
+            fetch::retry_stalled(&mut store, &client, context.settings(), now, None)?,
             fetch::enqueue_approved(&mut store, &client, limit, now)?,
         )
     };
@@ -120,6 +120,7 @@ fn download(context: &AppContext, limit: Option<usize>, collect_only: bool) -> R
         &roots,
         now,
         true,
+        None,
     )?;
     let failed = i32::from(fetch::downloads_went_wrong(&queued, &collected));
 

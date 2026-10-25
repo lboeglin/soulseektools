@@ -15,7 +15,7 @@ use crate::errors::Error;
 use crate::library::changes::ChangeLog;
 use crate::library::index::LibraryIndex;
 use crate::library::scan::{claims_lossless, LOSSY_VERIFIED_EXTENSIONS};
-use crate::models::{ScoredCandidate, TrackStatus, Verdict, VerifyResult};
+use crate::models::{Candidate, ScoredCandidate, TrackStatus, Verdict, VerifyResult};
 use crate::organise;
 use crate::retag::{self, Retagged};
 use crate::review::store::{Retry, ReviewStore, ReviewTrack};
@@ -266,13 +266,20 @@ pub struct Stalled {
 /// When a preferred peer stalls on more than one track, or slskd reports it
 /// offline, its whole group is cancelled and moved together rather than
 /// scattered one track per peer. A peer stalling on one file is not down.
+///
+/// With `only`, tracks outside it are left to the run that queued them.
 pub fn retry_stalled(
     store: &mut ReviewStore,
     client: &dyn SoulseekClient,
     settings: &Settings,
     now: f64,
+    only: Option<&[i64]>,
 ) -> crate::errors::Result<Stalled> {
-    let stalled = store.stalled(now, settings.slskd.stall_after_seconds)?;
+    let stalled: Vec<ReviewTrack> = store
+        .stalled(now, settings.slskd.stall_after_seconds)?
+        .into_iter()
+        .filter(|entry| within(only, entry.id))
+        .collect();
     if stalled.is_empty() {
         return Ok(Stalled::default());
     }
@@ -293,7 +300,11 @@ pub fn retry_stalled(
     }
     if !peers.is_empty() {
         let stalled_ids: HashSet<i64> = stalled.iter().map(|entry| entry.id).collect();
-        let queued = store.tracks(&[TrackStatus::Queued], None)?;
+        let queued: Vec<ReviewTrack> = store
+            .tracks(&[TrackStatus::Queued], None)?
+            .into_iter()
+            .filter(|entry| within(only, entry.id))
+            .collect();
         for peer in peers {
             let group: Vec<&ReviewTrack> = queued
                 .iter()
@@ -334,12 +345,22 @@ pub fn retry_stalled(
             continue;
         };
         let error = cancel(client, &by_path, approved);
-        let retried = retry_next(store, entry.id)?;
-        outcome
-            .tracks
-            .push(stall_outcome(entry, now, retried, error, String::new()));
+        let Some(retried) = retry_next(store, entry, None)? else {
+            continue;
+        };
+        outcome.tracks.push(stall_outcome(
+            entry,
+            now,
+            retried.rank(),
+            error,
+            String::new(),
+        ));
     }
     Ok(outcome)
+}
+
+fn within(only: Option<&[i64]>, track_id: i64) -> bool {
+    only.is_none_or(|ids| ids.contains(&track_id))
 }
 
 fn preferred_peer(entry: &ReviewTrack) -> Option<&str> {
@@ -410,17 +431,18 @@ fn move_group(
                         .any(|flag| flag == ranking::PREFERRED_FLAG)
             })
         });
-        store.reorder_untried(entry.id, &list)?;
-        let retried = retry_next(store, entry.id)?;
+        let Some(retried) = retry_next(store, entry, Some(&list))? else {
+            continue;
+        };
         match retried {
-            None => peer.exhausted += 1,
-            Some(_) if taken => peer.moved += 1,
-            Some(_) => peer.individually += 1,
+            Retry::Approved(_) if taken => peer.moved += 1,
+            Retry::Approved(_) => peer.individually += 1,
+            Retry::ForReview | Retry::Exhausted => peer.exhausted += 1,
         }
         outcomes.push(stall_outcome(
             entry,
             now,
-            retried,
+            retried.rank(),
             error,
             group.username.to_owned(),
         ));
@@ -440,16 +462,27 @@ fn cancel(
         .map_or_else(String::new, |reason| reason.to_string())
 }
 
-fn retry_next(store: &mut ReviewStore, track_id: i64) -> crate::errors::Result<Option<i64>> {
-    let retried = store.next_candidate(track_id)?;
-    if retried == Retry::Exhausted {
+/// `None` when another run already retried the track.
+fn retry_next(
+    store: &mut ReviewStore,
+    entry: &ReviewTrack,
+    regroup: Option<&[ScoredCandidate]>,
+) -> crate::errors::Result<Option<Retry>> {
+    let Some(failed) = entry.approved_rank else {
+        return Ok(None);
+    };
+    let retried = match regroup {
+        Some(untried) => store.regroup_after(entry.id, failed, untried)?,
+        None => store.retry_after(entry.id, failed)?,
+    };
+    if retried == Some(Retry::Exhausted) {
         store.mark(
-            track_id,
+            entry.id,
             TrackStatus::Failed,
             "stalled, and no candidates left",
         )?;
     }
-    Ok(retried.rank())
+    Ok(retried)
 }
 
 fn stall_outcome(
@@ -502,7 +535,7 @@ fn enqueue(
     let mut outcomes = Vec::new();
 
     for entry in approved {
-        let Some(approved) = entry.approved().cloned() else {
+        if entry.approved().is_none() {
             store.mark(
                 entry.id,
                 TrackStatus::Failed,
@@ -516,33 +549,11 @@ fn enqueue(
                 error: "no candidate".to_owned(),
             });
             continue;
-        };
+        }
 
         let destination = sanitize_folder_name(&entry.track.artist, UNKNOWN_ARTIST);
-        let mut candidate = approved.candidate;
-        let sent = loop {
-            match client.enqueue(
-                &candidate.username,
-                std::slice::from_ref(&candidate),
-                &destination,
-            ) {
-                Ok(_) => break Ok(candidate),
-                Err(error) => {
-                    // A peer that answered the search may be offline by now:
-                    // move on to the next candidate before giving up.
-                    let retry = store.next_candidate(entry.id)?;
-                    let next = match retry {
-                        Retry::Approved(_) => store
-                            .track(entry.id)?
-                            .and_then(|track| track.approved().cloned()),
-                        Retry::ForReview | Retry::Exhausted => None,
-                    };
-                    match next {
-                        Some(next) => candidate = next.candidate,
-                        None => break Err((error, retry)),
-                    }
-                }
-            }
+        let Some(sent) = send(store, client, &entry, &destination, now)? else {
+            continue;
         };
         let candidate = match sent {
             Ok(candidate) => candidate,
@@ -573,8 +584,56 @@ fn enqueue(
     Ok(outcomes)
 }
 
+/// `None` when another run sent the track first, or already moved it on.
+fn send(
+    store: &mut ReviewStore,
+    client: &dyn SoulseekClient,
+    entry: &ReviewTrack,
+    destination: &str,
+    now: f64,
+) -> crate::errors::Result<Option<std::result::Result<Candidate, (Error, Retry)>>> {
+    let track_id = entry.id;
+    let (Some(mut rank), Some(approved)) = (entry.approved_rank, entry.approved()) else {
+        return Ok(None);
+    };
+    let mut candidate = approved.candidate.clone();
+    loop {
+        if !store.claim(track_id, rank, now)? {
+            return Ok(None);
+        }
+        let Err(error) = client.enqueue(
+            &candidate.username,
+            std::slice::from_ref(&candidate),
+            destination,
+        ) else {
+            return Ok(Some(Ok(candidate)));
+        };
+        // A peer that answered the search may be offline by now:
+        // move on to the next candidate before giving up.
+        let Some(retry) = store.retry_after(track_id, rank)? else {
+            return Ok(None);
+        };
+        let next = match retry {
+            Retry::Approved(next) => store
+                .track(track_id)?
+                .and_then(|track| track.approved().cloned())
+                .map(|approved| (next, approved)),
+            Retry::ForReview | Retry::Exhausted => None,
+        };
+        match next {
+            Some((next, approved)) => {
+                rank = next;
+                candidate = approved.candidate;
+            }
+            None => return Ok(Some(Err((error, retry)))),
+        }
+    }
+}
+
 /// A failure promotes the next untried candidate, as does an arrival verify
-/// rejects; any other arrival is tagged.
+/// rejects; any other arrival is tagged. With `only`, tracks outside it are
+/// left to the run that queued them.
+#[allow(clippy::too_many_arguments)]
 pub fn collect(
     store: &mut ReviewStore,
     client: &dyn SoulseekClient,
@@ -583,6 +642,7 @@ pub fn collect(
     roots: &[PathBuf],
     now: f64,
     verify: bool,
+    only: Option<&[i64]>,
 ) -> crate::errors::Result<Vec<CollectOutcome>> {
     let finished: HashMap<String, Transfer> = client
         .transfers()?
@@ -598,8 +658,8 @@ pub fn collect(
     let log = ChangeLog::open(index, "fetch download", now)?;
     let mut outcomes = Vec::new();
 
-    for entry in queued {
-        let Some(approved) = entry.approved() else {
+    for entry in queued.into_iter().filter(|entry| within(only, entry.id)) {
+        let (Some(approved), Some(rank)) = (entry.approved(), entry.approved_rank) else {
             continue;
         };
         let Some(transfer) = finished.get(&approved.candidate.remote_path) else {
@@ -607,26 +667,7 @@ pub fn collect(
         };
 
         if transfer.state != TransferState::Completed {
-            let detail = if transfer.error.is_empty() {
-                transfer.state.to_string()
-            } else {
-                transfer.error.clone()
-            };
-            let retry = store.next_candidate(entry.id)?;
-            if retry == Retry::Exhausted {
-                store.mark(entry.id, TrackStatus::Failed, &detail)?;
-            }
-            let retried = retry.rank();
-            outcomes.push(CollectOutcome {
-                track_id: entry.id,
-                query: entry.track.query(),
-                state: transfer.state,
-                local_path: None,
-                verdict: None,
-                tags: None,
-                error: transfer.error.clone(),
-                retried_with_rank: retried,
-            });
+            outcomes.extend(retry_failed(store, &entry, rank, transfer)?);
             continue;
         }
 
@@ -648,15 +689,15 @@ pub fn collect(
         };
         if let (Some(path), Some(result)) = (&local_path, &verdict) {
             if unfit(result.verdict) {
-                let outcome = reject(
+                outcomes.extend(reject(
                     store,
                     &entry,
+                    rank,
                     transfer.state,
                     path,
                     result.clone(),
                     settings,
-                )?;
-                outcomes.push(outcome);
+                )?);
                 continue;
             }
         }
@@ -693,18 +734,53 @@ pub fn collect(
     Ok(outcomes)
 }
 
+/// `None` when another run already retried the track.
+fn retry_failed(
+    store: &mut ReviewStore,
+    entry: &ReviewTrack,
+    rank: i64,
+    transfer: &Transfer,
+) -> crate::errors::Result<Option<CollectOutcome>> {
+    let Some(retry) = store.retry_after(entry.id, rank)? else {
+        return Ok(None);
+    };
+    if retry == Retry::Exhausted {
+        let detail = if transfer.error.is_empty() {
+            transfer.state.to_string()
+        } else {
+            transfer.error.clone()
+        };
+        store.mark(entry.id, TrackStatus::Failed, &detail)?;
+    }
+    Ok(Some(CollectOutcome {
+        track_id: entry.id,
+        query: entry.track.query(),
+        state: transfer.state,
+        local_path: None,
+        verdict: None,
+        tags: None,
+        error: transfer.error.clone(),
+        retried_with_rank: retry.rank(),
+    }))
+}
+
 fn unfit(verdict: Verdict) -> bool {
     matches!(verdict, Verdict::Fake | Verdict::Upsampled | Verdict::Error)
 }
 
+/// `None` when another run already retried the track, and binned the file.
 fn reject(
     store: &mut ReviewStore,
     entry: &ReviewTrack,
+    rank: i64,
     state: TransferState,
     path: &Path,
     result: VerifyResult,
     settings: &Settings,
-) -> crate::errors::Result<CollectOutcome> {
+) -> crate::errors::Result<Option<CollectOutcome>> {
+    let Some(retry) = store.retry_after(entry.id, rank)? else {
+        return Ok(None);
+    };
     let error = match trash::delete(path) {
         Ok(()) => {
             if let Some(downloads) = &settings.slskd.download_directory {
@@ -714,7 +790,6 @@ fn reject(
         }
         Err(error) => format!("not filed, and the bin refused it: {error}"),
     };
-    let retry = store.next_candidate(entry.id)?;
     if retry == Retry::Exhausted {
         store.mark(
             entry.id,
@@ -722,7 +797,7 @@ fn reject(
             &format!("rejected, {}: {}", result.verdict, result.detail),
         )?;
     }
-    Ok(CollectOutcome {
+    Ok(Some(CollectOutcome {
         track_id: entry.id,
         query: entry.track.query(),
         state,
@@ -731,7 +806,7 @@ fn reject(
         tags: None,
         error,
         retried_with_rank: retry.rank(),
-    })
+    }))
 }
 
 /// Time as the download wait sees it, so tests don't sleep.
@@ -769,6 +844,8 @@ pub struct Waited {
     pub rounds: usize,
     /// Nonzero on a timeout, or once slskd stops answering.
     pub unfinished: usize,
+    /// Downloads in flight for other runs, which a run waiting on its own tracks leaves alone.
+    pub others: usize,
     pub slskd_lost: Option<String>,
 }
 
@@ -850,6 +927,10 @@ pub fn wait_for_downloads(
     if ours.is_empty() {
         return Ok(waited);
     }
+    let only = match scope {
+        Scope::Tracks(ids) => Some(ids),
+        Scope::Queue { .. } => None,
+    };
 
     loop {
         let round = poll(
@@ -859,14 +940,18 @@ pub fn wait_for_downloads(
             index,
             roots,
             &ours,
+            only,
             clock.now(),
             &mut waited,
         );
-        waited.unfinished = store
-            .tracks(&[TrackStatus::Queued, TrackStatus::Approved], None)?
+        let in_flight = store.tracks(&[TrackStatus::Queued, TrackStatus::Approved], None)?;
+        waited.unfinished = in_flight
             .iter()
             .filter(|entry| ours.contains(&entry.id))
             .count();
+        if only.is_some() {
+            waited.others = in_flight.len() - waited.unfinished;
+        }
         // What already arrived is still filed; the rest waits for the next run.
         if let Err(Error::SoulseekClient(error)) = round {
             waited.slskd_lost = Some(error);
@@ -891,14 +976,15 @@ fn poll(
     index: &mut LibraryIndex,
     roots: &[PathBuf],
     ours: &HashSet<i64>,
+    only: Option<&[i64]>,
     now: f64,
     waited: &mut Waited,
 ) -> crate::errors::Result<()> {
     // Collect first, so a transfer that just finished isn't taken as stalled.
-    waited
-        .collected
-        .extend(collect(store, client, settings, index, roots, now, true)?);
-    let stalled = retry_stalled(store, client, settings, now)?;
+    waited.collected.extend(collect(
+        store, client, settings, index, roots, now, true, only,
+    )?);
+    let stalled = retry_stalled(store, client, settings, now, only)?;
     waited.stalled.extend(stalled.tracks);
     waited.stalled_peers.extend(stalled.peers);
     let promoted: Vec<ReviewTrack> = store

@@ -171,6 +171,7 @@ fn collect(
         &settings.library.all_roots(),
         2000.0,
         verify,
+        None,
     )
 }
 
@@ -804,7 +805,7 @@ fn a_stalled_transfer_is_cancelled_and_the_next_candidate_promoted() {
         "",
     )]);
     let now = 1000.0 + settings.slskd.stall_after_seconds + 1.0;
-    let outcomes = fetch::retry_stalled(&mut store, &client, &settings, now)
+    let outcomes = fetch::retry_stalled(&mut store, &client, &settings, now, None)
         .expect("a retry")
         .tracks;
 
@@ -834,7 +835,7 @@ fn a_transfer_still_inside_its_grace_period_is_left_alone() {
         "",
     )]);
     let now = 1000.0 + settings.slskd.stall_after_seconds - 1.0;
-    let outcomes = fetch::retry_stalled(&mut store, &client, &settings, now)
+    let outcomes = fetch::retry_stalled(&mut store, &client, &settings, now, None)
         .expect("a retry")
         .tracks;
 
@@ -1072,6 +1073,7 @@ fn a_preferred_peer_stalling_on_every_file_moves_its_whole_group_together() {
         &client,
         &settings,
         stalled_after(&settings, 1000.0),
+        None,
     )
     .expect("a retry");
 
@@ -1119,6 +1121,7 @@ fn a_peer_stalling_on_one_file_while_delivering_the_rest_is_not_down() {
         &client,
         &settings,
         stalled_after(&settings, 1000.0),
+        None,
     )
     .expect("a retry");
 
@@ -1153,7 +1156,8 @@ fn a_peer_slskd_reports_offline_moves_its_group_on_a_single_stall() {
         ),
     ]);
 
-    let stalled = fetch::retry_stalled(&mut store, &offline, &settings, now).expect("a retry");
+    let stalled =
+        fetch::retry_stalled(&mut store, &offline, &settings, now, None).expect("a retry");
 
     assert_eq!(stalled.peers.len(), 1);
     assert_eq!(stalled.peers[0].moved, 2);
@@ -1179,6 +1183,7 @@ fn a_moved_group_never_goes_back_to_the_peer_that_stalled() {
         &FakeClient::with_transfers(every_batch_transfer("bulk", TransferState::Queued)),
         &settings,
         first,
+        None,
     )
     .expect("a retry");
 
@@ -1189,6 +1194,7 @@ fn a_moved_group_never_goes_back_to_the_peer_that_stalled() {
         &FakeClient::with_transfers(every_batch_transfer("bulk2", TransferState::Queued)),
         &settings,
         second,
+        None,
     )
     .expect("a retry");
     assert_eq!(stalled.peers[0].username, "bulk2");
@@ -1214,6 +1220,7 @@ fn a_moved_group_never_goes_back_to_the_peer_that_stalled() {
         &solos,
         &settings,
         stalled_after(&settings, second),
+        None,
     )
     .expect("a retry");
     assert_eq!(stalled.peers, []);
@@ -2017,4 +2024,188 @@ fn a_track_queued_again_after_a_stall_is_reported_once_as_its_last_attempt() {
     assert_eq!(latest.len(), 2);
     assert_eq!((latest[0].0, latest[0].1), (&queued[3], 3));
     assert_eq!((latest[1].0, latest[1].1), (&queued[1], 1));
+}
+
+fn ghost_rule() -> Track {
+    Track::new("DECO*27", "Ghost Rule")
+}
+
+fn finished(username: &str, title: &str, state: TransferState) -> Transfer {
+    Transfer {
+        username: username.to_owned(),
+        ..transfer(&format!("@@{username}\\Music\\{title}.flac"), state, "")
+    }
+}
+
+fn wait_for(
+    store: &mut ReviewStore,
+    client: &dyn SoulseekClient,
+    settings: &Settings,
+    ids: &[i64],
+    clock: &mut dyn fetch::Clock,
+) -> fetch::Waited {
+    let mut index = index(settings);
+    fetch::wait_for_downloads(
+        store,
+        client,
+        settings,
+        &mut index,
+        &settings.library.all_roots(),
+        fetch::Scope::Tracks(ids),
+        PATIENCE,
+        clock,
+        &mut |_| {},
+    )
+    .expect("a wait")
+}
+
+fn collected_ids(waited: &fetch::Waited) -> Vec<i64> {
+    waited
+        .collected
+        .iter()
+        .map(|outcome| outcome.track_id)
+        .collect()
+}
+
+#[test]
+fn two_gets_waiting_at_once_each_collect_only_their_own_track() {
+    let scratch = Scratch::new("fetch-wait-two-gets");
+    let settings = settings(&scratch);
+    let mut first = store(&scratch);
+    let mut second = store(&scratch);
+    let roki_id = approved(&mut first, &settings, &roki(), &["peerA"]);
+    let ghost_id = approved(&mut second, &settings, &ghost_rule(), &["peerB"]);
+    let client = LiveClient::default();
+    let mut second_waited = None;
+    let mut first_clock = TickingClock::new(|sleeps| {
+        if sleeps == 1 {
+            client.show(vec![
+                finished("peerA", "Roki", TransferState::Completed),
+                finished("peerB", "Ghost Rule", TransferState::Completed),
+            ]);
+            second_waited = Some(wait_for(
+                &mut second,
+                &client,
+                &settings,
+                &[ghost_id],
+                &mut TickingClock::new(|_| {}),
+            ));
+        }
+    });
+
+    let first_waited = wait_for(&mut first, &client, &settings, &[roki_id], &mut first_clock);
+    drop(first_clock);
+
+    let second_waited = second_waited.expect("the second get ran");
+    assert_eq!(collected_ids(&second_waited), vec![ghost_id]);
+    assert_eq!(second_waited.others, 1);
+    assert_eq!(collected_ids(&first_waited), vec![roki_id]);
+    assert_eq!(first_waited.others, 0);
+    assert_eq!(status(&first, roki_id), TrackStatus::Downloaded);
+    assert_eq!(status(&first, ghost_id), TrackStatus::Downloaded);
+}
+
+#[test]
+fn a_get_retries_only_its_own_failed_transfer() {
+    let scratch = Scratch::new("fetch-wait-own-failure");
+    let settings = settings(&scratch);
+    let mut store = store(&scratch);
+    let roki_id = approved(&mut store, &settings, &roki(), &["peerA", "peerC"]);
+    let ghost_id = approved(&mut store, &settings, &ghost_rule(), &["peerB", "peerD"]);
+    fetch::enqueue_tracks(&mut store, &FakeClient::default(), &[ghost_id], 1000.0)
+        .expect("an enqueue");
+    let client = LiveClient::default();
+    client.show(vec![
+        finished("peerA", "Roki", TransferState::Completed),
+        finished("peerB", "Ghost Rule", TransferState::Failed),
+    ]);
+
+    let waited = wait_for(
+        &mut store,
+        &client,
+        &settings,
+        &[roki_id],
+        &mut TickingClock::new(|_| {}),
+    );
+
+    assert_eq!(collected_ids(&waited), vec![roki_id]);
+    assert_eq!(waited.others, 1);
+    assert_eq!(status(&store, ghost_id), TrackStatus::Queued);
+    assert_eq!(approved_peer(&store, ghost_id), "peerB");
+}
+
+#[test]
+fn a_collect_for_some_tracks_leaves_the_rest_queued_and_a_full_one_takes_them() {
+    let scratch = Scratch::new("fetch-collect-only");
+    let settings = settings(&scratch);
+    let mut store = store(&scratch);
+    let roki_id = approved(&mut store, &settings, &roki(), &["peerA"]);
+    let ghost_id = approved(&mut store, &settings, &ghost_rule(), &["peerB"]);
+    fetch::enqueue_approved(&mut store, &FakeClient::default(), None, 1000.0).expect("an enqueue");
+    let client = FakeClient::with_transfers(vec![
+        finished("peerA", "Roki", TransferState::Completed),
+        finished("peerB", "Ghost Rule", TransferState::Completed),
+    ]);
+    let mut index = index(&settings);
+    let roots = settings.library.all_roots();
+
+    let some = fetch::collect(
+        &mut store,
+        &client,
+        &settings,
+        &mut index,
+        &roots,
+        2000.0,
+        false,
+        Some(&[roki_id]),
+    )
+    .expect("a collect");
+    let rest = fetch::collect(
+        &mut store, &client, &settings, &mut index, &roots, 2000.0, false, None,
+    )
+    .expect("a collect");
+
+    assert_eq!(
+        some.iter()
+            .map(|outcome| outcome.track_id)
+            .collect::<Vec<_>>(),
+        vec![roki_id]
+    );
+    assert_eq!(
+        rest.iter()
+            .map(|outcome| outcome.track_id)
+            .collect::<Vec<_>>(),
+        vec![ghost_id]
+    );
+}
+
+#[test]
+fn a_stall_retry_for_some_tracks_leaves_the_others_stalled() {
+    let scratch = Scratch::new("fetch-stall-only");
+    let settings = settings(&scratch);
+    let mut store = store(&scratch);
+    let roki_id = approved(&mut store, &settings, &roki(), &["peerA", "peerC"]);
+    let ghost_id = approved(&mut store, &settings, &ghost_rule(), &["peerB", "peerD"]);
+    fetch::enqueue_approved(&mut store, &FakeClient::default(), None, 1000.0).expect("an enqueue");
+
+    let stalled = fetch::retry_stalled(
+        &mut store,
+        &FakeClient::default(),
+        &settings,
+        stalled_after(&settings, 1000.0),
+        Some(&[roki_id]),
+    )
+    .expect("a retry");
+
+    assert_eq!(
+        stalled
+            .tracks
+            .iter()
+            .map(|outcome| outcome.track_id)
+            .collect::<Vec<_>>(),
+        vec![roki_id]
+    );
+    assert_eq!(approved_peer(&store, roki_id), "peerC");
+    assert_eq!(approved_peer(&store, ghost_id), "peerB");
+    assert_eq!(status(&store, ghost_id), TrackStatus::Queued);
 }
