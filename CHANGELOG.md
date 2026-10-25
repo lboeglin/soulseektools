@@ -37,6 +37,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   candidate is downloaded in its place.
 - The download summary said OK for a track that then failed with nothing
   left to try.
+- `rustls-webpki`, `webpki-roots` and `webpki-root-certs` updated for
+  RUSTSEC-2026-0381, -0382 and -0383.
 - `verify` held an AAC `.m4a` to lossless, so an honest 128 kbps one came out
   FAKE. Only an ALAC one is checked now, and `library stats` and
   `dupes resolve --keep lossless` no longer count an AAC one as lossless.
