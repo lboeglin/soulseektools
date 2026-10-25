@@ -14,7 +14,7 @@ use crate::cli::commands::{
 };
 use crate::cli::context::{candidate_count, show, table, unix_now, AppContext};
 use crate::errors::{Error, Result};
-use crate::fetch::{self, Patience, SearchOutcome, SystemClock, Waited};
+use crate::fetch::{self, CollectOutcome, Patience, SearchOutcome, SystemClock, Waited};
 use crate::library::index::LibraryIndex;
 use crate::models::{LibraryEntry, TrackStatus};
 use crate::organise::{self, Applied, Pattern, PlannedMove};
@@ -83,6 +83,15 @@ impl Organised {
 enum Download {
     Waited(Waited),
     Would(Vec<ReviewTrack>),
+}
+
+impl Download {
+    fn collected(&self) -> &[CollectOutcome] {
+        match self {
+            Self::Waited(waited) => &waited.collected,
+            Self::Would(_) => &[],
+        }
+    }
 }
 
 struct Synced {
@@ -180,6 +189,7 @@ pub fn run(context: &AppContext, args: &SyncArgs) -> Result<i32> {
         target.as_ref(),
         &pattern,
         &roots,
+        download.collected(),
         args.apply,
     )?;
     drop(index);
@@ -337,7 +347,15 @@ pub(crate) fn download_and_file(
     let scope = fetch::Scope::Tracks(ids);
     let waited = wait(context, store, client, &mut index, scope, tags, timeout)?;
     report_download(context, &waited);
-    let organised = organise_downloads(context, &mut index, Some(&target), &pattern, &roots, true)?;
+    let organised = organise_downloads(
+        context,
+        &mut index,
+        Some(&target),
+        &pattern,
+        &roots,
+        &waited.collected,
+        true,
+    )?;
     let mut failed = waited.went_wrong();
     if let Some(organised) = &organised {
         report_organised(context, organised, true);
@@ -448,6 +466,7 @@ fn organise_downloads(
     target: Option<&Target>,
     pattern: &Pattern,
     roots: &[PathBuf],
+    collected: &[CollectOutcome],
     apply: bool,
 ) -> Result<Option<Organised>> {
     let Some(Target {
@@ -470,6 +489,11 @@ fn organise_downloads(
     } else {
         Vec::new()
     };
+    let rejected = fetch::left_behind(collected);
+    let entries: Vec<LibraryEntry> = entries
+        .into_iter()
+        .filter(|entry| !rejected.contains(&entry.path.as_path()))
+        .collect();
 
     let planned = organise::plan_moves(
         &entries,

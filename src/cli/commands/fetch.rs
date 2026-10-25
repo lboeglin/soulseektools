@@ -221,6 +221,7 @@ pub(crate) fn collect_row(outcome: &fetch::CollectOutcome) -> serde_json::Value 
             .map(|verdict| verdict.verdict.to_string()),
         "tags": outcome.tags.as_ref().map(tags_row),
         "error": outcome.error,
+        "rejected": outcome.rejected(),
         "retried_with_rank": outcome.retried_with_rank,
     })
 }
@@ -339,7 +340,17 @@ pub(crate) fn report_collected(context: &AppContext, collected: &[fetch::Collect
                 .verdict
                 .as_ref()
                 .map_or_else(String::new, |verdict| verdict.verdict.to_string());
-            let note = if let Some(rank) = outcome.retried_with_rank {
+            let note = if outcome.rejected() {
+                let left = if outcome.error.is_empty() {
+                    "not filed, in the bin"
+                } else {
+                    &outcome.error
+                };
+                match outcome.retried_with_rank {
+                    Some(rank) => format!("{left}; retrying with candidate {rank}"),
+                    None => format!("{left}; no clean candidate left"),
+                }
+            } else if let Some(rank) = outcome.retried_with_rank {
                 format!("retrying with candidate {rank}")
             } else if !outcome.error.is_empty() {
                 outcome.error.clone()

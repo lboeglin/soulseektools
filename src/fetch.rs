@@ -8,13 +8,15 @@ use std::time::{Duration, Instant};
 
 use rayon::prelude::*;
 
+use crate::audio::decode::Audio;
 use crate::audio::verify::verify_file;
 use crate::config::{Settings, UploaderSettings, STORED_CANDIDATES};
 use crate::errors::Error;
 use crate::library::changes::ChangeLog;
 use crate::library::index::LibraryIndex;
-use crate::library::scan::{LOSSLESS_EXTENSIONS, LOSSY_VERIFIED_EXTENSIONS};
+use crate::library::scan::{claims_lossless, LOSSY_VERIFIED_EXTENSIONS};
 use crate::models::{ScoredCandidate, TrackStatus, Verdict, VerifyResult};
+use crate::organise;
 use crate::retag::{self, Retagged};
 use crate::review::store::{Retry, ReviewStore, ReviewTrack};
 use crate::soulseek::base::{SoulseekClient, Transfer, TransferState};
@@ -51,6 +53,16 @@ pub struct CollectOutcome {
     pub tags: Option<Retagged>,
     pub error: String,
     pub retried_with_rank: Option<i64>,
+}
+
+impl CollectOutcome {
+    /// Sent to the bin rather than filed, unless `error` says the bin refused it.
+    #[must_use]
+    pub fn rejected(&self) -> bool {
+        self.verdict
+            .as_ref()
+            .is_some_and(|result| unfit(result.verdict))
+    }
 }
 
 /// One row per track, its last attempt, with how many attempts it took.
@@ -561,7 +573,8 @@ fn enqueue(
     Ok(outcomes)
 }
 
-/// A failure promotes the next untried candidate; an arrival is tagged, then verified.
+/// A failure promotes the next untried candidate, as does an arrival verify
+/// rejects; any other arrival is tagged.
 pub fn collect(
     store: &mut ReviewStore,
     client: &dyn SoulseekClient,
@@ -628,16 +641,30 @@ pub fn collect(
         if partial {
             continue;
         }
+        let verdict = if verify {
+            verify_downloaded(local_path.as_deref(), settings)
+        } else {
+            None
+        };
+        if let (Some(path), Some(result)) = (&local_path, &verdict) {
+            if unfit(result.verdict) {
+                let outcome = reject(
+                    store,
+                    &entry,
+                    transfer.state,
+                    path,
+                    result.clone(),
+                    settings,
+                )?;
+                outcomes.push(outcome);
+                continue;
+            }
+        }
         let tags = match local_path.as_deref().filter(|path| path.is_file()) {
             Some(path) => {
                 retag::apply(path, settings.fetch.tags, &entry.track, &log, index, roots)?
             }
             None => None,
-        };
-        let verdict = if verify {
-            verify_downloaded(local_path.as_deref(), settings)
-        } else {
-            None
         };
         let error = match local_path.as_deref() {
             Some(path) if !path.is_file() => format!(
@@ -664,6 +691,47 @@ pub fn collect(
         });
     }
     Ok(outcomes)
+}
+
+fn unfit(verdict: Verdict) -> bool {
+    matches!(verdict, Verdict::Fake | Verdict::Upsampled | Verdict::Error)
+}
+
+fn reject(
+    store: &mut ReviewStore,
+    entry: &ReviewTrack,
+    state: TransferState,
+    path: &Path,
+    result: VerifyResult,
+    settings: &Settings,
+) -> crate::errors::Result<CollectOutcome> {
+    let error = match trash::delete(path) {
+        Ok(()) => {
+            if let Some(downloads) = &settings.slskd.download_directory {
+                organise::prune_empty(path, downloads);
+            }
+            String::new()
+        }
+        Err(error) => format!("not filed, and the bin refused it: {error}"),
+    };
+    let retry = store.next_candidate(entry.id)?;
+    if retry == Retry::Exhausted {
+        store.mark(
+            entry.id,
+            TrackStatus::Failed,
+            &format!("rejected, {}: {}", result.verdict, result.detail),
+        )?;
+    }
+    Ok(CollectOutcome {
+        track_id: entry.id,
+        query: entry.track.query(),
+        state,
+        local_path: Some(path.to_path_buf()),
+        verdict: Some(result),
+        tags: None,
+        error,
+        retried_with_rank: retry.rank(),
+    })
 }
 
 /// Time as the download wait sees it, so tests don't sleep.
@@ -712,20 +780,26 @@ impl Waited {
 }
 
 /// Whether a download run failed: a track that couldn't be queued, one that
-/// failed with nothing left to try, or a download `verify` calls fake or
-/// upsampled, or can't read to the end. Retried failures and timeouts don't count.
+/// failed or was rejected with nothing left to try, or a rejected download the
+/// bin refused. Retried failures and timeouts don't count.
 #[must_use]
 pub fn downloads_went_wrong(queued: &[EnqueueOutcome], collected: &[CollectOutcome]) -> bool {
     queued.iter().any(|outcome| !outcome.queued)
         || collected.iter().any(|outcome| {
-            (!outcome.error.is_empty() && outcome.retried_with_rank.is_none())
-                || outcome.verdict.as_ref().is_some_and(|verdict| {
-                    matches!(
-                        verdict.verdict,
-                        Verdict::Fake | Verdict::Upsampled | Verdict::Error
-                    )
-                })
+            let failed = !outcome.error.is_empty() || outcome.rejected();
+            let left_behind = outcome.rejected() && !outcome.error.is_empty();
+            (failed && outcome.retried_with_rank.is_none()) || left_behind
         })
+}
+
+/// Rejected downloads the bin refused: still in the download folder, never to be filed.
+#[must_use]
+pub fn left_behind(collected: &[CollectOutcome]) -> Vec<&Path> {
+    collected
+        .iter()
+        .filter(|outcome| outcome.rejected() && !outcome.error.is_empty())
+        .filter_map(|outcome| outcome.local_path.as_deref())
+        .collect()
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -856,10 +930,11 @@ fn verify_downloaded(local_path: Option<&Path>, settings: &Settings) -> Option<V
     if !path.is_file() {
         return None;
     }
-    let suffix = suffix(path)?;
-    if !LOSSLESS_EXTENSIONS.contains(&suffix.as_str())
-        && !LOSSY_VERIFIED_EXTENSIONS.contains(&suffix.as_str())
-    {
+    if !claims_lossless(path) && !LOSSY_VERIFIED_EXTENSIONS.contains(&suffix(path)?.as_str()) {
+        return None;
+    }
+    // A format the decoder lacks, such as 32-bit FLAC, says nothing against the file.
+    if matches!(Audio::open(path), Err(Error::UnsupportedFormat(_))) {
         return None;
     }
     Some(verify_file(path, &settings.verify))
@@ -875,9 +950,7 @@ fn describe(verdict: Option<&VerifyResult>) -> String {
     match verdict {
         None => "downloaded".to_owned(),
         Some(result) if result.verdict == Verdict::Ok => {
-            let lossless = suffix(&result.path)
-                .is_some_and(|suffix| LOSSLESS_EXTENSIONS.contains(&suffix.as_str()));
-            if lossless {
+            if claims_lossless(&result.path) {
                 "downloaded, verified lossless".to_owned()
             } else {
                 "downloaded, verified".to_owned()

@@ -391,31 +391,152 @@ fn a_transfer_for_another_track_is_ignored() {
     );
 }
 
+fn arrived_as(scratch: &Scratch, filename: &str, file: &Path) -> PathBuf {
+    let destination = scratch.join("downloads").join("DECO_27").join(filename);
+    std::fs::create_dir_all(destination.parent().expect("a parent")).expect("a directory");
+    std::fs::copy(file, &destination).expect("a copied file");
+    destination
+}
+
+/// A bin the platform refuses, as a headless macOS may, leaves the file where it was.
+fn assert_binned(outcome: &fetch::CollectOutcome, download: &Path) {
+    assert!(outcome.rejected(), "{outcome:?}");
+    if outcome.error.is_empty() {
+        assert!(!download.exists(), "{}", download.display());
+        empty_from_the_bin(download);
+    } else {
+        assert!(download.is_file(), "{}", outcome.error);
+    }
+}
+
+/// Keeps test files out of the developer's bin where the platform lets a program list it.
+/// Windows lists a name without its extension, so the scratch folder alone tells it apart.
+#[cfg(any(windows, all(unix, not(target_os = "macos"))))]
+fn empty_from_the_bin(download: &Path) {
+    let binned: Vec<trash::TrashItem> = trash::os_limited::list()
+        .expect("a readable bin")
+        .into_iter()
+        .filter(|item| Some(item.original_parent.as_path()) == download.parent())
+        .collect();
+    assert_eq!(binned.len(), 1, "{} is in the bin", download.display());
+    trash::os_limited::purge_all(binned).expect("a purged bin");
+}
+
+#[cfg(not(any(windows, all(unix, not(target_os = "macos")))))]
+fn empty_from_the_bin(_download: &Path) {}
+
 #[test]
-fn a_downloaded_transcode_is_recorded_against_the_track() {
+fn a_downloaded_transcode_with_nothing_left_to_try_is_binned_and_fails_the_track() {
     let scratch = Scratch::new("fetch-transcode");
     let settings = settings(&scratch);
     let mut store = store(&scratch);
     let track_id = queued(&mut store, &settings);
-
-    let faked = transcode_to_flac(&scratch, "fake", "128k");
-    let destination = scratch.join("downloads").join("DECO_27").join("Roki.flac");
-    std::fs::create_dir_all(destination.parent().expect("a parent")).expect("a directory");
-    std::fs::copy(&faked, &destination).expect("a copied file");
+    let download = arrived_as(
+        &scratch,
+        "Roki.flac",
+        &transcode_to_flac(&scratch, "fake", "128k"),
+    );
 
     let client = FakeClient::with_transfers(vec![transfer(
         "@@peerA\\Music\\Roki.flac",
         TransferState::Completed,
         "",
     )]);
-    let outcome = &collect(&mut store, &client, &settings, true).expect("a collect")[0];
+    let outcomes = collect(&mut store, &client, &settings, true).expect("a collect");
+    let outcome = &outcomes[0];
 
     assert_eq!(
         outcome.verdict.as_ref().expect("a verdict").verdict,
         Verdict::Fake
     );
+    assert_binned(outcome, &download);
+    assert_eq!(outcome.tags, None, "a rejected file is never tagged");
+    assert_eq!(outcome.retried_with_rank, None);
     let entry = store.track(track_id).expect("a lookup").expect("the track");
-    assert!(entry.detail.contains("FAKE"), "{}", entry.detail);
+    assert_eq!(entry.status, TrackStatus::Failed);
+    assert!(entry.detail.contains("rejected, FAKE"), "{}", entry.detail);
+    assert!(fetch::downloads_went_wrong(&[], &outcomes));
+}
+
+#[test]
+fn a_downloaded_transcode_sends_the_next_candidate_in_its_place() {
+    let scratch = Scratch::new("fetch-transcode-retry");
+    let settings = settings(&scratch);
+    let mut store = store(&scratch);
+    store.add(&[roki()]).expect("an added track");
+    let client = FakeClient::with_candidates(vec![
+        candidate("@@peerA\\Music\\Roki.flac"),
+        candidate("@@peerB\\Music\\Roki.flac"),
+    ]);
+    fetch::search_pending(&mut store, &client, &settings, None).expect("a search");
+    let track_id = store.tracks(&[], None).expect("tracks")[0].id;
+    store.approve(track_id, 1).expect("an approval");
+    fetch::enqueue_approved(&mut store, &FakeClient::default(), None, 1000.0).expect("an enqueue");
+    let download = arrived_as(
+        &scratch,
+        "Roki.flac",
+        &transcode_to_flac(&scratch, "fake", "128k"),
+    );
+
+    let finished = FakeClient::with_transfers(vec![transfer(
+        "@@peerA\\Music\\Roki.flac",
+        TransferState::Completed,
+        "",
+    )]);
+    let outcomes = collect(&mut store, &finished, &settings, true).expect("a collect");
+
+    assert_binned(&outcomes[0], &download);
+    assert_eq!(outcomes[0].retried_with_rank, Some(2));
+    let entry = store.track(track_id).expect("a lookup").expect("the track");
+    assert_eq!(entry.status, TrackStatus::Approved);
+    assert_eq!(entry.approved_rank, Some(2));
+    assert_eq!(
+        fetch::downloads_went_wrong(&[], &outcomes),
+        !outcomes[0].error.is_empty(),
+        "a retried rejection only counts when the bin refused it"
+    );
+}
+
+#[test]
+fn a_lossy_m4a_download_is_kept_unchecked() {
+    let scratch = Scratch::new("fetch-aac");
+    let settings = settings(&scratch);
+    let mut store = store(&scratch);
+
+    let outcome = lossy_download(
+        &scratch,
+        &settings,
+        &mut store,
+        "Roki.m4a",
+        &committed("tone.m4a"),
+    );
+
+    assert_eq!(outcome.verdict, None);
+    assert!(!outcome.rejected());
+    let entry = store
+        .track(outcome.track_id)
+        .expect("a lookup")
+        .expect("the track");
+    assert_eq!(entry.status, TrackStatus::Downloaded);
+    assert!(outcome.local_path.expect("a path").is_file());
+}
+
+#[test]
+fn a_download_the_decoder_cannot_read_is_kept_unchecked() {
+    let scratch = Scratch::new("fetch-32bit");
+    let settings = settings(&scratch);
+    let mut store = store(&scratch);
+
+    let outcome = lossy_download(
+        &scratch,
+        &settings,
+        &mut store,
+        "Roki.flac",
+        &committed("tone-32bit.flac"),
+    );
+
+    assert_eq!(outcome.verdict, None);
+    assert!(outcome.local_path.expect("a path").is_file());
 }
 
 fn lossy_download(
@@ -461,6 +582,10 @@ fn a_downloaded_upsampled_mp3_is_caught_and_counts_as_going_wrong() {
     assert_eq!(
         outcome.verdict.as_ref().expect("a verdict").verdict,
         Verdict::Upsampled
+    );
+    assert_binned(
+        &outcome,
+        &scratch.join("downloads").join("DECO_27").join("Roki.mp3"),
     );
     let entry = store
         .track(outcome.track_id)
@@ -1775,6 +1900,13 @@ fn what_counts_as_the_run_going_wrong() {
         (collected("", None, Some(Verdict::Error)), true),
         (collected("peer gone", Some(2), None), false),
         (collected("peer gone", None, None), true),
+        (collected("", None, Some(Verdict::Upsampled)), true),
+        (collected("", None, Some(Verdict::Suspect)), false),
+        (collected("", Some(2), Some(Verdict::Fake)), false),
+        (
+            collected("the bin refused it", Some(2), Some(Verdict::Fake)),
+            true,
+        ),
     ];
     for (outcome, wrong) in cases {
         let error = outcome.error.clone();
@@ -1798,6 +1930,25 @@ fn what_counts_as_the_run_going_wrong() {
         ..fetch::Waited::default()
     };
     assert!(!timed_out.went_wrong(), "a timeout alone is not a failure");
+}
+
+#[test]
+fn only_a_rejected_download_the_bin_refused_is_left_behind() {
+    let at = |outcome: fetch::CollectOutcome, path: &str| fetch::CollectOutcome {
+        local_path: Some(PathBuf::from(path)),
+        ..outcome
+    };
+    let collected = [
+        at(
+            collected("the bin refused it", Some(2), Some(Verdict::Fake)),
+            "refused.flac",
+        ),
+        at(collected("", Some(2), Some(Verdict::Fake)), "binned.flac"),
+        at(collected("", None, Some(Verdict::Ok)), "genuine.flac"),
+        at(collected("not found at", None, None), "missing.flac"),
+    ];
+
+    assert_eq!(fetch::left_behind(&collected), [Path::new("refused.flac")]);
 }
 
 #[test]
