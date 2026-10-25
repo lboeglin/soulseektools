@@ -123,3 +123,17 @@ fn a_year_end_does_not_slip_into_the_next_one() {
     assert_eq!(date_of(1_767_225_599.0), "2025-12-31");
     assert_eq!(date_of(1_767_225_600.0), "2026-01-01");
 }
+
+#[test]
+fn an_m4a_counts_as_lossless_only_with_a_bit_depth() {
+    let lossy = titled("/music/aac.m4a");
+    let alac = LibraryEntry {
+        bit_depth: Some(16),
+        ..titled("/music/alac.m4a")
+    };
+
+    assert_eq!(
+        snapshot(&[lossy, alac, titled("/music/c.flac")]).lossless,
+        2
+    );
+}

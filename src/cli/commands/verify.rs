@@ -10,7 +10,7 @@ use crate::cli::context::{show, table, unix_now, AppContext};
 use crate::errors::{Error, Result};
 use crate::library::index::LibraryIndex;
 use crate::library::scan::{
-    iter_audio_files, Excludes, LOSSLESS_EXTENSIONS, LOSSY_VERIFIED_EXTENSIONS,
+    claims_lossless, iter_audio_files, Excludes, LOSSLESS_EXTENSIONS, LOSSY_VERIFIED_EXTENSIONS,
 };
 use crate::models::{Verdict, VerifyResult};
 
@@ -130,6 +130,7 @@ fn already_judged(index: &LibraryIndex, path: &Path) -> Result<bool> {
     ))
 }
 
+/// An AAC `.m4a` or an Ogg has no cutoffs to hold it to, so it is never checked.
 fn targets(context: &AppContext, target: Option<&Path>, lossy: bool) -> Result<Vec<PathBuf>> {
     let checked = |also_lossy: bool| -> Vec<&str> {
         let mut extensions = LOSSLESS_EXTENSIONS.to_vec();
@@ -138,24 +139,36 @@ fn targets(context: &AppContext, target: Option<&Path>, lossy: bool) -> Result<V
         }
         extensions
     };
-    match target {
+    let found = match target {
         None => {
             let exclude = context.excludes()?;
-            Ok(context
+            context
                 .require_library_roots()?
                 .iter()
                 .flat_map(|root| iter_audio_files(root, &checked(lossy), &exclude))
-                .collect())
+                .collect()
         }
-        Some(path) if path.is_file() => Ok(vec![path.to_path_buf()]),
-        Some(path) if path.is_dir() => {
-            Ok(iter_audio_files(path, &checked(true), &Excludes::default()))
+        Some(path) if path.is_file() => vec![path.to_path_buf()],
+        Some(path) if path.is_dir() => iter_audio_files(path, &checked(true), &Excludes::default()),
+        Some(path) => {
+            return Err(Error::Config(format!(
+                "no such file or folder: {}",
+                show(path)
+            )))
         }
-        Some(path) => Err(Error::Config(format!(
-            "no such file or folder: {}",
-            show(path)
-        ))),
-    }
+    };
+    Ok(found.into_iter().filter(|path| checkable(path)).collect())
+}
+
+fn checkable(path: &Path) -> bool {
+    claims_lossless(path)
+        || path
+            .extension()
+            .and_then(|extension| extension.to_str())
+            .is_some_and(|extension| {
+                LOSSY_VERIFIED_EXTENSIONS
+                    .contains(&format!(".{}", extension.to_lowercase()).as_str())
+            })
 }
 
 fn is_flagged(verdict: Verdict) -> bool {

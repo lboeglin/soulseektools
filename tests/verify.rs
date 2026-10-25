@@ -4,6 +4,7 @@ mod support;
 
 use stk::audio::verify::verify_file;
 use stk::config::VerifySettings;
+use stk::library::scan::claims_lossless;
 use stk::models::Verdict;
 use support::{committed, hi_res_flac, noise_source, silence, transcode_to_flac, Depth, Scratch};
 
@@ -163,4 +164,12 @@ fn a_transcode_padded_to_24_bits_stays_a_transcode() {
 
     assert_eq!(result.verdict, Verdict::Fake, "{}", result.detail);
     assert!(result.detail.contains("transcoded"), "{}", result.detail);
+}
+
+#[test]
+fn an_m4a_claims_lossless_only_when_it_holds_alac() {
+    assert!(claims_lossless(&committed("tone-alac.m4a")));
+    assert!(!claims_lossless(&committed("tone.m4a")));
+    assert!(claims_lossless(&committed("pair.flac")));
+    assert!(!claims_lossless(&committed("tone.mp3")));
 }

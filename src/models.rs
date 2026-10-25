@@ -7,7 +7,7 @@ use std::str::FromStr;
 
 use serde::{Deserialize, Serialize};
 
-use crate::library::scan::LOSSLESS_EXTENSIONS;
+use crate::library::scan::holds_lossless;
 use crate::matching::NameForms;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -104,15 +104,13 @@ impl LibraryEntry {
         self.replay_gain.is_scanned()
     }
 
-    /// Decided by the container, as `stk verify` decides.
+    /// Decided as `stk verify` decides.
     #[must_use]
     pub fn is_lossless(&self) -> bool {
         self.path
             .extension()
             .and_then(|extension| extension.to_str())
-            .is_some_and(|extension| {
-                LOSSLESS_EXTENSIONS.contains(&format!(".{}", extension.to_lowercase()).as_str())
-            })
+            .is_some_and(|extension| holds_lossless(&format!(".{extension}"), self.bit_depth))
     }
 }
 

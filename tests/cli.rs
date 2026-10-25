@@ -459,6 +459,30 @@ fn a_library_sweep_checks_mp3s_only_when_asked() {
     drop(harness);
 }
 
+#[test]
+fn verify_checks_an_alac_m4a_and_leaves_an_aac_one_alone() {
+    let _guard = exclusive();
+    let harness = Harness::new("cli-verify-m4a");
+    let root = verifiable_library(&harness);
+    let aac = root.join("ZUN").join("Aac.m4a");
+    std::fs::copy(committed("tone.m4a"), &aac).expect("a copied fixture");
+    std::fs::copy(
+        committed("tone-alac.m4a"),
+        root.join("ZUN").join("Alac.m4a"),
+    )
+    .expect("a copied fixture");
+    harness.with_config(&root);
+
+    let (_, swept) = reported(&harness, &["verify"]);
+    assert!(swept.contains("Alac.m4a"), "{swept}");
+    assert!(!swept.contains("Aac.m4a"), "{swept}");
+
+    let (code, alone) = reported(&harness, &["verify", &aac.display().to_string()]);
+    assert_eq!(code, 0);
+    assert!(!alone.contains("FAKE"), "{alone}");
+    drop(harness);
+}
+
 /// `from` and `to` include their commas, so only the cell is replaced, not the path.
 fn edited_dump(harness: &Harness, from: &str, to: &str) -> PathBuf {
     let sheet = round_trip_dump(harness);
