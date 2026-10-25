@@ -15,7 +15,7 @@ use crate::errors::Error;
 use crate::library::changes::ChangeLog;
 use crate::library::index::LibraryIndex;
 use crate::library::scan::{claims_lossless, LOSSY_VERIFIED_EXTENSIONS};
-use crate::models::{Candidate, ScoredCandidate, TrackStatus, Verdict, VerifyResult};
+use crate::models::{Candidate, LibraryEntry, ScoredCandidate, TrackStatus, Verdict, VerifyResult};
 use crate::organise;
 use crate::retag::{self, Retagged};
 use crate::review::store::{Retry, ReviewStore, ReviewTrack};
@@ -768,7 +768,7 @@ fn unfit(verdict: Verdict) -> bool {
     matches!(verdict, Verdict::Fake | Verdict::Upsampled | Verdict::Error)
 }
 
-/// `None` when another run already retried the track, and binned the file.
+/// `None` when another run already retried the track.
 fn reject(
     store: &mut ReviewStore,
     entry: &ReviewTrack,
@@ -844,7 +844,7 @@ pub struct Waited {
     pub rounds: usize,
     /// Nonzero on a timeout, or once slskd stops answering.
     pub unfinished: usize,
-    /// Downloads in flight for other runs, which a run waiting on its own tracks leaves alone.
+    /// In flight for other runs; counted only by a wait on given tracks.
     pub others: usize,
     pub slskd_lost: Option<String>,
 }
@@ -876,6 +876,40 @@ pub fn left_behind(collected: &[CollectOutcome]) -> Vec<&Path> {
         .iter()
         .filter(|outcome| outcome.rejected() && !outcome.error.is_empty())
         .filter_map(|outcome| outcome.local_path.as_deref())
+        .collect()
+}
+
+/// What a run moves out of the download folder.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Filing {
+    Everything,
+    /// Another run's download may not be tagged or verified yet.
+    Collected,
+}
+
+/// Loose downloads to file: never one the bin refused, and under
+/// [`Filing::Collected`] only what this run collected.
+#[must_use]
+pub fn fileable(
+    entries: Vec<LibraryEntry>,
+    collected: &[CollectOutcome],
+    filing: Filing,
+) -> Vec<LibraryEntry> {
+    let refused = left_behind(collected);
+    let arrived: Vec<&Path> = collected
+        .iter()
+        .filter(|outcome| !outcome.rejected())
+        .filter_map(|outcome| outcome.local_path.as_deref())
+        .collect();
+    entries
+        .into_iter()
+        .filter(|entry| !refused.contains(&entry.path.as_path()))
+        .filter(|entry| {
+            filing == Filing::Everything
+                || arrived
+                    .iter()
+                    .any(|path| organise::same_file(path, &entry.path))
+        })
         .collect()
 }
 

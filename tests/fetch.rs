@@ -2209,3 +2209,43 @@ fn a_stall_retry_for_some_tracks_leaves_the_others_stalled() {
     assert_eq!(approved_peer(&store, ghost_id), "peerB");
     assert_eq!(status(&store, ghost_id), TrackStatus::Queued);
 }
+
+fn arrival(path: PathBuf, verdict: Option<Verdict>, error: &str) -> fetch::CollectOutcome {
+    fetch::CollectOutcome {
+        local_path: Some(path),
+        ..collected(error, None, verdict)
+    }
+}
+
+#[test]
+fn a_get_files_only_what_it_collected_and_sync_files_everything() {
+    let scratch = Scratch::new("fetch-fileable");
+    let downloads = scratch.join("downloads").join("DECO_27");
+    let ours = downloads.join("Roki.flac");
+    let theirs = downloads.join("Ghost Rule.flac");
+    let refused = downloads.join("Vampire.flac");
+    for path in [&ours, &theirs, &refused] {
+        peer_tagged(path);
+    }
+    let entries = stk::organise::loose_entries(
+        &scratch.join("downloads"),
+        stk::library::scan::AUDIO_EXTENSIONS,
+        &stk::library::scan::Excludes::default(),
+    )
+    .expect("entries");
+    let collected = [
+        arrival(ours.clone(), None, ""),
+        arrival(refused.clone(), Some(Verdict::Fake), "the bin refused it"),
+    ];
+    let paths = |filing| {
+        let mut paths: Vec<PathBuf> = fetch::fileable(entries.clone(), &collected, filing)
+            .into_iter()
+            .map(|entry| entry.path)
+            .collect();
+        paths.sort();
+        paths
+    };
+
+    assert_eq!(paths(fetch::Filing::Collected), vec![ours.clone()]);
+    assert_eq!(paths(fetch::Filing::Everything), vec![theirs, ours]);
+}

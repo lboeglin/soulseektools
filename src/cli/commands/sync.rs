@@ -14,7 +14,7 @@ use crate::cli::commands::{
 };
 use crate::cli::context::{candidate_count, show, table, unix_now, AppContext};
 use crate::errors::{Error, Result};
-use crate::fetch::{self, CollectOutcome, Patience, SearchOutcome, SystemClock, Waited};
+use crate::fetch::{self, CollectOutcome, Filing, Patience, SearchOutcome, SystemClock, Waited};
 use crate::library::index::LibraryIndex;
 use crate::models::{LibraryEntry, TrackStatus};
 use crate::organise::{self, Applied, Pattern, PlannedMove};
@@ -190,6 +190,7 @@ pub fn run(context: &AppContext, args: &SyncArgs) -> Result<i32> {
         &pattern,
         &roots,
         download.collected(),
+        Filing::Everything,
         args.apply,
     )?;
     drop(index);
@@ -354,6 +355,7 @@ pub(crate) fn download_and_file(
         &pattern,
         &roots,
         &waited.collected,
+        Filing::Collected,
         true,
     )?;
     let mut failed = waited.went_wrong();
@@ -460,6 +462,7 @@ fn wait(
     )
 }
 
+#[allow(clippy::too_many_arguments)]
 fn organise_downloads(
     context: &AppContext,
     index: &mut LibraryIndex,
@@ -467,6 +470,7 @@ fn organise_downloads(
     pattern: &Pattern,
     roots: &[PathBuf],
     collected: &[CollectOutcome],
+    filing: Filing,
     apply: bool,
 ) -> Result<Option<Organised>> {
     let Some(Target {
@@ -489,11 +493,7 @@ fn organise_downloads(
     } else {
         Vec::new()
     };
-    let rejected = fetch::left_behind(collected);
-    let entries: Vec<LibraryEntry> = entries
-        .into_iter()
-        .filter(|entry| !rejected.contains(&entry.path.as_path()))
-        .collect();
+    let entries = fetch::fileable(entries, collected, filing);
 
     let planned = organise::plan_moves(
         &entries,
@@ -608,6 +608,12 @@ fn report_download(context: &AppContext, waited: &Waited) {
             "Stopped waiting with {} still on their way; the next sync or \
              stk fetch download --collect records them.",
             waited.unfinished
+        ));
+    }
+    if waited.others > 0 {
+        context.say(&format!(
+            "{} other download(s) in progress; stk fetch download --collect files them.",
+            waited.others
         ));
     }
 }
