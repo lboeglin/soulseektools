@@ -4,7 +4,9 @@ use std::collections::{BTreeMap, HashSet};
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 
-use rusqlite::{params, params_from_iter, Connection, OptionalExtension, Transaction};
+use rusqlite::{
+    params, params_from_iter, Connection, OptionalExtension, Transaction, TransactionBehavior,
+};
 
 use crate::errors::{Error, Result};
 use crate::models::{needs_a_look, Candidate, ScoredCandidate, Track, TrackStatus};
@@ -338,88 +340,94 @@ impl ReviewStore {
 
     /// A flagged candidate is never taken unattended.
     pub fn next_candidate(&mut self, track_id: i64) -> Result<Retry> {
-        if self.track(track_id)?.is_none() {
-            return Ok(Retry::Exhausted);
-        }
-        // Not the rank after the current one: an album pick may skip better ones.
-        let untried: Vec<(i64, String)> = self
-            .connection
-            .prepare(
-                "SELECT rank, flags FROM candidates WHERE track_id = ?1 AND attempted = 0 ORDER BY rank",
-            )
-            .and_then(|mut statement| {
-                statement
-                    .query_map(params![track_id], |row| Ok((row.get(0)?, row.get(1)?)))?
-                    .collect()
-            })
-            .map_err(|error| sqlite_error(&error))?;
-        if untried.is_empty() {
-            self.set_status(track_id, TrackStatus::Failed, "no candidates left to try")?;
-            return Ok(Retry::Exhausted);
-        }
-
-        let clean = untried.iter().find(|(_, flags)| {
-            !needs_a_look(&serde_json::from_str::<Vec<String>>(flags).unwrap_or_default())
-        });
-        let Some(&(next, _)) = clean else {
-            self.connection
-                .execute(
-                    "UPDATE candidates SET approved = 0 WHERE track_id = ?1",
-                    params![track_id],
-                )
-                .map_err(|error| sqlite_error(&error))?;
-            self.set_status(
-                track_id,
-                TrackStatus::AwaitingReview,
-                "only flagged candidates left",
-            )?;
-            return Ok(Retry::ForReview);
-        };
-
-        self.approve(track_id, next)?;
-        self.connection
-            .execute(
-                "UPDATE tracks SET attempts = attempts + 1 WHERE id = ?1",
-                params![track_id],
-            )
-            .map_err(|error| sqlite_error(&error))?;
-        Ok(Retry::Approved(next))
-    }
-
-    pub fn untried(&self, track_id: i64) -> Result<Vec<ScoredCandidate>> {
-        self.candidate_rows(track_id, "AND attempted = 0")
-    }
-
-    /// The only place ranks are renumbered: clears approvals, keeps tried rows marked, ranks dense.
-    pub fn reorder_untried(&mut self, track_id: i64, untried: &[ScoredCandidate]) -> Result<()> {
-        let tried = self.candidate_rows(track_id, "AND attempted = 1")?;
         let transaction = self
             .connection
             .transaction()
             .map_err(|error| sqlite_error(&error))?;
-        transaction
-            .execute(
-                "DELETE FROM candidates WHERE track_id = ?1",
-                params![track_id],
-            )
-            .map_err(|error| sqlite_error(&error))?;
-        let rows = tried
-            .iter()
-            .map(|scored| (scored, true))
-            .chain(untried.iter().map(|scored| (scored, false)));
-        for (index, (scored, attempted)) in rows.enumerate() {
-            insert_candidate(&transaction, track_id, dense_rank(index), scored, attempted)?;
-        }
-        transaction.commit().map_err(|error| sqlite_error(&error))
+        let retry = next_within(&transaction, track_id)?;
+        transaction.commit().map_err(|error| sqlite_error(&error))?;
+        Ok(retry)
     }
 
-    fn candidate_rows(&self, track_id: i64, filter: &str) -> Result<Vec<ScoredCandidate>> {
-        self.connection
-            .prepare(&format!(
-                "SELECT * FROM candidates WHERE track_id = ?1 {filter} ORDER BY rank"
-            ))
-            .and_then(|mut statement| statement.query_map(params![track_id], to_scored)?.collect())
-            .map_err(|error| sqlite_error(&error))
+    /// [`Self::next_candidate`] for a queued download whose candidate `failed_rank`
+    /// failed; `None` when another run already moved the track on.
+    pub fn retry_after(&mut self, track_id: i64, failed_rank: i64) -> Result<Option<Retry>> {
+        self.guarded(track_id, failed_rank, |transaction| {
+            next_within(transaction, track_id)
+        })
+    }
+
+    /// [`Self::retry_after`], with the untried candidates reordered first.
+    pub fn regroup_after(
+        &mut self,
+        track_id: i64,
+        failed_rank: i64,
+        untried: &[ScoredCandidate],
+    ) -> Result<Option<Retry>> {
+        self.guarded(track_id, failed_rank, |transaction| {
+            reorder_within(transaction, track_id, untried)?;
+            next_within(transaction, track_id)
+        })
+    }
+
+    /// Immediate, so two runs seeing the same failure take turns and the second finds it handled.
+    fn guarded(
+        &mut self,
+        track_id: i64,
+        failed_rank: i64,
+        retry: impl FnOnce(&Transaction<'_>) -> Result<Retry>,
+    ) -> Result<Option<Retry>> {
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|error| sqlite_error(&error))?;
+        let current: Option<(String, Option<i64>)> = transaction
+            .query_row(
+                "SELECT status, (SELECT rank FROM candidates WHERE track_id = ?1 AND approved = 1) \
+                 FROM tracks WHERE id = ?1",
+                params![track_id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .optional()
+            .map_err(|error| sqlite_error(&error))?;
+        if current != Some((TrackStatus::Queued.as_str().to_owned(), Some(failed_rank))) {
+            return Ok(None);
+        }
+        let retried = retry(&transaction)?;
+        transaction.commit().map_err(|error| sqlite_error(&error))?;
+        Ok(Some(retried))
+    }
+
+    /// Marks an approved track queued before it is sent; `false` when another run sent it first.
+    pub fn claim(&mut self, track_id: i64, rank: i64, at: f64) -> Result<bool> {
+        let claimed = self
+            .connection
+            .execute(
+                "UPDATE tracks SET status = ?3, queued_at = ?4 WHERE id = ?1 AND status = ?5 \
+                 AND EXISTS (SELECT 1 FROM candidates WHERE track_id = ?1 AND rank = ?2 AND approved = 1)",
+                params![
+                    track_id,
+                    rank,
+                    TrackStatus::Queued.as_str(),
+                    at,
+                    TrackStatus::Approved.as_str()
+                ],
+            )
+            .map_err(|error| sqlite_error(&error))?;
+        Ok(claimed == 1)
+    }
+
+    pub fn untried(&self, track_id: i64) -> Result<Vec<ScoredCandidate>> {
+        candidate_rows(&self.connection, track_id, "AND attempted = 0")
+    }
+
+    pub fn reorder_untried(&mut self, track_id: i64, untried: &[ScoredCandidate]) -> Result<()> {
+        let transaction = self
+            .connection
+            .transaction()
+            .map_err(|error| sqlite_error(&error))?;
+        reorder_within(&transaction, track_id, untried)?;
+        transaction.commit().map_err(|error| sqlite_error(&error))
     }
 
     pub fn mark_queued(&mut self, track_id: i64, at: f64, detail: &str) -> Result<()> {
@@ -510,6 +518,119 @@ fn add_missing_columns(
                 .map_err(|error| sqlite_error(&error))?;
         }
     }
+    Ok(())
+}
+
+fn next_within(transaction: &Transaction<'_>, track_id: i64) -> Result<Retry> {
+    let exists: Option<i64> = transaction
+        .query_row(
+            "SELECT id FROM tracks WHERE id = ?1",
+            params![track_id],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(|error| sqlite_error(&error))?;
+    if exists.is_none() {
+        return Ok(Retry::Exhausted);
+    }
+    // Not the rank after the current one: an album pick may skip better ones.
+    let untried: Vec<(i64, String)> = transaction
+        .prepare(
+            "SELECT rank, flags FROM candidates WHERE track_id = ?1 AND attempted = 0 ORDER BY rank",
+        )
+        .and_then(|mut statement| {
+            statement
+                .query_map(params![track_id], |row| Ok((row.get(0)?, row.get(1)?)))?
+                .collect()
+        })
+        .map_err(|error| sqlite_error(&error))?;
+    if untried.is_empty() {
+        status_within(
+            transaction,
+            track_id,
+            TrackStatus::Failed,
+            "no candidates left to try",
+        )?;
+        return Ok(Retry::Exhausted);
+    }
+
+    let clean = untried.iter().find(|(_, flags)| {
+        !needs_a_look(&serde_json::from_str::<Vec<String>>(flags).unwrap_or_default())
+    });
+    let Some(&(next, _)) = clean else {
+        transaction
+            .execute(
+                "UPDATE candidates SET approved = 0 WHERE track_id = ?1",
+                params![track_id],
+            )
+            .map_err(|error| sqlite_error(&error))?;
+        status_within(
+            transaction,
+            track_id,
+            TrackStatus::AwaitingReview,
+            "only flagged candidates left",
+        )?;
+        return Ok(Retry::ForReview);
+    };
+
+    approve_within(transaction, track_id, next)?;
+    transaction
+        .execute(
+            "UPDATE tracks SET attempts = attempts + 1 WHERE id = ?1",
+            params![track_id],
+        )
+        .map_err(|error| sqlite_error(&error))?;
+    Ok(Retry::Approved(next))
+}
+
+/// The only place ranks are renumbered: clears approvals, keeps tried rows marked, ranks dense.
+fn reorder_within(
+    transaction: &Transaction<'_>,
+    track_id: i64,
+    untried: &[ScoredCandidate],
+) -> Result<()> {
+    let tried = candidate_rows(transaction, track_id, "AND attempted = 1")?;
+    transaction
+        .execute(
+            "DELETE FROM candidates WHERE track_id = ?1",
+            params![track_id],
+        )
+        .map_err(|error| sqlite_error(&error))?;
+    let rows = tried
+        .iter()
+        .map(|scored| (scored, true))
+        .chain(untried.iter().map(|scored| (scored, false)));
+    for (index, (scored, attempted)) in rows.enumerate() {
+        insert_candidate(transaction, track_id, dense_rank(index), scored, attempted)?;
+    }
+    Ok(())
+}
+
+fn candidate_rows(
+    connection: &Connection,
+    track_id: i64,
+    filter: &str,
+) -> Result<Vec<ScoredCandidate>> {
+    connection
+        .prepare(&format!(
+            "SELECT * FROM candidates WHERE track_id = ?1 {filter} ORDER BY rank"
+        ))
+        .and_then(|mut statement| statement.query_map(params![track_id], to_scored)?.collect())
+        .map_err(|error| sqlite_error(&error))
+}
+
+fn status_within(
+    transaction: &Transaction<'_>,
+    track_id: i64,
+    status: TrackStatus,
+    detail: &str,
+) -> Result<()> {
+    transaction
+        .execute(
+            "UPDATE tracks SET status = ?2, detail = ?3 WHERE id = ?1",
+            params![track_id, status.as_str(), detail],
+        )
+        .map_err(|error| sqlite_error(&error))?;
     Ok(())
 }
 

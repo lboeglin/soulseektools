@@ -241,6 +241,83 @@ fn a_track_only_fails_once_its_candidates_are_exhausted() {
     );
 }
 
+fn queued(store: &mut ReviewStore) -> i64 {
+    let track_id = reviewable(store);
+    store.approve(track_id, 1).expect("an approval");
+    assert!(store.claim(track_id, 1, 1000.0).expect("a claim"));
+    track_id
+}
+
+#[test]
+fn a_failure_two_runs_see_is_retried_once() {
+    let scratch = Scratch::new("review-retry-once");
+    let mut first = store(&scratch);
+    let mut second = store(&scratch);
+    let track_id = queued(&mut first);
+
+    assert_eq!(
+        first.retry_after(track_id, 1).expect("a retry"),
+        Some(Retry::Approved(2))
+    );
+    assert_eq!(second.retry_after(track_id, 1).expect("a retry"), None);
+
+    let stored = first.track(track_id).expect("a lookup").expect("the track");
+    assert_eq!(stored.approved_rank, Some(2));
+    assert_eq!(stored.attempts, 1);
+}
+
+#[test]
+fn a_regroup_another_run_already_retried_changes_nothing() {
+    let scratch = Scratch::new("review-regroup-once");
+    let mut first = store(&scratch);
+    let mut second = store(&scratch);
+    let track_id = queued(&mut first);
+    first.retry_after(track_id, 1).expect("a retry");
+    let before = first.track(track_id).expect("a lookup");
+
+    let regrouped = second
+        .regroup_after(track_id, 1, &[scored(3, &[]), scored(2, &[])])
+        .expect("a regroup");
+
+    assert_eq!(regrouped, None);
+    assert_eq!(first.track(track_id).expect("a lookup"), before);
+}
+
+#[test]
+fn a_regroup_reorders_then_promotes_the_new_first() {
+    let scratch = Scratch::new("review-regroup");
+    let mut store = store(&scratch);
+    let track_id = queued(&mut store);
+
+    let regrouped = store
+        .regroup_after(track_id, 1, &[scored(3, &[]), scored(2, &[])])
+        .expect("a regroup");
+
+    assert_eq!(regrouped, Some(Retry::Approved(2)));
+    let entry = store.track(track_id).expect("a lookup").expect("the track");
+    assert_eq!(
+        entry.approved().expect("an approval").candidate.username,
+        "peer3"
+    );
+}
+
+#[test]
+fn a_track_is_claimed_for_sending_only_once() {
+    let scratch = Scratch::new("review-claim");
+    let mut first = store(&scratch);
+    let mut second = store(&scratch);
+    let track_id = reviewable(&mut first);
+    first.approve(track_id, 1).expect("an approval");
+
+    assert!(!first.claim(track_id, 2, 1000.0).expect("a claim"));
+    assert!(first.claim(track_id, 1, 1000.0).expect("a claim"));
+    assert!(!second.claim(track_id, 1, 1000.0).expect("a claim"));
+
+    let stored = first.track(track_id).expect("a lookup").expect("the track");
+    assert_eq!(stored.status, TrackStatus::Queued);
+    assert_eq!(stored.queued_at, Some(1000.0));
+}
+
 #[test]
 fn a_transfer_sitting_too_long_is_reported_as_stalled() {
     let scratch = Scratch::new("review-stalled");
