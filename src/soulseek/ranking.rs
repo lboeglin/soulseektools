@@ -7,7 +7,7 @@ use regex::Regex;
 use unicode_normalization::UnicodeNormalization;
 
 use crate::config::{RankingSettings, UploaderSettings};
-use crate::library::scan::LOSSLESS_EXTENSIONS;
+use crate::library::scan::{holds_lossless, LOSSLESS_EXTENSIONS};
 use crate::matching::{similarity, NameForms};
 use crate::models::{Candidate, ScoredCandidate, Track};
 use crate::text::normalize::{flatten, strip_track_number};
@@ -225,10 +225,10 @@ pub fn starts_a_word_in(text: &str, term: &str) -> bool {
     })
 }
 
+/// slskd gives a bit depth only for lossless audio.
 #[must_use]
 pub fn is_lossless(candidate: &Candidate) -> bool {
-    LOSSLESS_EXTENSIONS.contains(&format!(".{}", candidate.extension()).as_str())
-        || candidate.bit_depth.is_some()
+    candidate.bit_depth.is_some() || holds_lossless(&format!(".{}", candidate.extension()), None)
 }
 
 #[must_use]

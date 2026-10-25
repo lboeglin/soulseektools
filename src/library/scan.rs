@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 use globset::{Glob, GlobSet, GlobSetBuilder};
 
 use crate::errors::{Error, Result};
+use crate::library::tags;
 
 pub const TAGGABLE_EXTENSIONS: &[&str] = &[".flac", ".mp3", ".m4a", ".mp4", ".ogg", ".opus"];
 
@@ -13,6 +14,9 @@ pub const AUDIO_EXTENSIONS: &[&str] = &[
 ];
 
 pub const LOSSLESS_EXTENSIONS: &[&str] = &[".flac", ".wav", ".aiff", ".aif", ".alac", ".m4a"];
+
+/// As often AAC as ALAC inside, so only a bit depth makes one lossless.
+pub const MP4_EXTENSIONS: &[&str] = &[".m4a", ".mp4"];
 
 /// The cutoffs `stk verify` knows are LAME's.
 pub const LOSSY_VERIFIED_EXTENSIONS: &[&str] = &[".mp3"];
@@ -51,6 +55,33 @@ impl Excludes {
         let relative = path.strip_prefix(root).unwrap_or(path);
         set.is_match(relative.to_string_lossy().replace('\\', "/"))
     }
+}
+
+/// `extension` carries its dot, in any case.
+#[must_use]
+pub fn holds_lossless(extension: &str, bit_depth: Option<u32>) -> bool {
+    let extension = extension.to_lowercase();
+    LOSSLESS_EXTENSIONS.contains(&extension.as_str())
+        && (!MP4_EXTENSIONS.contains(&extension.as_str()) || bit_depth.is_some())
+}
+
+#[must_use]
+pub fn claims_lossless(path: &Path) -> bool {
+    let Some(extension) = path
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .map(|extension| format!(".{}", extension.to_lowercase()))
+    else {
+        return false;
+    };
+    let bit_depth = if MP4_EXTENSIONS.contains(&extension.as_str()) {
+        tags::read_stream_info(path)
+            .ok()
+            .and_then(|stream| stream.bit_depth)
+    } else {
+        None
+    };
+    holds_lossless(&extension, bit_depth)
 }
 
 /// The longest root that prefixes the path; roots may nest.

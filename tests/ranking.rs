@@ -3,7 +3,8 @@
 use stk::config::{RankingSettings, UploaderSettings};
 use stk::models::{Candidate, ScoredCandidate, Track};
 use stk::soulseek::ranking::{
-    is_audio, prefer_one_uploader, qualifiers, rank, score_folder, PREFERRED_FLAG,
+    is_audio, is_lossless, meets_quality_floor, prefer_one_uploader, qualifiers, rank,
+    score_folder, PREFERRED_FLAG,
 };
 
 fn track() -> Track {
@@ -489,4 +490,94 @@ fn a_shared_peer_is_never_promoted_over_a_file_without_warnings() {
     prefer_one_uploader(&mut batch, &uploader());
 
     assert_eq!(first_peers(&batch), ["bulk", "bulk", "bulk", "solo3"]);
+}
+
+fn mia() -> Track {
+    Track::new("Avenged Sevenfold", "MIA")
+}
+
+fn from(username: &str, path: &str, queue_length: u32) -> Candidate {
+    Candidate {
+        username: username.to_owned(),
+        queue_length,
+        ..candidate(path)
+    }
+}
+
+fn aac(path: &str) -> Candidate {
+    Candidate {
+        username: "heimdall4".to_owned(),
+        ..lossy(path, 256)
+    }
+}
+
+fn require_lossless() -> RankingSettings {
+    RankingSettings {
+        require_lossless: true,
+        ..RankingSettings::default()
+    }
+}
+
+#[test]
+fn an_m4a_reporting_a_bitrate_and_no_bit_depth_is_lossy() {
+    let m4a = aac(r"@@heimdall4\City of Evil\11 - MIA.m4a");
+
+    assert!(!is_lossless(&m4a));
+    assert!(!meets_quality_floor(&m4a, &require_lossless()));
+}
+
+#[test]
+fn an_m4a_reporting_a_bit_depth_is_lossless() {
+    let alac = candidate(r"@@peer\Music\03 - Roki.m4a");
+
+    assert!(is_lossless(&alac));
+    assert!(meets_quality_floor(&alac, &require_lossless()));
+}
+
+#[test]
+fn an_m4a_reporting_nothing_is_kept_out_only_when_lossless_is_required() {
+    let bare = Candidate {
+        bit_depth: None,
+        sample_rate: None,
+        ..candidate(r"@@peer\Music\03 - Roki.m4a")
+    };
+
+    assert!(!meets_quality_floor(&bare, &require_lossless()));
+    assert!(meets_quality_floor(&bare, &RankingSettings::default()));
+}
+
+#[test]
+fn a_flac_reporting_nothing_is_still_lossless() {
+    let bare = Candidate {
+        bit_depth: None,
+        sample_rate: None,
+        ..studio()
+    };
+
+    assert!(is_lossless(&bare));
+}
+
+#[test]
+fn a_lossy_m4a_from_a_free_peer_ranks_below_every_flac() {
+    let candidates = [
+        aac(r"@@heimdall4\City of Evil\11 - MIA.m4a"),
+        from("Number51", r"@@Number51\City of Evil\11 MIA.flac", 83),
+        from(
+            "sylvieslayer",
+            r"@@sylvieslayer\Avenged Sevenfold - City of Evil - 11 - M.I.A.flac",
+            0,
+        ),
+    ];
+
+    let required = rank(&mia(), &candidates, &require_lossless(), None);
+    let preferred = ranked(&mia(), &candidates);
+
+    let users = |ranked: &[ScoredCandidate]| -> Vec<String> {
+        ranked
+            .iter()
+            .map(|scored| scored.candidate.username.clone())
+            .collect()
+    };
+    assert_eq!(users(&required), ["Number51", "sylvieslayer"]);
+    assert_eq!(users(&preferred), ["Number51", "sylvieslayer", "heimdall4"]);
 }

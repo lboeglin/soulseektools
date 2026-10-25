@@ -40,7 +40,7 @@ pub struct GetArgs {
     #[arg(long)]
     pub album: bool,
 
-    /// Accept only lossless results.
+    /// Accept only lossless results. An .m4a counts only with a bit depth, as most are AAC.
     #[arg(long)]
     pub lossless: bool,
 
