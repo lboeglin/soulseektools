@@ -520,3 +520,16 @@ fn an_upgraded_database_reads_each_files_isrc_without_a_rescan() {
         Some("JPZ001600001")
     );
 }
+
+#[test]
+fn the_index_lets_readers_in_while_another_run_writes() {
+    let scratch = Scratch::new("index-wal");
+    let mut index = open(&scratch, "index.db");
+    refresh(&mut index, &library_root(&scratch));
+    let connection = rusqlite::Connection::open(scratch.join("index.db")).expect("the database");
+    connection
+        .execute_batch("BEGIN EXCLUSIVE; DELETE FROM files")
+        .expect("a held write lock");
+
+    assert!(!index.entries().expect("entries").is_empty());
+}

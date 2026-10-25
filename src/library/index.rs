@@ -355,6 +355,9 @@ impl LibraryIndex {
         let connection = Connection::open(database)
             .map_err(|error| Error::Config(format!("{}: {error}", database.display())))?;
         connection
+            .pragma_update_and_check(None, "journal_mode", "WAL", |_| Ok(()))
+            .map_err(|error| sqlite_error(&error))?;
+        connection
             .execute_batch(SCHEMA)
             .map_err(|error| sqlite_error(&error))?;
 

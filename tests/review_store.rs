@@ -442,3 +442,18 @@ fn a_retry_with_only_flagged_candidates_left_goes_back_to_review() {
     assert_eq!(entry.status, TrackStatus::AwaitingReview);
     assert_eq!(entry.approved_rank, None);
 }
+
+#[test]
+fn the_queue_lets_readers_in_while_another_run_writes() {
+    let scratch = Scratch::new("review-wal");
+    let mut writer = store(&scratch);
+    writer.add(&[roki()]).expect("an added track");
+
+    let reader = store(&scratch);
+    let connection = rusqlite::Connection::open(scratch.join("review.db")).expect("a database");
+    connection
+        .execute_batch("BEGIN EXCLUSIVE; UPDATE tracks SET detail = 'held'")
+        .expect("a held write lock");
+
+    assert_eq!(reader.tracks(&[], None).expect("tracks").len(), 1);
+}
