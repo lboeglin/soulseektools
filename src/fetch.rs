@@ -64,7 +64,12 @@ impl CollectOutcome {
             .is_some_and(|result| unfit(result.verdict))
     }
 
-    /// Why `verify` could not judge a download that was filed anyway.
+    #[must_use]
+    pub fn gave_up(&self) -> bool {
+        self.retried_with_rank.is_none()
+            && (self.rejected() || self.state != TransferState::Completed)
+    }
+
     #[must_use]
     pub fn unverified(&self) -> Option<&str> {
         self.verdict
@@ -876,6 +881,22 @@ pub fn downloads_went_wrong(queued: &[EnqueueOutcome], collected: &[CollectOutco
             let left_behind = outcome.rejected() && !outcome.error.is_empty();
             (failed && outcome.retried_with_rank.is_none()) || left_behind
         })
+}
+
+/// Queued tracks that ended without a file, stalls included.
+#[must_use]
+pub fn gave_up(collected: &[CollectOutcome], stalled: &[StallOutcome]) -> HashSet<i64> {
+    collected
+        .iter()
+        .filter(|outcome| outcome.gave_up())
+        .map(|outcome| outcome.track_id)
+        .chain(
+            stalled
+                .iter()
+                .filter(|outcome| outcome.retried_with_rank.is_none())
+                .map(|outcome| outcome.track_id),
+        )
+        .collect()
 }
 
 /// Rejected downloads the bin refused: still in the download folder, never to be filed.

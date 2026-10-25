@@ -589,7 +589,11 @@ fn organise_json(organised: &Organised) -> serde_json::Value {
 
 fn report_download(context: &AppContext, waited: &Waited) {
     fetch_command::report_stalled(context, &waited.stalled, &waited.stalled_peers);
-    fetch_command::report_queued(context, &waited.queued);
+    fetch_command::report_queued(
+        context,
+        &waited.queued,
+        &fetch::gave_up(&waited.collected, &waited.stalled),
+    );
     fetch_command::report_collected(context, &waited.collected);
     context.say(&format!(
         "Queued {} track(s); recorded {} finished transfer(s); cancelled {} stalled one(s)",

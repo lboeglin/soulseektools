@@ -1,5 +1,6 @@
 //! `stk fetch` -- search Soulseek, queue approved picks, and check what arrives.
 
+use std::collections::HashSet;
 use std::fmt::Write as _;
 
 use clap::Subcommand;
@@ -135,7 +136,11 @@ fn download(context: &AppContext, limit: Option<usize>, collect_only: bool) -> R
     }
 
     report_stalled(context, &stalled.tracks, &stalled.peers);
-    report_queued(context, &queued);
+    report_queued(
+        context,
+        &queued,
+        &fetch::gave_up(&collected, &stalled.tracks),
+    );
     report_collected(context, &collected);
 
     context.say(&format!(
@@ -312,15 +317,26 @@ fn describe_peer_stall(peer: &fetch::PeerStall) -> String {
     line
 }
 
-pub(crate) fn report_queued(context: &AppContext, queued: &[fetch::EnqueueOutcome]) {
+pub(crate) fn report_queued(
+    context: &AppContext,
+    queued: &[fetch::EnqueueOutcome],
+    gave_up: &HashSet<i64>,
+) {
     if queued.is_empty() {
         return;
     }
     let rows: Vec<Vec<String>> = fetch::latest_per_track(queued)
         .into_iter()
         .map(|(outcome, attempts)| {
-            let marker = if outcome.queued { "OK" } else { "--" };
+            let missing = outcome.queued && gave_up.contains(&outcome.track_id);
+            let marker = if outcome.queued && !missing {
+                "OK"
+            } else {
+                "--"
+            };
             let note = match (attempts, outcome.error.is_empty()) {
+                (1, _) if missing => "not downloaded".to_owned(),
+                (_, _) if missing => "not downloaded, after a retry".to_owned(),
                 (1, _) => outcome.error.clone(),
                 (_, true) => "after a retry".to_owned(),
                 (_, false) => format!("after a retry: {}", outcome.error),

@@ -35,6 +35,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - A download `verify` called FAKE or UPSAMPLED was still filed into the
   library, with a cover. It goes to the Recycle Bin now, and the next
   candidate is downloaded in its place.
+- The download summary said OK for a track that then failed with nothing
+  left to try.
 - `verify` held an AAC `.m4a` to lossless, so an honest 128 kbps one came out
   FAKE. Only an ALAC one is checked now, and `library stats` and
   `dupes resolve --keep lossless` no longer count an AAC one as lossless.

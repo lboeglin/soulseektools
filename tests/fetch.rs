@@ -538,7 +538,7 @@ fn a_download_verify_cannot_judge_is_filed_and_nothing_else_is_tried() {
         "{outcome:?}"
     );
     assert!(download.is_file());
-    assert!(outcome.tags.is_some(), "tagged like any arrival");
+    assert!(outcome.tags.is_some());
     assert_eq!(outcome.retried_with_rank, None);
     let entry = store.track(track_id).expect("a lookup").expect("the track");
     assert_eq!(entry.status, TrackStatus::Downloaded);
@@ -1986,6 +1986,41 @@ fn what_counts_as_the_run_going_wrong() {
         ..fetch::Waited::default()
     };
     assert!(!timed_out.went_wrong(), "a timeout alone is not a failure");
+}
+
+#[test]
+fn a_track_that_ended_without_a_file_gave_up() {
+    let track = |track_id: i64, outcome: fetch::CollectOutcome| fetch::CollectOutcome {
+        track_id,
+        ..outcome
+    };
+    let collected = [
+        track(1, collected("", None, Some(Verdict::Fake))),
+        track(
+            2,
+            fetch::CollectOutcome {
+                state: TransferState::Failed,
+                ..collected("peer gone", None, None)
+            },
+        ),
+        track(3, collected("", Some(2), Some(Verdict::Fake))),
+        track(4, collected("", None, Some(Verdict::Ok))),
+        track(5, collected("", None, Some(Verdict::Error))),
+    ];
+    let stall = |track_id: i64, retried_with_rank: Option<i64>| fetch::StallOutcome {
+        track_id,
+        query: format!("track {track_id}"),
+        waited_seconds: 600.0,
+        retried_with_rank,
+        error: String::new(),
+        peer_group: String::new(),
+    };
+    let stalled = [stall(6, None), stall(7, Some(2))];
+
+    let mut gave_up: Vec<i64> = fetch::gave_up(&collected, &stalled).into_iter().collect();
+    gave_up.sort_unstable();
+
+    assert_eq!(gave_up, [1, 2, 6]);
 }
 
 #[test]
