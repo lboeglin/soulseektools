@@ -523,14 +523,19 @@ impl LibraryIndex {
             .and_then(|mut statement| statement.query_map([], |row| row.get(0))?.collect())
             .map_err(|error| sqlite_error(&error))?;
 
+        // Read before taking the write lock, so other runs aren't kept waiting on the files.
+        let gains: Vec<_> = paths
+            .into_iter()
+            .filter_map(|path| {
+                let gain = tags::read_replay_gain(Path::new(&path)).ok()?;
+                Some((path, gain))
+            })
+            .collect();
         let transaction = self
             .connection
             .transaction()
             .map_err(|error| sqlite_error(&error))?;
-        for path in paths {
-            let Ok(gain) = tags::read_replay_gain(Path::new(&path)) else {
-                continue;
-            };
+        for (path, gain) in gains {
             transaction
                 .execute(
                     "UPDATE files SET replay_gain_track_gain = ?2, replay_gain_track_peak = ?3, replay_gain_album_gain = ?4, replay_gain_album_peak = ?5, r128_track_gain = ?6, r128_album_gain = ?7 WHERE path = ?1",
@@ -578,14 +583,18 @@ impl LibraryIndex {
             .prepare("SELECT path FROM files")
             .and_then(|mut statement| statement.query_map([], |row| row.get(0))?.collect())
             .map_err(|error| sqlite_error(&error))?;
+        let values: Vec<_> = paths
+            .into_iter()
+            .filter_map(|path| {
+                let value = read(Path::new(&path)).ok()?;
+                Some((path, value))
+            })
+            .collect();
         let transaction = self
             .connection
             .transaction()
             .map_err(|error| sqlite_error(&error))?;
-        for path in paths {
-            let Ok(value) = read(Path::new(&path)) else {
-                continue;
-            };
+        for (path, value) in values {
             transaction
                 .execute(
                     &format!("UPDATE files SET {column} = ?2 WHERE path = ?1"),
