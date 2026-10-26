@@ -1461,3 +1461,69 @@ fn art_set_refuses_what_is_not_an_image() {
     assert_eq!(cover_of(&track), None);
     drop(harness);
 }
+
+/// Points axoupdater's receipt lookup at the scratch folder, holding `prefix`'s receipt if given.
+fn with_receipt(harness: &Harness, prefix: Option<&Path>) {
+    if let Some(prefix) = prefix {
+        let receipt = serde_json::json!({
+            "install_prefix": prefix,
+            "binaries": ["stk"],
+            "source": {"release_type": "github", "owner": "lboeglin", "name": "soulseektools", "app_name": "stk"},
+            "version": env!("CARGO_PKG_VERSION"),
+            "provider": {"source": "cargo-dist", "version": "0.33.1"},
+        });
+        std::fs::write(harness.join("stk-receipt.json"), receipt.to_string())
+            .expect("a written receipt");
+    }
+    unsafe { std::env::set_var("AXOUPDATER_CONFIG_PATH", harness.join("")) };
+}
+
+fn refusal() -> String {
+    match stk::cli::commands::self_update::installed_updater() {
+        Ok(_) => String::new(),
+        Err(error) => error.to_string(),
+    }
+}
+
+#[test]
+fn self_update_refuses_a_binary_the_installer_did_not_place() {
+    let _guard = exclusive();
+    let harness = Harness::new("cli-self-update-no-receipt");
+    std::fs::write(harness.join("stk.toml"), "not = [valid").expect("a written config");
+    with_receipt(&harness, None);
+
+    assert!(refusal().contains("not installed by the release installer"));
+    assert_eq!(run(&["self-update", "--check"]), 1);
+    unsafe { std::env::remove_var("AXOUPDATER_CONFIG_PATH") };
+    drop(harness);
+}
+
+#[test]
+fn self_update_refuses_a_copy_other_than_the_installed_one() {
+    let _guard = exclusive();
+    let harness = Harness::new("cli-self-update-other-copy");
+    with_receipt(&harness, Some(&harness.join("elsewhere")));
+
+    assert!(refusal().contains("not the installed one"));
+    assert_eq!(run(&["self-update"]), 1);
+    unsafe { std::env::remove_var("AXOUPDATER_CONFIG_PATH") };
+    drop(harness);
+}
+
+#[test]
+fn self_update_accepts_the_installed_copy() {
+    let _guard = exclusive();
+    let harness = Harness::new("cli-self-update-installed");
+    let executable = std::env::current_exe().expect("the test binary");
+    let installed = executable
+        .canonicalize()
+        .expect("a resolvable path")
+        .parent()
+        .expect("its folder")
+        .to_path_buf();
+    with_receipt(&harness, Some(&installed));
+
+    assert_eq!(refusal(), "");
+    unsafe { std::env::remove_var("AXOUPDATER_CONFIG_PATH") };
+    drop(harness);
+}

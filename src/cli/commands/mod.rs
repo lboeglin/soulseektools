@@ -14,6 +14,7 @@ pub mod loudness;
 pub mod organise;
 pub mod playlist;
 pub mod review;
+pub mod self_update;
 pub mod sync;
 pub mod tags;
 pub mod verify;
