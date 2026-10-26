@@ -412,12 +412,18 @@ fn assert_binned(outcome: &fetch::CollectOutcome, download: &Path) {
 
 /// Keeps test files out of the developer's bin where the platform lets a program list it.
 /// Windows lists a name without its extension, so the scratch folder alone tells it apart.
+/// Only the folders from the scratch one down are compared: the bin records the
+/// temp folder's long name where the test may hold its 8.3 alias (`RUNNER~1`).
 #[cfg(any(windows, all(unix, not(target_os = "macos"))))]
 fn empty_from_the_bin(download: &Path) {
+    fn tail(folder: &Path) -> Vec<&std::ffi::OsStr> {
+        folder.iter().rev().take(3).collect()
+    }
+    let parent = download.parent().expect("a parent");
     let binned: Vec<trash::TrashItem> = trash::os_limited::list()
         .expect("a readable bin")
         .into_iter()
-        .filter(|item| Some(item.original_parent.as_path()) == download.parent())
+        .filter(|item| tail(&item.original_parent) == tail(parent))
         .collect();
     assert_eq!(binned.len(), 1, "{} is in the bin", download.display());
     trash::os_limited::purge_all(binned).expect("a purged bin");
