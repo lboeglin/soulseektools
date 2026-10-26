@@ -79,6 +79,10 @@ doc_markdown = "allow"
 [profile.dev.package."*"]
 opt-level = 2
 
+[profile.dist]
+inherits = "release"
+lto = "thin"
+
 [dev-dependencies]
 # Writing the audio fixtures this crate has no reason to encode itself.
 flacenc = { version = "0.5.1", default-features = false }
