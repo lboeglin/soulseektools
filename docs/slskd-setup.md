@@ -6,16 +6,42 @@ HTTP API. The other commands work without it. It has to be running while you
 search or download, and logged in to Soulseek. `stk` doesn't start it: it stops
 before doing anything if slskd is down, and leaves the queue as it was.
 
-slskd runs either as a standalone program (download it from its
-[releases](https://github.com/slskd/slskd/releases), then run `slskd`) or in
-Docker, as below. Either way the API key and `stk` settings are the same.
+slskd runs as a standalone program or in Docker. The API key and `stk`
+settings are the same either way. `stk` is tested with slskd 0.26.2: a newer
+slskd may change its API, so move to one when `stk`'s changelog says it works.
+
+## Standalone
+
+1. Download `slskd-0.26.2-<platform>.zip` for your system (`win-x64`,
+   `linux-x64`, `osx-arm64`, ...) from slskd's
+   [releases](https://github.com/slskd/slskd/releases/tag/0.26.2), and unzip
+   it anywhere.
+2. Run `slskd` (`slskd.exe` on Windows) once, then stop it with Ctrl+C. It
+   creates `slskd.yml` in its data folder: `%LOCALAPPDATA%\slskd` on Windows,
+   `~/.local/share/slskd` on Linux and macOS.
+3. Add your Soulseek account and a downloads folder, which must exist, to
+   `slskd.yml`, then the [API key](#api-key):
+
+   ```yaml
+   soulseek:
+     username: your-soulseek-username
+     password: your-soulseek-password
+   directories:
+     downloads: /path/to/downloads
+   ```
+
+Run `slskd` before searching or downloading, and stop it with Ctrl+C
+afterwards. It stays on the Soulseek network only while it runs.
+
+Its web page, on port 5030, logs in as `slskd`/`slskd` by default. On a shared
+network, set your own under `web.authentication` (`username`, `password`).
 
 ## Docker Compose
 
 ```yaml
 services:
   slskd:
-    image: slskd/slskd:latest
+    image: slskd/slskd:0.26.2
     ports:
       - "5030:5030"
     environment:
@@ -40,25 +66,11 @@ slskd comes back whenever Docker starts and stays on the network as a Soulseek
 peer around the clock. Some networks, student residences for one, forbid
 that.
 
-### Sharing
-
-slskd shares nothing by default, and mounting a folder into the container
-doesn't change that. To share a folder, mount it and name it:
-
-```yaml
-    environment:
-      - SLSKD_SHARED_DIR=/music
-    volumes:
-      - /path/to/music:/music:ro
-```
-
-or list it under `shares.directories` in `slskd.yml`. Sharing is optional; see
-[being a good peer](#being-a-good-peer).
+`slskd.yml` is created in `./slskd` on first run.
 
 ## API key
 
-Add a key to slskd's `slskd.yml`, which it creates on first run (in `./slskd`
-with the compose file above):
+Add a key to `slskd.yml`:
 
 ```yaml
 web:
@@ -66,10 +78,16 @@ web:
     api_keys:
       soulseektools:
         key: <at least 32 characters>
+        role: readwrite
         cidr: 0.0.0.0/0,::/0
 ```
 
-and export the same key for `stk` (it is never read from `stk.toml`):
+`role: readwrite` lets `stk` search and download: a key without a role is
+read-only. Standalone, `cidr: 127.0.0.1/32,::1/128` accepts the key from this
+machine only; Docker needs the open range above, since requests reach the
+container from Docker's network.
+
+Export the same key for `stk` (it is never read from `stk.toml`):
 
 ```bash
 export SLSKD_API_KEY=<the same key>     # PowerShell: $env:SLSKD_API_KEY = "..."
@@ -80,7 +98,7 @@ export SLSKD_API_KEY=<the same key>     # PowerShell: $env:SLSKD_API_KEY = "..."
 ```toml
 [slskd]
 url = "http://localhost:5030"
-download_directory = "/path/to/downloads"   # the host side of the /downloads mount
+download_directory = "/path/to/downloads"   # slskd's downloads folder; under Docker, the host side of the mount
 ```
 
 `stk` needs `download_directory` to find finished files, since slskd only
@@ -88,6 +106,21 @@ reports their remote path. Keep it on a local disk: a download `verify`
 rejects goes to the Recycle Bin, and Windows has none on a network share.
 Then run `stk doctor`: it says whether slskd is logged in to Soulseek, and
 what it shares.
+
+## Sharing
+
+slskd shares nothing by default, and mounting a folder into the container
+doesn't change that. To share a folder, list it in `slskd.yml`:
+
+```yaml
+shares:
+  directories:
+    - /path/to/music
+```
+
+Under Docker, mount it read-only (`/path/to/music:/music:ro`) and list
+`/music`, or set `SLSKD_SHARED_DIR=/music`. Sharing is optional; see
+[being a good peer](#being-a-good-peer).
 
 ## Being a good peer
 
