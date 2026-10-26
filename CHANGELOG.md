@@ -4,6 +4,20 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- One-line installers for Windows (`stk-installer.ps1`) and Linux and macOS
+  (`stk-installer.sh`), which put `stk` in `~/.local/bin` and on the PATH.
+- `stk self-update` upgrades a copy the installer put in place;
+  `--check` only says whether a newer release is out.
+- Each release archive comes with a `.sha256` checksum.
+
+### Changed
+
+- Release archives no longer carry the version in their name:
+  `stk-x86_64-pc-windows-msvc.zip`, and `.tar.xz` instead of `.tar.gz` on
+  Linux and macOS.
+
 ## [1.1.0] - 2026-10-26
 
 ### Added

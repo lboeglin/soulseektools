@@ -14,11 +14,21 @@ whatever `--apply` wrote.
 
 ## Install
 
-Download the archive for your platform from
-[Releases](https://github.com/lboeglin/soulseektools/releases) and put `stk` on
-your PATH. The binaries are unsigned, so macOS and Windows warn on first run.
-To build from source instead, with a Rust toolchain:
-`cargo install --git https://github.com/lboeglin/soulseektools`.
+```powershell
+# Windows
+irm https://github.com/lboeglin/soulseektools/releases/latest/download/stk-installer.ps1 | iex
+```
+
+```bash
+# Linux, macOS
+curl -LsSf https://github.com/lboeglin/soulseektools/releases/latest/download/stk-installer.sh | sh
+```
+
+This puts `stk` in `~/.local/bin` and on your PATH; `stk self-update` upgrades
+it. Or take an archive from
+[Releases](https://github.com/lboeglin/soulseektools/releases), or build with
+`cargo install --git https://github.com/lboeglin/soulseektools`. The binaries
+are unsigned, so macOS and Windows warn on first run.
 
 ```bash
 stk config init    # writes ./stk.toml; set library.root
