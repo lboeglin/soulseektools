@@ -4,6 +4,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-10-26
+
 ### Added
 
 - A `year` column in `tags dump --round-trip`. `tags apply` writes it as
@@ -133,7 +135,8 @@ command, first in Python and then rewritten in Rust.
 
 - The Python implementation, the Textual review app and the Nicotine+ plugin.
 
-[Unreleased]: https://github.com/lboeglin/soulseektools/compare/v1.0.2...HEAD
+[Unreleased]: https://github.com/lboeglin/soulseektools/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/lboeglin/soulseektools/compare/v1.0.2...v1.1.0
 [1.0.2]: https://github.com/lboeglin/soulseektools/compare/v1.0.1...v1.0.2
 [1.0.1]: https://github.com/lboeglin/soulseektools/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/lboeglin/soulseektools/releases/tag/v1.0.0
