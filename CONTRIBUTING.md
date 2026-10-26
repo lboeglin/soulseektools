@@ -44,10 +44,16 @@ set `LINDERA_BUILD_DICTIONARY_CACHE_DIR` to keep it across `cargo clean`.
 
 ## Releasing
 
+[dist](https://github.com/axodotdev/cargo-dist) generates
+`.github/workflows/release.yml` from `dist-workspace.toml` and
+`.github/build-setup.yml`: change those, then run `dist generate`.
+
 1. Set `version` in `Cargo.toml`, and rename `[Unreleased]` in the CHANGELOG to
    `[x.y.z] - YYYY-MM-DD`.
-2. Commit, then `git tag vx.y.z && git push origin main --tags`.
+2. Commit, then `git tag vx.y.z && git push origin main vx.y.z`.
 
-The `Release` workflow checks the tag matches `Cargo.toml`, creates the GitHub
-release from that CHANGELOG section, and attaches binaries for Linux, Windows
-and macOS.
+The `Release` workflow fails on a tag that matches no `Cargo.toml` version,
+then publishes the archives, checksums and installers with that CHANGELOG
+section as notes. To try it, push a throwaway branch setting an `x.y.z-rc.N`
+version, then its tag; the release fails on a commit no pushed branch holds.
+Clean up with `gh release delete vx.y.z-rc.N --cleanup-tag`.
