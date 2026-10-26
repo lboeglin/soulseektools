@@ -4,6 +4,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed
+
+- With slskd 0.26.2, `get`, `fetch` and `sync` refused to run and `doctor`
+  called slskd down unless its API key had the `administrator` role. They now
+  read the login state from an endpoint any key may read.
+
 ## [1.1.1] - 2026-10-26
 
 ### Added

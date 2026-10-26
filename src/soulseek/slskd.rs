@@ -85,10 +85,13 @@ impl<H: Http> SlskdClient<H> {
 }
 
 impl<H: Http> SoulseekClient for SlskdClient<H> {
+    /// `/application` rather than `/server`, which slskd 0.26.2 opens to
+    /// administrator keys only.
     fn is_connected(&self) -> bool {
-        let Ok(Some(state)) = self.get("/server") else {
+        let Ok(Some(application)) = self.get("/application") else {
             return false;
         };
+        let state = &application["server"];
         let flag = |name: &str| state.get(name).and_then(Value::as_bool).unwrap_or(false);
         flag("isConnected") && flag("isLoggedIn")
     }
