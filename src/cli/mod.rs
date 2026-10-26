@@ -106,6 +106,9 @@ pub enum Command {
 
     /// Print a completion script for a shell.
     Completions(commands::completions::CompletionsArgs),
+
+    /// Update stk to the latest release, when the release installer put it in place.
+    SelfUpdate(commands::self_update::SelfUpdateArgs),
 }
 
 /// Returns the exit code rather than exiting, so the whole CLI runs in tests.
@@ -122,6 +125,9 @@ pub fn run(arguments: Vec<std::ffi::OsString>) -> i32 {
 
     if let Command::Completions(args) = &cli.command {
         return commands::completions::run(args);
+    }
+    if let Command::SelfUpdate(args) = &cli.command {
+        return commands::self_update::run(args);
     }
 
     let overrides = Overrides {
@@ -156,7 +162,9 @@ pub fn run(arguments: Vec<std::ffi::OsString>) -> i32 {
         Command::Fetch(command) => commands::fetch::run(&context, command),
         Command::Sync(args) => commands::sync::run(&context, &args),
         Command::Changes(command) => commands::changes::run(&context, command),
-        Command::Completions(_) => unreachable!("answered before the settings are loaded"),
+        Command::Completions(_) | Command::SelfUpdate(_) => {
+            unreachable!("answered before the settings are loaded")
+        }
     };
 
     match outcome {
