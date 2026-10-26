@@ -1,0 +1,9 @@
+- name: Cache IPADIC
+  uses: actions/cache@v4
+  with:
+    path: .lindera-cache
+    key: lindera-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}
+    restore-keys: lindera-${{ runner.os }}-
+- name: Point lindera at the cache
+  shell: bash
+  run: echo "LINDERA_BUILD_DICTIONARY_CACHE_DIR=$GITHUB_WORKSPACE/.lindera-cache" >> "$GITHUB_ENV"
