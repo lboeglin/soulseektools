@@ -143,9 +143,21 @@ fn downloads(body: Value) -> Recorded {
 fn true_when_logged_in() {
     let http = Recorded::default().with(
         "GET",
-        "/server",
-        json!({"isConnected": true, "isLoggedIn": true}),
+        "/application",
+        json!({"server": {"isConnected": true, "isLoggedIn": true}}),
     );
+    assert!(client(http).is_connected());
+}
+
+#[test]
+fn logged_in_without_an_administrator_key() {
+    let http = Recorded::default()
+        .failing("GET", "/server", "403 Forbidden")
+        .with(
+            "GET",
+            "/application",
+            json!({"server": {"isConnected": true, "isLoggedIn": true}}),
+        );
     assert!(client(http).is_connected());
 }
 
@@ -153,8 +165,8 @@ fn true_when_logged_in() {
 fn false_when_connected_but_not_logged_in() {
     let http = Recorded::default().with(
         "GET",
-        "/server",
-        json!({"isConnected": true, "isLoggedIn": false}),
+        "/application",
+        json!({"server": {"isConnected": true, "isLoggedIn": false}}),
     );
     assert!(!client(http).is_connected());
 }
@@ -359,8 +371,8 @@ fn concurrent_searches_get_distinct_ids() {
 fn logged_in() -> Recorded {
     Recorded::default().with(
         "GET",
-        "/server",
-        json!({"isConnected": true, "isLoggedIn": true}),
+        "/application",
+        json!({"server": {"isConnected": true, "isLoggedIn": true}}),
     )
 }
 
@@ -453,7 +465,7 @@ fn doctor_says_nothing_is_shared_without_failing() {
 fn doctor_marks_slskd_optional_when_it_is_down_and_skips_its_shares() {
     let checks = slskd_checks(&client(Recorded::default().failing(
         "GET",
-        "/server",
+        "/application",
         "connection refused",
     )));
 
