@@ -177,6 +177,7 @@ fn library_scan_then_stats() {
     let index = stk::library::index::LibraryIndex::open(&harness.join("library.db"))
         .expect("the index the scan wrote");
     assert_eq!(index.count().expect("a count"), 2);
+    drop(index);
     drop(harness);
 }
 
@@ -456,6 +457,7 @@ fn a_library_sweep_checks_mp3s_only_when_asked() {
             .expect("a lookup"),
         Some(stk::models::Verdict::Upsampled)
     );
+    drop(index);
     drop(harness);
 }
 
@@ -566,6 +568,7 @@ fn tags_apply_writes_the_edited_field_and_logs_it() {
             .title,
         "Native Faith"
     );
+    drop(index);
     drop(harness);
 }
 
@@ -622,6 +625,7 @@ fn organise_moves_the_file_and_carries_its_index_row_along() {
         !root.join("DECO_27").join("Ghost").exists(),
         "the folder organise created is removed"
     );
+    drop(index);
     drop(harness);
 }
 
@@ -748,6 +752,7 @@ fn wantlist_diff_queues_what_is_missing() {
     let tracks = store.tracks(&[], None).expect("tracks");
     assert_eq!(tracks.len(), 1);
     assert_eq!(tracks[0].track.title, "Senbonzakura");
+    drop(store);
     drop(harness);
 }
 
@@ -890,6 +895,7 @@ fn approving_an_album_takes_every_track_its_folder_covers() {
         .iter()
         .all(|entry| entry.status == stk::models::TrackStatus::Approved));
     assert_eq!(run(&["review", "approve-album", "1"]), 1);
+    drop(store);
     drop(harness);
 }
 
@@ -1202,6 +1208,7 @@ fn sync_apply_organises_what_arrived_and_scans_it_in() {
     assert!(index.entry(&landed).expect("a lookup").is_some());
     assert_eq!(index.snapshots(None).expect("the series")[0].total, 3);
     assert!(logged(&harness).iter().all(|row| row.command == "organise"));
+    drop(index);
     drop(harness);
 }
 
@@ -1234,6 +1241,7 @@ fn trend_reports_the_measurements_it_recorded() {
         .map(|row| row.total)
         .collect();
     assert_eq!(totals, vec![3, 2]);
+    drop(index);
     drop(harness);
 }
 
